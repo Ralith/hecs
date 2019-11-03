@@ -1,8 +1,10 @@
 mod join;
 mod vec;
+mod hash;
 
 pub use join::*;
 pub use vec::*;
+pub use hash::*;
 
 use std::marker::PhantomData;
 use std::mem;
