@@ -13,6 +13,7 @@ use downcast_rs::{impl_downcast, Downcast};
 use hibitset::{BitIter, BitSet, BitSetLike};
 
 pub(crate) trait AbstractStorage: Downcast + Send + 'static {
+    /// If `i` is occupied, drop its contents
     fn free(&mut self, i: u32);
 }
 impl_downcast!(AbstractStorage);
@@ -23,15 +24,21 @@ impl<S: Storage> AbstractStorage for Masked<S> {
     }
 }
 
+/// A storage with external occupancy information
 pub trait Storage: Default + Send + 'static {
     type Component;
 
+    /// Insert `x` into empty slot `i`
     unsafe fn insert(&mut self, i: u32, x: Self::Component);
+    /// Remove a value from occupied slot `i`
     unsafe fn remove(&mut self, i: u32) -> Self::Component;
+    /// Borrow a value from occupied slot `i`
     unsafe fn get(&self, i: u32) -> &Self::Component;
+    /// Mutably borrow a value from occupied slot `i`
     unsafe fn get_mut(&mut self, i: u32) -> &mut Self::Component;
 }
 
+#[derive(Default)]
 pub struct Masked<S: Storage> {
     inner: S,
     mask: BitSet,
