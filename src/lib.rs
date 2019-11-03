@@ -13,15 +13,15 @@ pub struct Entity {
 }
 
 #[derive(Default)]
-struct Entities {
-    occupancy: BitSet,
+pub struct Entities {
+    mask: BitSet,
     generations: Vec<u32>,
 }
 
 impl Entities {
     fn spawn(&mut self) -> Entity {
-        let index = BitSetNot(&self.occupancy).iter().next().unwrap();
-        self.occupancy.add(index);
+        let index = BitSetNot(&self.mask).iter().next().unwrap();
+        self.mask.add(index);
         if index as usize >= self.generations.len() {
             self.generations.resize(index as usize + 1, 0);
         }
@@ -31,7 +31,7 @@ impl Entities {
 
     /// Whether `entity` currently exists
     fn contains(&self, entity: Entity) -> bool {
-        self.occupancy.contains(entity.index)
+        self.mask.contains(entity.index)
             && self.generations[entity.index as usize] == entity.generation
     }
 
@@ -44,7 +44,7 @@ impl Entities {
         }
         self.generations[entity.index as usize] =
             self.generations[entity.index as usize].wrapping_add(1);
-        self.occupancy.remove(entity.index);
+        self.mask.remove(entity.index);
         true
     }
 }
@@ -96,7 +96,6 @@ macro_rules! world {
         }
 
         $(#[$meta])*
-        #[derive(Default)]
         $vis struct $name {
             entities: Entities,
             storages: Storages,
@@ -104,7 +103,16 @@ macro_rules! world {
 
         #[allow(dead_code)]
         impl $name {
-            pub fn new() -> Self { Self::default() }
+            pub fn new() -> Self {
+                Self {
+                    entities: Entities::default(),
+                    storages: Storages::default()
+                }
+            }
+
+            pub fn entities(&self) -> &Entities {
+                &self.entities
+            }
 
             /// Access one or more storages
             pub fn get<'a, T>(&'a self) -> <&'a Self as Fetch<T>>::Ref
@@ -158,12 +166,6 @@ macro_rules! world {
 mod tests {
     use super::*;
 
-    world! {
-        struct Static {
-            position: VecStorage<u32>,
-        }
-    }
-
     #[test]
     fn smoke() {
         let mut world = DynWorld::new();
@@ -198,5 +200,17 @@ mod tests {
         let mut world = DynWorld::new();
         world.register::<VecStorage<u32>>();
         world.get::<(VecStorage<u32>, VecStorage<u32>)>();
+    }
+
+    #[test]
+    fn static_world() {
+        world! {
+            struct Static {
+                a: VecStorage<u32>,
+            }
+        }
+        let mut world = Static::new();
+        let e = world.spawn();
+        //world.get::<VecStorage<u32>>().insert(e, 32);
     }
 }

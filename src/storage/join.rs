@@ -2,12 +2,25 @@ use std::mem;
 
 use hibitset::{BitIter, BitSet, BitSetAnd, BitSetLike};
 
-use super::{Storage, StorageRefMut, Masked};
+use super::{Masked, Storage, StorageRefMut};
+use crate::{Entities, Entity};
 
 #[doc(hidden)]
 pub trait Get<'a>: 'a {
     type Item: 'a;
     unsafe fn get(&'a mut self, i: u32) -> Self::Item;
+}
+
+pub struct EntityGet<'a>(pub(crate) &'a [u32]);
+
+impl<'a> Get<'a> for EntityGet<'a> {
+    type Item = Entity;
+    unsafe fn get(&'a mut self, i: u32) -> Self::Item {
+        Entity {
+            index: i,
+            generation: self.0[i as usize],
+        }
+    }
 }
 
 impl<'a, S: Storage> Get<'a> for &'a S {
@@ -37,6 +50,14 @@ pub trait Join<'a>: Sized {
             bits: bits.iter(),
             get,
         }
+    }
+}
+
+impl<'a> Join<'a> for &'a Entities {
+    type Bits = &'a BitSet;
+    type Get = EntityGet<'a>;
+    fn into_parts(self) -> (&'a BitSet, EntityGet<'a>) {
+        (&self.mask, EntityGet(&self.generations))
     }
 }
 

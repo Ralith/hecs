@@ -19,6 +19,10 @@ impl DynWorld {
         }
     }
 
+    pub fn entities(&self) -> &Entities {
+        &self.entities
+    }
+
     /// Add a new type of storage
     pub fn register<S: Storage>(&mut self) {
         if self.storages.contains_key(&TypeId::of::<S>()) {
