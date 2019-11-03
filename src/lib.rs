@@ -2,7 +2,7 @@ mod storage;
 
 pub use storage::*;
 
-use std::any::TypeId;
+use std::any::{type_name, TypeId};
 use std::sync::Mutex;
 
 use fxhash::FxHashMap;
@@ -31,7 +31,9 @@ impl World {
 
     /// Add a new type of storage
     pub fn register<S: Storage>(&mut self) {
-        dbg!(std::any::type_name::<S>());
+        if self.storages.contains_key(&TypeId::of::<S>()) {
+            panic!("storage {} already registered", type_name::<S>());
+        }
         self.storages.insert(
             TypeId::of::<S>(),
             Mutex::new(Box::new(Masked::new(S::default()))),
@@ -43,10 +45,9 @@ impl World {
         self.storages.remove(&TypeId::of::<S>());
     }
 
-    /// Access a storage
-    pub fn get<S: Storage>(&self) -> Option<StorageRefMut<'_, S>> {
-        let guard = self.storages.get(&TypeId::of::<S>())?.lock().unwrap();
-        Some(StorageRefMut::new(guard))
+    /// Access one or more storages
+    pub fn get<'a, T: Fetch<'a>>(&'a self) -> T::Ref {
+        T::fetch(self)
     }
 
     /// Create a new entity
@@ -74,7 +75,7 @@ impl World {
             return false;
         }
         for storage in self.storages.values() {
-            let mut storage = storage.lock().unwrap();
+            let mut storage = storage.try_lock().expect("storage already borrowed");
             storage.free(entity.index);
         }
         self.generations[entity.index as usize] =
@@ -93,9 +94,7 @@ impl World {
         if !self.contains(entity) {
             return None;
         }
-        self.get::<S>()
-            .expect("no such storage")
-            .insert(entity.index, component)
+        self.get::<S>().insert(entity.index, component)
     }
 
     /// Remove `component` from `entity`
@@ -105,11 +104,53 @@ impl World {
         if !self.contains(entity) {
             return None;
         }
-        self.get::<S>()
-            .expect("no such storage")
-            .remove(entity.index)
+        self.get::<S>().remove(entity.index)
     }
 }
+
+pub trait Fetch<'a> {
+    type Ref;
+    fn fetch(world: &'a World) -> Self::Ref;
+}
+
+impl<'a, T: Storage> Fetch<'a> for T {
+    type Ref = StorageRefMut<'a, T>;
+    fn fetch(world: &'a World) -> StorageRefMut<'a, T> {
+        let guard = world
+            .storages
+            .get(&TypeId::of::<T>())
+            .unwrap_or_else(|| panic!("storage {} not registered", type_name::<T>()))
+            .try_lock()
+            .unwrap_or_else(|_| panic!("storage {} already borrowed", type_name::<T>()));
+        StorageRefMut::new(guard)
+    }
+}
+
+macro_rules! tuple_impl {
+    ($($name: ident),*) => {
+        impl<'a, $($name: Fetch<'a>),*> Fetch<'a> for ($($name),*) {
+            type Ref = ($(<$name as Fetch<'a>>::Ref),*);
+            fn fetch(world: &'a World) -> Self::Ref {
+                ($($name::fetch(world)),*)
+            }
+        }
+    }
+}
+
+tuple_impl!(A, B);
+tuple_impl!(A, B, C);
+tuple_impl!(A, B, C, D);
+tuple_impl!(A, B, C, D, E);
+tuple_impl!(A, B, C, D, E, F);
+tuple_impl!(A, B, C, D, E, F, G);
+tuple_impl!(A, B, C, D, E, F, G, H);
+tuple_impl!(A, B, C, D, E, F, G, H, I);
+tuple_impl!(A, B, C, D, E, F, G, H, I, J);
+tuple_impl!(A, B, C, D, E, F, G, H, I, J, K);
+tuple_impl!(A, B, C, D, E, F, G, H, I, J, K, L);
+tuple_impl!(A, B, C, D, E, F, G, H, I, J, K, L, M);
+tuple_impl!(A, B, C, D, E, F, G, H, I, J, K, L, M, N);
+tuple_impl!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O);
 
 #[cfg(test)]
 mod tests {
@@ -119,12 +160,35 @@ mod tests {
     fn smoke() {
         let mut world = World::new();
         world.register::<VecStorage<u32>>();
+        world.register::<VecStorage<u16>>();
         let entity = world.spawn();
-        world.insert::<VecStorage<u32>>(entity, 42);
+        world.insert::<VecStorage<u32>>(entity, 32);
+        world.insert::<VecStorage<u16>>(entity, 16);
+
+        {
+            let s = world.get::<VecStorage<u32>>();
+            assert_eq!(s.iter().cloned().collect::<Vec<_>>(), [32]);
+
+            assert_eq!((&s, &s, &s).join().collect::<Vec<_>>(), [(&32, &32, &32)]);
+        }
+
+        {
+            let (s, mut t) = world.get::<(VecStorage<u32>, VecStorage<u16>)>();
+            assert_eq!((&s, &mut t).join().collect::<Vec<_>>(), [(&32, &mut 16)]);
+        }
+
         assert!(world.contains(entity));
-        assert_eq!(world.remove::<VecStorage<u32>>(entity), Some(42));
+        assert_eq!(world.remove::<VecStorage<u32>>(entity), Some(32));
         assert_eq!(world.remove::<VecStorage<u32>>(entity), None);
         assert!(world.despawn(entity));
         assert!(!world.contains(entity));
+    }
+
+    #[test]
+    #[should_panic(expected = "already borrowed")]
+    fn double_borrow() {
+        let mut world = World::new();
+        world.register::<VecStorage<u32>>();
+        world.get::<(VecStorage<u32>, VecStorage<u32>)>();
     }
 }
