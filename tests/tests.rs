@@ -19,6 +19,8 @@ fn despawn() {
     let e = world.spawn(("abc", 123));
     let f = world.spawn(("def", 456));
     world.despawn(e).unwrap();
+    assert_eq!(world.get::<&'static str>(e), Err(NoSuchEntity));
+    assert_eq!(world.get::<i32>(e), Err(NoSuchEntity));
     assert_eq!(world.get::<&'static str>(f), Ok(&"def"));
     assert_eq!(world.get::<i32>(f), Ok(&456));
 }
