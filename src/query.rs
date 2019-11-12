@@ -16,9 +16,7 @@ pub trait Fetch<'a>: Sized {
     unsafe fn next(&mut self) -> Self::Item;
 }
 
-pub struct Read<T: Component>(PhantomData<fn() -> T>);
-
-impl<'a, T: Component> Query<'a> for Read<T> {
+impl<'a, T: Component> Query<'a> for &'a T {
     type Fetch = FetchRead<T>;
 }
 
@@ -37,9 +35,7 @@ impl<'a, T: Component> Fetch<'a> for FetchRead<T> {
     }
 }
 
-pub struct TryRead<T: Component>(PhantomData<fn() -> T>);
-
-impl<'a, T: Component> Query<'a> for TryRead<T> {
+impl<'a, T: Component> Query<'a> for Option<&'a T> {
     type Fetch = FetchTryRead<T>;
 }
 
@@ -58,14 +54,12 @@ impl<'a, T: Component> Fetch<'a> for FetchTryRead<T> {
     }
 }
 
-pub struct Write<T: Component>(PhantomData<fn() -> T>);
+impl<'a, T: Component> Query<'a> for &'a mut T {
+    type Fetch = FetchWrite<T>;
+}
 
 #[doc(hidden)]
 pub struct FetchWrite<T>(NonNull<T>);
-
-impl<'a, T: Component> Query<'a> for Write<T> {
-    type Fetch = FetchWrite<T>;
-}
 
 impl<'a, T: Component> Fetch<'a> for FetchWrite<T> {
     type Item = &'a mut T;
@@ -79,9 +73,7 @@ impl<'a, T: Component> Fetch<'a> for FetchWrite<T> {
     }
 }
 
-pub struct TryWrite<T: Component>(PhantomData<fn() -> T>);
-
-impl<'a, T: Component> Query<'a> for TryWrite<T> {
+impl<'a, T: Component> Query<'a> for Option<&'a mut T> {
     type Fetch = FetchTryWrite<T>;
 }
 
