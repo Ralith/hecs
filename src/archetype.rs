@@ -123,8 +123,8 @@ impl Archetype {
         self.len -= 1;
     }
 
-    pub unsafe fn store(&mut self, set: impl ComponentSet) {
-        set.store(self.data.as_mut_ptr(), &self.offsets);
+    pub unsafe fn store(&mut self, set: impl ComponentSet, index: u32) {
+        set.store(self.data.as_mut_ptr(), &self.offsets, index);
     }
 }
 

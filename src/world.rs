@@ -55,8 +55,9 @@ impl World {
         };
         let archetype = &mut self.archetypes[archetype];
         unsafe {
-            self.entities[entity.id as usize].index = archetype.allocate(entity.id);
-            archetype.store(components);
+            let index = archetype.allocate(entity.id);
+            self.entities[entity.id as usize].index = index;
+            archetype.store(components, index);
         }
         entity
     }
@@ -114,7 +115,7 @@ pub struct Entity {
 pub trait ComponentSet {
     fn elements(&self) -> Vec<TypeId>;
     fn info(&self) -> Vec<TypeInfo>;
-    unsafe fn store(self, base: *mut u8, offsets: &FxHashMap<TypeId, usize>);
+    unsafe fn store(self, base: *mut u8, offsets: &FxHashMap<TypeId, usize>, index: u32);
 }
 
 macro_rules! tuple_impl {
@@ -126,12 +127,13 @@ macro_rules! tuple_impl {
             fn info(&self) -> Vec<TypeInfo> {
                 vec![$(TypeInfo::of::<$name>()),*]
             }
-            unsafe fn store(self, base: *mut u8, offsets: &FxHashMap<TypeId, usize>) {
+            unsafe fn store(self, base: *mut u8, offsets: &FxHashMap<TypeId, usize>, index: u32) {
                 #[allow(non_snake_case)]
                 let ($($name,)*) = self;
                 $(
                     base.add(*offsets.get(&TypeId::of::<$name>()).unwrap())
                         .cast::<$name>()
+                        .add(index as usize)
                         .write($name);
                 )*
             }
