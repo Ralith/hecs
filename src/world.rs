@@ -100,12 +100,102 @@ impl World {
         unsafe { Ok(self.archetypes[meta.archetype as usize].get_mut(meta.index)) }
     }
 
+    /// Add `component` to `entity`
+    ///
+    /// Computational cost is proportional to the number of components `entity` has. Returns `false`
+    /// if the entity does not exist.
+    pub fn insert<T: Component>(
+        &mut self,
+        entity: Entity,
+        component: T,
+    ) -> Result<(), NoSuchEntity> {
+        use std::collections::hash_map::Entry;
+
+        let meta = &mut self.entities[entity.id as usize];
+        if meta.generation != entity.generation {
+            return Err(NoSuchEntity);
+        }
+        unsafe {
+            let mut info = self.archetypes[meta.archetype as usize].types().to_vec();
+            info.push(TypeInfo::of::<T>());
+            let elements = info.iter().map(|x| x.id()).collect::<Vec<_>>();
+            let target = match self.archetype_index.entry(elements) {
+                Entry::Occupied(x) => *x.get(),
+                Entry::Vacant(x) => {
+                    self.archetypes.push(Archetype::new(info));
+                    let index = self.archetypes.len() - 1;
+                    x.insert(index);
+                    index
+                }
+            };
+            if target == meta.archetype as usize {
+                *self.archetypes[meta.archetype as usize].get_mut(meta.index) = component;
+            } else {
+                let (source_arch, target_arch) =
+                    index2(&mut self.archetypes, meta.archetype as usize, target);
+                let components = source_arch.move_component_set(meta.index);
+                meta.archetype = target as u32;
+                meta.index = target_arch.allocate(entity.id);
+                components.store(target_arch, meta.index);
+                target_arch.put(component, meta.index);
+            }
+        }
+        Ok(())
+    }
+
+    /// Remove the `T` component from `entity`
+    ///
+    /// Computational cost is proportional to the number of components `entity` has. Returns the
+    /// removed component in `Some` if the entity is live and had a `T` component.
+    pub fn remove<T: Component>(&mut self, entity: Entity) -> Result<T, NoSuchEntity> {
+        use std::collections::hash_map::Entry;
+
+        let meta = &mut self.entities[entity.id as usize];
+        if meta.generation != entity.generation {
+            return Err(NoSuchEntity);
+        }
+        unsafe {
+            let info = self.archetypes[meta.archetype as usize]
+                .types()
+                .iter()
+                .cloned()
+                .filter(|x| x.id() != TypeId::of::<T>())
+                .collect::<Vec<_>>();
+            let elements = info.iter().map(|x| x.id()).collect::<Vec<_>>();
+            let target = match self.archetype_index.entry(elements) {
+                Entry::Occupied(x) => *x.get(),
+                Entry::Vacant(x) => {
+                    self.archetypes.push(Archetype::new(info));
+                    let index = self.archetypes.len() - 1;
+                    x.insert(index);
+                    index
+                }
+            };
+            let (source_arch, target_arch) =
+                index2(&mut self.archetypes, meta.archetype as usize, target);
+            let x = source_arch.read::<T>(meta.index);
+            let components = source_arch.move_component_set(meta.index);
+            meta.archetype = target as u32;
+            meta.index = target_arch.allocate(entity.id);
+            components.store(target_arch, meta.index);
+            Ok(x)
+        }
+    }
+
     /// Access certain components from all entities
     ///
     /// Entities are yielded in arbitrary order.
     pub fn iter<'a, Q: Query<'a>>(&'a mut self) -> QueryIter<'a, Q> {
         QueryIter::new(&self.entities, &mut self.archetypes)
     }
+}
+
+fn index2<T>(x: &mut [T], i: usize, j: usize) -> (&mut T, &mut T) {
+    assert!(i != j);
+    assert!(i < x.len());
+    assert!(j < x.len());
+    let ptr = x.as_mut_ptr();
+    unsafe { (&mut *ptr.add(i), &mut *ptr.add(j)) }
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]

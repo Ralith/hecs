@@ -4,7 +4,7 @@ use std::ptr::{self, NonNull};
 
 use fxhash::FxHashMap;
 
-use crate::Component;
+use crate::{Component, ComponentSet};
 
 /// A collection of entities having the same component types
 pub struct Archetype {
@@ -39,6 +39,10 @@ impl Archetype {
 
     pub fn entities(&self) -> NonNull<u32> {
         unsafe { NonNull::new_unchecked(self.entities.as_ptr() as *mut _) }
+    }
+
+    pub fn types(&self) -> &[TypeInfo] {
+        &self.types
     }
 
     /// `index` must be in-bounds and live
@@ -140,6 +144,48 @@ impl Archetype {
         }
     }
 
+    /// Extract a component prior to the entity being moved to an archetype that lacks it
+    pub unsafe fn read<T: Component>(&mut self, index: u32) -> T {
+        self.data::<T>()
+            .expect("no such component")
+            .as_ptr()
+            .add(index as usize)
+            .read()
+    }
+
+    pub unsafe fn move_component_set(&mut self, index: u32) -> EntityComponentSet {
+        EntityComponentSet {
+            archetype: self,
+            index,
+        }
+    }
+
+    unsafe fn move_to(&mut self, index: u32, target: &mut Archetype, target_index: u32) {
+        let last = self.len - 1;
+        for ty in &self.types {
+            let base = self
+                .data
+                .as_mut_ptr()
+                .add(*self.offsets.get(&ty.id).unwrap());
+            let moved = base.add(ty.layout.size() * index as usize);
+            // Tolerate missing components
+            if target.offsets.contains_key(&ty.id) {
+                target.put_dynamic(moved, ty.id, ty.layout, target_index);
+            }
+            if index != last {
+                ptr::copy_nonoverlapping(
+                    base.add(ty.layout.size() * last as usize),
+                    moved,
+                    ty.layout.size(),
+                );
+            }
+        }
+        if index != last {
+            self.entities[index as usize] = self.entities[last as usize];
+        }
+        self.len -= 1;
+    }
+
     pub unsafe fn put<T: Component>(&mut self, component: T, index: u32) {
         self.data::<T>()
             .unwrap()
@@ -234,5 +280,22 @@ impl TypeInfo {
             layout: Layout::new::<T>(),
             drop: drop_ptr::<T>,
         }
+    }
+}
+
+pub struct EntityComponentSet<'a> {
+    archetype: &'a mut Archetype,
+    index: u32,
+}
+
+impl<'a> ComponentSet for EntityComponentSet<'a> {
+    fn elements(&self) -> Vec<TypeId> {
+        self.archetype.types.iter().map(|x| x.id).collect()
+    }
+    fn info(&self) -> Vec<TypeInfo> {
+        self.archetype.types.clone()
+    }
+    unsafe fn store(self, archetype: &mut Archetype, index: u32) {
+        self.archetype.move_to(self.index, archetype, index);
     }
 }

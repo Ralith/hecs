@@ -83,3 +83,17 @@ fn build_entity() {
     assert_eq!(world.get::<&'static str>(e), Ok(&"abc"));
     assert_eq!(world.get::<i32>(e), Ok(&123));
 }
+
+#[test]
+fn dynamic_components() {
+    let mut world = World::new();
+    let e = world.spawn((42,));
+    world.insert(e, true).unwrap();
+    assert_eq!(
+        world.iter::<(&i32, &bool)>().collect::<Vec<_>>(),
+        &[(e, (&42, &true))]
+    );
+    assert_eq!(world.remove::<i32>(e), Ok(42));
+    assert_eq!(world.iter::<(&i32, &bool)>().collect::<Vec<_>>(), &[]);
+    assert_eq!(world.iter::<&bool>().collect::<Vec<_>>(), &[(e, &true)]);
+}
