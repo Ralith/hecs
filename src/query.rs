@@ -1,7 +1,8 @@
 use std::marker::PhantomData;
 use std::ptr::NonNull;
 
-use crate::{Archetype, Component};
+use crate::archetype::Archetype;
+use crate::Component;
 
 pub trait Query<'a> {
     #[doc(hidden)]
@@ -27,7 +28,7 @@ pub struct FetchRead<T>(NonNull<T>);
 impl<'a, T: Component> Fetch<'a> for FetchRead<T> {
     type Item = &'a T;
     fn get(archetype: &Archetype) -> Option<Self> {
-        archetype.data::<T>().map(FetchRead)
+        archetype.data::<T>().map(Self)
     }
     unsafe fn next(&mut self) -> &'a T {
         let x = self.0.as_ptr();
@@ -48,7 +49,7 @@ impl<'a, T: Component> Query<'a> for Write<T> {
 impl<'a, T: Component> Fetch<'a> for FetchWrite<T> {
     type Item = &'a mut T;
     fn get(archetype: &Archetype) -> Option<Self> {
-        archetype.data::<T>().map(FetchWrite)
+        archetype.data::<T>().map(Self)
     }
     unsafe fn next(&mut self) -> &'a mut T {
         let x = self.0.as_ptr();
@@ -104,7 +105,9 @@ struct ChunkIter<'a, T: Fetch<'a>> {
 impl<'a, T: Fetch<'a>> Iterator for ChunkIter<'a, T> {
     type Item = T::Item;
     fn next(&mut self) -> Option<T::Item> {
-        if self.len == 0 { return None; }
+        if self.len == 0 {
+            return None;
+        }
         self.len -= 1;
         Some(unsafe { self.fetch.next() })
     }
@@ -123,7 +126,7 @@ macro_rules! tuple_impl {
                 ($($name.next(),)*)
             }
         }
-        
+
         impl<'a, $($name: Query<'a>),*> Query<'a> for ($($name,)*) {
             type Fetch = (($($name::Fetch,)*));
         }
