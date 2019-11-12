@@ -44,13 +44,21 @@ impl Archetype {
     /// `index` must be in-bounds and live
     pub unsafe fn get<T: Component>(&self, index: u32) -> &T {
         debug_assert!(index < self.len);
-        &*self.data::<T>().unwrap().as_ptr().add(index as usize)
+        &*self
+            .data::<T>()
+            .expect("no such component")
+            .as_ptr()
+            .add(index as usize)
     }
 
     /// `index` must be in-bounds and live
     pub unsafe fn get_mut<T: Component>(&mut self, index: u32) -> &mut T {
         debug_assert!(index < self.len);
-        &mut *self.data::<T>().unwrap().as_ptr().add(index as usize)
+        &mut *self
+            .data::<T>()
+            .expect("no such component")
+            .as_ptr()
+            .add(index as usize)
     }
 
     /// Every type must be written immediately after this call
@@ -142,18 +150,17 @@ impl Archetype {
 
     pub unsafe fn put_dynamic(
         &mut self,
-        component: Box<dyn Component>,
+        component: *mut u8,
+        ty: TypeId,
         layout: Layout,
         index: u32,
     ) {
-        let offset = *self.offsets.get(&component.type_id()).unwrap();
+        let offset = *self.offsets.get(&ty).unwrap();
         let ptr = self
             .data
             .as_mut_ptr()
             .add(offset + layout.size() * index as usize);
-        let raw = Box::into_raw(component);
-        ptr::copy_nonoverlapping(raw as *const u8, ptr, layout.size());
-        std::alloc::dealloc(raw as *mut u8, layout);
+        ptr::copy_nonoverlapping(component, ptr, layout.size());
     }
 }
 
@@ -176,9 +183,19 @@ fn align(x: usize, alignment: usize) -> usize {
 
 #[derive(Debug, Clone)]
 pub struct TypeInfo {
-    pub id: TypeId,
-    pub layout: Layout,
+    id: TypeId,
+    layout: Layout,
     drop: unsafe fn(*mut u8),
+}
+
+impl TypeInfo {
+    pub fn id(&self) -> TypeId {
+        self.id
+    }
+
+    pub fn layout(&self) -> Layout {
+        self.layout
+    }
 }
 
 impl PartialOrd for TypeInfo {

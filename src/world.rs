@@ -179,7 +179,7 @@ pub struct BuiltEntity {
 
 impl ComponentSet for BuiltEntity {
     fn elements(&self) -> Vec<TypeId> {
-        self.inner.types.iter().map(|x| x.id).collect()
+        self.inner.types.iter().map(|x| x.id()).collect()
     }
     fn info(&self) -> Vec<TypeInfo> {
         self.inner.types.clone()
@@ -191,7 +191,9 @@ impl ComponentSet for BuiltEntity {
             .into_iter()
             .zip(self.inner.types.into_iter())
         {
-            archetype.put_dynamic(component, info.layout, index);
+            let component = Box::into_raw(component) as *mut u8;
+            archetype.put_dynamic(component, info.id(), info.layout(), index);
+            std::alloc::dealloc(component, info.layout());
         }
     }
 }
@@ -200,7 +202,7 @@ macro_rules! tuple_impl {
     ($($name: ident),*) => {
         impl<$($name: Component),*> ComponentSet for ($($name,)*) {
             fn elements(&self) -> Vec<TypeId> {
-                self.info().into_iter().map(|x| x.id).collect()
+                self.info().into_iter().map(|x| x.id()).collect()
             }
             fn info(&self) -> Vec<TypeInfo> {
                 let mut xs = vec![$(TypeInfo::of::<$name>()),*];
