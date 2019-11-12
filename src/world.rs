@@ -54,6 +54,7 @@ impl World {
                 index
             }
         };
+        self.entities[entity.id as usize].archetype = archetype as u32;
         let archetype = &mut self.archetypes[archetype];
         unsafe {
             let index = archetype.allocate(entity.id);

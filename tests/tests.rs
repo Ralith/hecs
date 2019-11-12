@@ -4,7 +4,7 @@ use simplecs::*;
 fn random_access() {
     let mut world = World::new();
     let e = world.spawn(("abc", 123));
-    let f = world.spawn(("def", 456));
+    let f = world.spawn(("def", 456, true));
     assert_eq!(world.get::<&'static str>(e), Some(&"abc"));
     assert_eq!(world.get::<i32>(e), Some(&123));
     assert_eq!(world.get::<&'static str>(f), Some(&"def"));
@@ -28,7 +28,7 @@ fn query_all() {
 fn query_single_component() {
     let mut world = World::new();
     let e = world.spawn(("abc", 123));
-    let f = world.spawn(("def", 456));
+    let f = world.spawn(("def", 456, true));
     let ents = world.iter::<&i32>().collect::<Vec<_>>();
     assert_eq!(ents.len(), 2);
     assert!(ents.contains(&(e, &123)));
@@ -42,6 +42,15 @@ fn query_missing_component() {
     world.spawn(("def", 456));
     let ents = world.iter::<(&bool, &i32)>().collect::<Vec<_>>();
     assert_eq!(ents.len(), 0);
+}
+
+#[test]
+fn query_sparse_component() {
+    let mut world = World::new();
+    world.spawn(("abc", 123));
+    let f = world.spawn(("def", 456, true));
+    let ents = world.iter::<(&bool)>().collect::<Vec<_>>();
+    assert_eq!(ents, &[(f, &true)]);
 }
 
 #[test]
