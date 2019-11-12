@@ -14,6 +14,16 @@ fn random_access() {
 }
 
 #[test]
+fn despawn() {
+    let mut world = World::new();
+    let e = world.spawn(("abc", 123));
+    let f = world.spawn(("def", 456));
+    world.despawn(e).unwrap();
+    assert_eq!(world.get::<&'static str>(f), Ok(&"def"));
+    assert_eq!(world.get::<i32>(f), Ok(&456));
+}
+
+#[test]
 fn query_all() {
     let mut world = World::new();
     let e = world.spawn(("abc", 123));

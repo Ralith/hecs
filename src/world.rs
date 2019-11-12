@@ -75,10 +75,10 @@ impl World {
             return Err(NoSuchEntity);
         }
         meta.generation += 1;
-        unsafe {
-            self.archetypes[meta.archetype as usize].remove(meta.index);
+        if let Some(moved) = unsafe { self.archetypes[meta.archetype as usize].remove(meta.index) }
+        {
+            self.entities[moved as usize].index = meta.index;
         }
-
         Ok(())
     }
 

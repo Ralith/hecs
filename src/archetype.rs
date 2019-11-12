@@ -105,7 +105,8 @@ impl Archetype {
         self.len - 1
     }
 
-    pub unsafe fn remove(&mut self, index: u32) {
+    /// Returns the ID of the entity moved into `index`, if any
+    pub unsafe fn remove(&mut self, index: u32) -> Option<u32> {
         let last = self.len - 1;
         for ty in &self.types {
             let base = self
@@ -122,10 +123,13 @@ impl Archetype {
                 );
             }
         }
+        self.len = last;
         if index != last {
             self.entities[index as usize] = self.entities[last as usize];
+            Some(self.entities[last as usize])
+        } else {
+            None
         }
-        self.len -= 1;
     }
 
     pub unsafe fn put<T: Component>(&mut self, component: T, index: u32) {
