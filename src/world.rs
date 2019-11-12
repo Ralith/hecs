@@ -113,6 +113,7 @@ pub struct Entity {
 }
 
 pub trait ComponentSet {
+    // Future work: Reduce heap allocation, redundant sorting
     fn elements(&self) -> Vec<TypeId>;
     fn info(&self) -> Vec<TypeInfo>;
     unsafe fn store(self, base: *mut u8, offsets: &FxHashMap<TypeId, usize>, index: u32);
@@ -122,10 +123,12 @@ macro_rules! tuple_impl {
     ($($name: ident),*) => {
         impl<$($name: Component),*> ComponentSet for ($($name,)*) {
             fn elements(&self) -> Vec<TypeId> {
-                vec![$(TypeId::of::<$name>()),*]
+                self.info().into_iter().map(|x| x.id).collect()
             }
             fn info(&self) -> Vec<TypeInfo> {
-                vec![$(TypeInfo::of::<$name>()),*]
+                let mut xs = vec![$(TypeInfo::of::<$name>()),*];
+                xs.sort_unstable();
+                xs
             }
             unsafe fn store(self, base: *mut u8, offsets: &FxHashMap<TypeId, usize>, index: u32) {
                 #[allow(non_snake_case)]

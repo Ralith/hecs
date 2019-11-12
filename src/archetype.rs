@@ -145,12 +145,37 @@ fn align(x: usize, alignment: usize) -> usize {
     (x + alignment - 1) & (!alignment + 1)
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TypeInfo {
-    id: TypeId,
+    pub id: TypeId,
     layout: Layout,
     drop: unsafe fn(*mut u8),
 }
+
+impl PartialOrd for TypeInfo {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for TypeInfo {
+    /// Order by alignment, descending. Ties broken with TypeId.
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.layout
+            .align()
+            .cmp(&other.layout.align())
+            .reverse()
+            .then_with(|| self.id.cmp(&other.id))
+    }
+}
+
+impl PartialEq for TypeInfo {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}
+
+impl Eq for TypeInfo {}
 
 impl TypeInfo {
     pub fn of<T: 'static>() -> Self {
