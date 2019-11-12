@@ -6,6 +6,7 @@ use downcast_rs::{impl_downcast, Downcast};
 use fxhash::FxHashMap;
 
 use crate::archetype::{Archetype, TypeInfo};
+use crate::query::BorrowState;
 use crate::{Query, QueryIter};
 
 /// An unordered collection of entities, each having zero or more distinctly typed components
@@ -18,6 +19,7 @@ pub struct World {
     free: Vec<u32>,
     archetypes: Vec<Archetype>,
     archetype_index: FxHashMap<Vec<TypeId>, usize>,
+    borrows: BorrowState,
 }
 
 impl World {
@@ -214,7 +216,7 @@ impl World {
     /// assert!(entities.contains(&(b, (&456, &false))));
     /// ```
     pub fn iter<'a, Q: Query<'a>>(&'a mut self) -> QueryIter<'a, Q> {
-        QueryIter::new(&self.entities, &mut self.archetypes)
+        QueryIter::new(&mut self.borrows, &self.entities, &mut self.archetypes)
     }
 }
 

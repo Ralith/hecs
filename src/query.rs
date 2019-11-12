@@ -1,5 +1,9 @@
+use std::any::TypeId;
 use std::marker::PhantomData;
+use std::num::NonZeroUsize;
 use std::ptr::NonNull;
+
+use fxhash::FxHashMap;
 
 use crate::archetype::Archetype;
 use crate::world::EntityMeta;
@@ -9,6 +13,22 @@ use crate::{Component, Entity};
 pub trait Query<'a>: Sized {
     #[doc(hidden)]
     type Fetch: Fetch<'a, Item = Self>;
+    // Future work: impl Iterator once arrays are IntoIterator, or &'static [TypeId] once TypeId::of
+    // is const
+    #[doc(hidden)]
+    fn for_each_unique(f: &mut impl FnMut(TypeId)) {}
+    #[doc(hidden)]
+    fn for_each_shared(f: &mut impl FnMut(TypeId)) {}
+}
+
+#[derive(Default)]
+pub struct BorrowState {
+    states: FxHashMap<TypeId, Borrow>,
+}
+
+enum Borrow {
+    Unique,
+    Shared(NonZeroUsize),
 }
 
 #[doc(hidden)]
@@ -20,6 +40,9 @@ pub trait Fetch<'a>: Sized {
 
 impl<'a, T: Component> Query<'a> for &'a T {
     type Fetch = FetchRead<T>;
+    fn for_each_shared(f: &mut impl FnMut(TypeId)) {
+        f(TypeId::of::<T>())
+    }
 }
 
 #[doc(hidden)]
@@ -39,6 +62,9 @@ impl<'a, T: Component> Fetch<'a> for FetchRead<T> {
 
 impl<'a, T: Component> Query<'a> for Option<&'a T> {
     type Fetch = FetchTryRead<T>;
+    fn for_each_shared(f: &mut impl FnMut(TypeId)) {
+        f(TypeId::of::<T>())
+    }
 }
 
 #[doc(hidden)]
@@ -58,6 +84,9 @@ impl<'a, T: Component> Fetch<'a> for FetchTryRead<T> {
 
 impl<'a, T: Component> Query<'a> for &'a mut T {
     type Fetch = FetchWrite<T>;
+    fn for_each_unique(f: &mut impl FnMut(TypeId)) {
+        f(TypeId::of::<T>())
+    }
 }
 
 #[doc(hidden)]
@@ -77,6 +106,9 @@ impl<'a, T: Component> Fetch<'a> for FetchWrite<T> {
 
 impl<'a, T: Component> Query<'a> for Option<&'a mut T> {
     type Fetch = FetchTryWrite<T>;
+    fn for_each_unique(f: &mut impl FnMut(TypeId)) {
+        f(TypeId::of::<T>())
+    }
 }
 
 #[doc(hidden)]
@@ -96,18 +128,67 @@ impl<'a, T: Component> Fetch<'a> for FetchTryWrite<T> {
 
 /// Iterator over the set of entities with the components required by `Q`
 pub struct QueryIter<'a, Q: Query<'a>> {
+    borrows: &'a mut BorrowState,
     meta: &'a [EntityMeta],
     archetypes: std::slice::IterMut<'a, Archetype>,
     iter: Option<ChunkIter<'a, Q::Fetch>>,
 }
 
 impl<'a, Q: Query<'a>> QueryIter<'a, Q> {
-    pub(crate) fn new(meta: &'a [EntityMeta], archetypes: &'a mut [Archetype]) -> Self {
+    pub(crate) fn new(
+        borrows: &'a mut BorrowState,
+        meta: &'a [EntityMeta],
+        archetypes: &'a mut [Archetype],
+    ) -> Self {
+        use std::collections::hash_map::Entry;
+        Q::for_each_unique(&mut |ty| {
+            if borrows.states.insert(ty, Borrow::Unique).is_some() {
+                panic!("component already borrowed");
+            }
+        });
+        Q::for_each_shared(&mut |ty| match borrows.states.entry(ty) {
+            Entry::Vacant(e) => {
+                e.insert(Borrow::Shared(NonZeroUsize::new(1).unwrap()));
+            }
+            Entry::Occupied(mut e) => match *e.get_mut() {
+                Borrow::Unique => panic!("component already borrowed uniquely"),
+                Borrow::Shared(ref mut n) => {
+                    *n = NonZeroUsize::new(n.get() + 1).unwrap();
+                }
+            },
+        });
         Self {
+            borrows,
             meta,
             archetypes: archetypes.iter_mut(),
             iter: None,
         }
+    }
+}
+
+impl<'a, Q: Query<'a>> Drop for QueryIter<'a, Q> {
+    fn drop(&mut self) {
+        use std::collections::hash_map::Entry;
+        Q::for_each_unique(&mut |ty| {
+            self.borrows
+                .states
+                .remove(&ty)
+                .expect("borrow state corrupt");
+        });
+        Q::for_each_shared(&mut |ty| match self.borrows.states.entry(ty) {
+            Entry::Vacant(e) => unreachable!("borrow state corrupt"),
+            Entry::Occupied(mut e) => match *e.get_mut() {
+                Borrow::Unique => unreachable!("borrow state corrupt"),
+                Borrow::Shared(ref mut n) => match NonZeroUsize::new(n.get() - 1) {
+                    Some(x) => {
+                        *n = x;
+                    }
+                    None => {
+                        e.remove_entry();
+                    }
+                },
+            },
+        });
     }
 }
 
@@ -181,8 +262,15 @@ macro_rules! tuple_impl {
             }
         }
 
+        #[allow(unused_variables)]
         impl<'a, $($name: Query<'a>),*> Query<'a> for ($($name,)*) {
             type Fetch = (($($name::Fetch,)*));
+            fn for_each_unique(f: &mut impl FnMut(TypeId)) {
+                $($name::for_each_unique(f);)*
+            }
+            fn for_each_shared(f: &mut impl FnMut(TypeId)) {
+                $($name::for_each_shared(f);)*
+            }
         }
     }
 }

@@ -105,3 +105,32 @@ fn dynamic_components() {
     assert_eq!(world.iter::<(&i32, &bool)>().collect::<Vec<_>>(), &[]);
     assert_eq!(world.iter::<&bool>().collect::<Vec<_>>(), &[(e, &true)]);
 }
+
+#[test]
+#[should_panic(expected = "component already borrowed")]
+fn illegal_borrow() {
+    let mut world = World::new();
+    let e = world.spawn(("abc", 123));
+    let f = world.spawn(("def", 456));
+
+    world.iter::<(&mut i32, &i32)>();
+}
+
+#[test]
+#[should_panic(expected = "component already borrowed")]
+fn illegal_borrow_2() {
+    let mut world = World::new();
+    let e = world.spawn(("abc", 123));
+    let f = world.spawn(("def", 456));
+
+    world.iter::<(&mut i32, &mut i32)>();
+}
+
+#[test]
+fn shared_borrow() {
+    let mut world = World::new();
+    let e = world.spawn(("abc", 123));
+    let f = world.spawn(("def", 456));
+
+    world.iter::<(&i32, &i32)>();
+}
