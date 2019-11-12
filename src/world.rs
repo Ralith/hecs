@@ -9,6 +9,9 @@ use crate::archetype::{Archetype, TypeInfo};
 use crate::{Query, QueryIter};
 
 /// An unordered collection of entities, each having zero or more distinctly typed components
+///
+/// The components of entities who have the same set of component types are stored in contiguous
+/// runs, allowing for extremely fast, cache-friendly iteration.
 #[derive(Default)]
 pub struct World {
     entities: Vec<EntityMeta>,
@@ -26,6 +29,14 @@ impl World {
     /// Create an entity with certain components
     ///
     /// Returns the ID of the newly created entity
+    ///
+    /// # Example
+    /// ```
+    /// # use simplecs::*;
+    /// let mut world = World::new();
+    /// let a = world.spawn((123, "abc"));
+    /// let b = world.spawn((456, true));
+    /// ```
     pub fn spawn(&mut self, components: impl ComponentSet) -> Entity {
         use std::collections::hash_map::Entry;
 
@@ -184,7 +195,24 @@ impl World {
 
     /// Access certain components from all entities
     ///
+    /// Yields `(Entity, Q)` tuples. `Q` can be a shared or unique reference to a component type, an
+    /// `Option` wrapping such a reference, or a tuple of other query types. Each component type may
+    /// only appear once. Entities which do not have a component type referenced outside of an
+    /// `Option` will be skipped.
+    ///
     /// Entities are yielded in arbitrary order.
+    ///
+    /// # Example
+    /// ```
+    /// # use simplecs::*;
+    /// let mut world = World::new();
+    /// let a = world.spawn((123, true, "abc"));
+    /// let b = world.spawn((456, false));
+    /// let entities = world.iter::<(&i32, &bool)>().collect::<Vec<_>>();
+    /// assert_eq!(entities.len(), 2);
+    /// assert!(entities.contains(&(a, (&123, &true))));
+    /// assert!(entities.contains(&(b, (&456, &false))));
+    /// ```
     pub fn iter<'a, Q: Query<'a>>(&'a mut self) -> QueryIter<'a, Q> {
         QueryIter::new(&self.entities, &mut self.archetypes)
     }
