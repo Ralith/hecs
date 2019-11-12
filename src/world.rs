@@ -1,4 +1,6 @@
 use std::any::TypeId;
+use std::error::Error;
+use std::fmt;
 
 use downcast_rs::{impl_downcast, Downcast};
 use fxhash::FxHashMap;
@@ -67,35 +69,35 @@ impl World {
     /// Destroy an entity and all its components
     ///
     /// Returns false iff the entity was already destroyed.
-    pub fn despawn(&mut self, entity: Entity) -> bool {
+    pub fn despawn(&mut self, entity: Entity) -> Result<(), NoSuchEntity> {
         let meta = &mut self.entities[entity.id as usize];
         if meta.generation != entity.generation {
-            return false;
+            return Err(NoSuchEntity);
         }
         meta.generation += 1;
         unsafe {
             self.archetypes[meta.archetype as usize].remove(meta.index);
         }
 
-        true
+        Ok(())
     }
 
     /// Get the `T` component of `entity`
-    pub fn get<T: Component>(&self, entity: Entity) -> Option<&T> {
+    pub fn get<T: Component>(&self, entity: Entity) -> Result<&T, NoSuchEntity> {
         let meta = &self.entities[entity.id as usize];
         if meta.generation != entity.generation {
-            return None;
+            return Err(NoSuchEntity);
         }
-        unsafe { Some(self.archetypes[meta.archetype as usize].get(meta.index)) }
+        unsafe { Ok(self.archetypes[meta.archetype as usize].get(meta.index)) }
     }
 
     /// Get the `T` component of `entity` mutably
-    pub fn get_mut<T: Component>(&mut self, entity: Entity) -> Option<&mut T> {
+    pub fn get_mut<T: Component>(&mut self, entity: Entity) -> Result<&mut T, NoSuchEntity> {
         let meta = &self.entities[entity.id as usize];
         if meta.generation != entity.generation {
-            return None;
+            return Err(NoSuchEntity);
         }
-        unsafe { Some(self.archetypes[meta.archetype as usize].get_mut(meta.index)) }
+        unsafe { Ok(self.archetypes[meta.archetype as usize].get_mut(meta.index)) }
     }
 
     /// Access certain components from all entities
@@ -105,6 +107,17 @@ impl World {
         QueryIter::new(&self.entities, &mut self.archetypes)
     }
 }
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct NoSuchEntity;
+
+impl fmt::Display for NoSuchEntity {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.pad("no such entity")
+    }
+}
+
+impl Error for NoSuchEntity {}
 
 /// Types that can be components (implemented automatically)
 pub trait Component: Downcast + Send + Sync + 'static {}

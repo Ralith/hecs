@@ -5,12 +5,12 @@ fn random_access() {
     let mut world = World::new();
     let e = world.spawn(("abc", 123));
     let f = world.spawn(("def", 456, true));
-    assert_eq!(world.get::<&'static str>(e), Some(&"abc"));
-    assert_eq!(world.get::<i32>(e), Some(&123));
-    assert_eq!(world.get::<&'static str>(f), Some(&"def"));
-    assert_eq!(world.get::<i32>(f), Some(&456));
+    assert_eq!(world.get::<&'static str>(e), Ok(&"abc"));
+    assert_eq!(world.get::<i32>(e), Ok(&123));
+    assert_eq!(world.get::<&'static str>(f), Ok(&"def"));
+    assert_eq!(world.get::<i32>(f), Ok(&456));
     *world.get_mut::<i32>(f).unwrap() = 42;
-    assert_eq!(world.get::<i32>(f), Some(&42));
+    assert_eq!(world.get::<i32>(f), Ok(&42));
 }
 
 #[test]
@@ -70,6 +70,6 @@ fn build_entity() {
     let mut entity = EntityBuilder::new();
     entity.with("abc").with(123);
     let e = world.spawn(entity.build());
-    assert_eq!(world.get::<&'static str>(e), Some(&"abc"));
-    assert_eq!(world.get::<i32>(e), Some(&123));
+    assert_eq!(world.get::<&'static str>(e), Ok(&"abc"));
+    assert_eq!(world.get::<i32>(e), Ok(&123));
 }
