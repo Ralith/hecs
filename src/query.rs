@@ -6,9 +6,9 @@ use crate::world::EntityMeta;
 use crate::{Component, Entity};
 
 /// A collection of component types to fetch from a `World`
-pub trait Query<'a> {
+pub trait Query<'a>: Sized {
     #[doc(hidden)]
-    type Fetch: Fetch<'a>;
+    type Fetch: Fetch<'a, Item = Self>;
 }
 
 #[doc(hidden)]
@@ -112,7 +112,7 @@ impl<'a, Q: Query<'a>> QueryIter<'a, Q> {
 }
 
 impl<'a, Q: Query<'a>> Iterator for QueryIter<'a, Q> {
-    type Item = (Entity, <<Q as Query<'a>>::Fetch as Fetch<'a>>::Item);
+    type Item = (Entity, Q);
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             match self.iter {
