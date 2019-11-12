@@ -5,6 +5,7 @@ use crate::archetype::Archetype;
 use crate::world::EntityMeta;
 use crate::{Component, Entity};
 
+/// A collection of component types to fetch from a `World`
 pub trait Query<'a> {
     #[doc(hidden)]
     type Fetch: Fetch<'a>;
@@ -93,6 +94,7 @@ impl<'a, T: Component> Fetch<'a> for FetchTryWrite<T> {
     }
 }
 
+/// Iterator over the set of entities with the components required by `Q`
 pub struct QueryIter<'a, Q: Query<'a>> {
     meta: &'a [EntityMeta],
     archetypes: std::slice::IterMut<'a, Archetype>,

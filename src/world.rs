@@ -6,6 +6,8 @@ use fxhash::FxHashMap;
 use crate::archetype::{Archetype, TypeInfo};
 use crate::{Query, QueryIter};
 
+/// An unordered collection of entities, each having zero or more distinctly typed components
+#[derive(Default)]
 pub struct World {
     entities: Vec<EntityMeta>,
     free: Vec<u32>,
@@ -14,15 +16,14 @@ pub struct World {
 }
 
 impl World {
+    /// Create an empty world
     pub fn new() -> Self {
-        Self {
-            entities: Vec::new(),
-            free: Vec::new(),
-            archetypes: Vec::new(),
-            archetype_index: FxHashMap::default(),
-        }
+        Self::default()
     }
 
+    /// Create an entity with certain components
+    ///
+    /// Returns the ID of the newly created entity
     pub fn spawn(&mut self, components: impl ComponentSet) -> Entity {
         use std::collections::hash_map::Entry;
 
@@ -62,6 +63,9 @@ impl World {
         entity
     }
 
+    /// Destroy an entity and all its components
+    ///
+    /// Returns false iff the entity was already destroyed.
     pub fn despawn(&mut self, entity: Entity) -> bool {
         let meta = &mut self.entities[entity.id as usize];
         if meta.generation != entity.generation {
@@ -75,6 +79,7 @@ impl World {
         true
     }
 
+    /// Get the `T` component of `entity`
     pub fn get<T: Component>(&self, entity: Entity) -> Option<&T> {
         let meta = &self.entities[entity.id as usize];
         if meta.generation != entity.generation {
@@ -83,6 +88,7 @@ impl World {
         unsafe { Some(self.archetypes[meta.archetype as usize].get(meta.index)) }
     }
 
+    /// Get the `T` component of `entity` mutably
     pub fn get_mut<T: Component>(&mut self, entity: Entity) -> Option<&mut T> {
         let meta = &self.entities[entity.id as usize];
         if meta.generation != entity.generation {
@@ -91,11 +97,15 @@ impl World {
         unsafe { Some(self.archetypes[meta.archetype as usize].get_mut(meta.index)) }
     }
 
+    /// Access certain components from all entities
+    ///
+    /// Entities are yielded in arbitrary order.
     pub fn iter<'a, Q: Query<'a>>(&'a mut self) -> QueryIter<'a, Q> {
         QueryIter::new(&self.entities, &mut self.archetypes)
     }
 }
 
+/// Types that can be components (implemented automatically)
 pub trait Component: Downcast + Send + Sync + 'static {}
 impl_downcast!(Component);
 impl<T: Send + Sync + 'static> Component for T {}
@@ -106,12 +116,14 @@ pub(crate) struct EntityMeta {
     index: u32,
 }
 
+/// Lightweight unique ID of an entity
 #[derive(Clone, Copy, Debug, Hash, Eq, Ord, PartialEq, PartialOrd)]
 pub struct Entity {
     pub(crate) generation: u32,
     pub(crate) id: u32,
 }
 
+/// A collection of distinctly typed values that can be used to create an entity
 pub trait ComponentSet {
     // Future work: Reduce heap allocation, redundant sorting
     fn elements(&self) -> Vec<TypeId>;
