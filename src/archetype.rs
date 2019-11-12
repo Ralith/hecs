@@ -4,9 +4,9 @@ use std::ptr::{self, NonNull};
 
 use fxhash::FxHashMap;
 
-use crate::{Component, ComponentSet};
+use crate::Component;
 
-/// A block of dense components
+/// A collection of entities having the same component types
 pub struct Archetype {
     types: Vec<TypeInfo>,
     offsets: FxHashMap<TypeId, usize>,
@@ -128,8 +128,28 @@ impl Archetype {
         self.len -= 1;
     }
 
-    pub unsafe fn store(&mut self, set: impl ComponentSet, index: u32) {
-        set.store(self.data.as_mut_ptr(), &self.offsets, index);
+    pub unsafe fn put<T: Component>(&mut self, component: T, index: u32) {
+        self.data::<T>()
+            .unwrap()
+            .as_ptr()
+            .add(index as usize)
+            .write(component);
+    }
+
+    pub unsafe fn put_dynamic(
+        &mut self,
+        component: Box<dyn Component>,
+        layout: Layout,
+        index: u32,
+    ) {
+        let offset = *self.offsets.get(&component.type_id()).unwrap();
+        let ptr = self
+            .data
+            .as_mut_ptr()
+            .add(offset + layout.size() * index as usize);
+        let raw = Box::into_raw(component);
+        ptr::copy_nonoverlapping(raw as *const u8, ptr, layout.size());
+        std::alloc::dealloc(raw as *mut u8, layout);
     }
 }
 
@@ -153,7 +173,7 @@ fn align(x: usize, alignment: usize) -> usize {
 #[derive(Debug, Clone)]
 pub struct TypeInfo {
     pub id: TypeId,
-    layout: Layout,
+    pub layout: Layout,
     drop: unsafe fn(*mut u8),
 }
 

@@ -54,3 +54,13 @@ fn query_optional_component() {
     assert!(ents.contains(&(e, (None, &123))));
     assert!(ents.contains(&(f, (Some(&true), &456))));
 }
+
+#[test]
+fn build_entity() {
+    let mut world = World::new();
+    let mut entity = EntityBuilder::new();
+    entity.with("abc").with(123);
+    let e = world.spawn(entity.build());
+    assert_eq!(world.get::<&'static str>(e), Some(&"abc"));
+    assert_eq!(world.get::<i32>(e), Some(&123));
+}

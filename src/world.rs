@@ -58,7 +58,7 @@ impl World {
         unsafe {
             let index = archetype.allocate(entity.id);
             self.entities[entity.id as usize].index = index;
-            archetype.store(components, index);
+            components.store(archetype, index);
         }
         entity
     }
@@ -128,7 +128,58 @@ pub trait ComponentSet {
     // Future work: Reduce heap allocation, redundant sorting
     fn elements(&self) -> Vec<TypeId>;
     fn info(&self) -> Vec<TypeInfo>;
-    unsafe fn store(self, base: *mut u8, offsets: &FxHashMap<TypeId, usize>, index: u32);
+    unsafe fn store(self, archetype: &mut Archetype, index: u32);
+}
+
+/// Helper for incrementally constructing an entity with dynamic component types
+#[derive(Default)]
+pub struct EntityBuilder {
+    components: Vec<Box<dyn Component>>,
+    types: Vec<TypeInfo>,
+}
+
+impl EntityBuilder {
+    /// Create a builder representing an entity with no components
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Add `component` to the entity
+    pub fn with<T: Component>(&mut self, component: T) -> &mut Self {
+        self.components.push(Box::new(component));
+        self.types.push(TypeInfo::of::<T>());
+        self
+    }
+
+    /// Prepare for spawning
+    pub fn build(mut self) -> BuiltEntity {
+        self.types.sort_unstable();
+        BuiltEntity { inner: self }
+    }
+}
+
+/// The output of an `EntityBuilder`, suitable for passing to `World::spawn`
+pub struct BuiltEntity {
+    inner: EntityBuilder,
+}
+
+impl ComponentSet for BuiltEntity {
+    fn elements(&self) -> Vec<TypeId> {
+        self.inner.types.iter().map(|x| x.id).collect()
+    }
+    fn info(&self) -> Vec<TypeInfo> {
+        self.inner.types.clone()
+    }
+    unsafe fn store(self, archetype: &mut Archetype, index: u32) {
+        for (component, info) in self
+            .inner
+            .components
+            .into_iter()
+            .zip(self.inner.types.into_iter())
+        {
+            archetype.put_dynamic(component, info.layout, index);
+        }
+    }
 }
 
 macro_rules! tuple_impl {
@@ -142,14 +193,11 @@ macro_rules! tuple_impl {
                 xs.sort_unstable();
                 xs
             }
-            unsafe fn store(self, base: *mut u8, offsets: &FxHashMap<TypeId, usize>, index: u32) {
+            unsafe fn store(self, archetype: &mut Archetype, index: u32) {
                 #[allow(non_snake_case)]
                 let ($($name,)*) = self;
                 $(
-                    base.add(*offsets.get(&TypeId::of::<$name>()).unwrap())
-                        .cast::<$name>()
-                        .add(index as usize)
-                        .write($name);
+                    archetype.put($name, index);
                 )*
             }
         }
