@@ -91,7 +91,7 @@ impl World {
         unsafe { Some(self.archetypes[meta.archetype as usize].get_mut(meta.index)) }
     }
 
-    pub fn query<'a, Q: Query<'a>>(&'a mut self) -> QueryIter<'a, Q> {
+    pub fn iter<'a, Q: Query<'a>>(&'a mut self) -> QueryIter<'a, Q> {
         QueryIter::new(&mut self.archetypes)
     }
 }

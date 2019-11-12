@@ -18,7 +18,7 @@ fn query_all() {
     let mut world = World::new();
     world.spawn(("abc", 123));
     world.spawn(("def", 456));
-    let ents = world.query::<(&i32, &&'static str)>().collect::<Vec<_>>();
+    let ents = world.iter::<(&i32, &&'static str)>().collect::<Vec<_>>();
     assert_eq!(ents.len(), 2);
     assert!(ents.contains(&(&123, &"abc")));
     assert!(ents.contains(&(&456, &"def")));
@@ -29,7 +29,7 @@ fn query_single_component() {
     let mut world = World::new();
     world.spawn(("abc", 123));
     world.spawn(("def", 456));
-    let ents = world.query::<&i32>().collect::<Vec<_>>();
+    let ents = world.iter::<&i32>().collect::<Vec<_>>();
     assert_eq!(ents.len(), 2);
     assert!(ents.contains(&&123));
     assert!(ents.contains(&&456));
@@ -40,7 +40,7 @@ fn query_missing_component() {
     let mut world = World::new();
     world.spawn(("abc", 123));
     world.spawn(("def", 456));
-    let ents = world.query::<(&bool, &i32)>().collect::<Vec<_>>();
+    let ents = world.iter::<(&bool, &i32)>().collect::<Vec<_>>();
     assert_eq!(ents.len(), 0);
 }
 
@@ -49,7 +49,7 @@ fn query_optional_component() {
     let mut world = World::new();
     world.spawn(("abc", 123));
     world.spawn(("def", 456, true));
-    let ents = world.query::<(Option<&bool>, &i32)>().collect::<Vec<_>>();
+    let ents = world.iter::<(Option<&bool>, &i32)>().collect::<Vec<_>>();
     assert_eq!(ents.len(), 2);
     assert!(ents.contains(&(None, &123)));
     assert!(ents.contains(&(Some(&true), &456)));
