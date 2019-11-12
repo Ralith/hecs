@@ -299,6 +299,7 @@ macro_rules! tuple_impl {
                 xs.sort_unstable();
                 xs
             }
+            #[allow(unused_variables)]
             unsafe fn store(self, archetype: &mut Archetype, index: u32) {
                 #[allow(non_snake_case)]
                 let ($($name,)*) = self;
@@ -310,6 +311,7 @@ macro_rules! tuple_impl {
     }
 }
 
+tuple_impl!();
 tuple_impl!(A);
 tuple_impl!(A, B);
 tuple_impl!(A, B, C);

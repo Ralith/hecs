@@ -170,6 +170,7 @@ macro_rules! tuple_impl {
     ($($name: ident),*) => {
         impl<'a, $($name: Fetch<'a>),*> Fetch<'a> for ($($name,)*) {
             type Item = ($($name::Item,)*);
+            #[allow(unused_variables)]
             fn get(archetype: &Archetype) -> Option<Self> {
                 Some(($($name::get(archetype)?,)*))
             }
@@ -186,6 +187,7 @@ macro_rules! tuple_impl {
     }
 }
 
+tuple_impl!();
 tuple_impl!(A);
 tuple_impl!(A, B);
 tuple_impl!(A, B, C);

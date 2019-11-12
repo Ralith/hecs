@@ -28,10 +28,16 @@ fn query_all() {
     let mut world = World::new();
     let e = world.spawn(("abc", 123));
     let f = world.spawn(("def", 456));
+
     let ents = world.iter::<(&i32, &&'static str)>().collect::<Vec<_>>();
     assert_eq!(ents.len(), 2);
     assert!(ents.contains(&(e, (&123, &"abc"))));
     assert!(ents.contains(&(f, (&456, &"def"))));
+
+    let ents = world.iter::<()>().collect::<Vec<_>>();
+    assert_eq!(ents.len(), 2);
+    assert!(ents.contains(&(e, ())));
+    assert!(ents.contains(&(f, ())));
 }
 
 #[test]
