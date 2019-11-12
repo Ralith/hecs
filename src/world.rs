@@ -92,7 +92,7 @@ impl World {
     }
 
     pub fn iter<'a, Q: Query<'a>>(&'a mut self) -> QueryIter<'a, Q> {
-        QueryIter::new(&mut self.archetypes)
+        QueryIter::new(&self.entities, &mut self.archetypes)
     }
 }
 
@@ -100,16 +100,16 @@ pub trait Component: Downcast + Send + Sync + 'static {}
 impl_downcast!(Component);
 impl<T: Send + Sync + 'static> Component for T {}
 
-struct EntityMeta {
-    generation: u32,
+pub(crate) struct EntityMeta {
+    pub(crate) generation: u32,
     archetype: u32,
     index: u32,
 }
 
 #[derive(Clone, Copy, Debug, Hash, Eq, Ord, PartialEq, PartialOrd)]
 pub struct Entity {
-    generation: u32,
-    id: u32,
+    pub(crate) generation: u32,
+    pub(crate) id: u32,
 }
 
 pub trait ComponentSet {

@@ -2,7 +2,8 @@ use std::marker::PhantomData;
 use std::ptr::NonNull;
 
 use crate::archetype::Archetype;
-use crate::Component;
+use crate::world::EntityMeta;
+use crate::{Component, Entity};
 
 pub trait Query<'a> {
     #[doc(hidden)]
@@ -93,13 +94,15 @@ impl<'a, T: Component> Fetch<'a> for FetchTryWrite<T> {
 }
 
 pub struct QueryIter<'a, Q: Query<'a>> {
+    meta: &'a [EntityMeta],
     archetypes: std::slice::IterMut<'a, Archetype>,
     iter: Option<ChunkIter<'a, Q::Fetch>>,
 }
 
 impl<'a, Q: Query<'a>> QueryIter<'a, Q> {
-    pub(crate) fn new(archetypes: &'a mut [Archetype]) -> Self {
+    pub(crate) fn new(meta: &'a [EntityMeta], archetypes: &'a mut [Archetype]) -> Self {
         Self {
+            meta,
             archetypes: archetypes.iter_mut(),
             iter: None,
         }
@@ -107,13 +110,14 @@ impl<'a, Q: Query<'a>> QueryIter<'a, Q> {
 }
 
 impl<'a, Q: Query<'a>> Iterator for QueryIter<'a, Q> {
-    type Item = <<Q as Query<'a>>::Fetch as Fetch<'a>>::Item;
+    type Item = (Entity, <<Q as Query<'a>>::Fetch as Fetch<'a>>::Item);
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             match self.iter {
                 None => {
                     let archetype = self.archetypes.next()?;
                     self.iter = Q::Fetch::get(archetype).map(|fetch| ChunkIter {
+                        entities: archetype.entities(),
                         fetch,
                         len: archetype.len(),
                         _marker: PhantomData,
@@ -123,7 +127,15 @@ impl<'a, Q: Query<'a>> Iterator for QueryIter<'a, Q> {
                     None => {
                         self.iter = None;
                     }
-                    x @ Some(_) => return x,
+                    Some((id, item)) => {
+                        return Some((
+                            Entity {
+                                id,
+                                generation: self.meta[id as usize].generation,
+                            },
+                            item,
+                        ));
+                    }
                 },
             }
         }
@@ -131,19 +143,24 @@ impl<'a, Q: Query<'a>> Iterator for QueryIter<'a, Q> {
 }
 
 struct ChunkIter<'a, T: Fetch<'a>> {
+    entities: NonNull<u32>,
     fetch: T,
     len: usize,
     _marker: PhantomData<&'a ()>,
 }
 
 impl<'a, T: Fetch<'a>> Iterator for ChunkIter<'a, T> {
-    type Item = T::Item;
-    fn next(&mut self) -> Option<T::Item> {
+    type Item = (u32, T::Item);
+    fn next(&mut self) -> Option<Self::Item> {
         if self.len == 0 {
             return None;
         }
         self.len -= 1;
-        Some(unsafe { self.fetch.next() })
+        let entity = self.entities.as_ptr();
+        unsafe {
+            self.entities = NonNull::new_unchecked(entity.add(1));
+            Some((*entity, self.fetch.next()))
+        }
     }
 }
 

@@ -3,4 +3,4 @@ mod query;
 mod world;
 
 pub use query::{Query, QueryIter};
-pub use world::{Component, ComponentSet, World};
+pub use world::{Component, ComponentSet, Entity, World};

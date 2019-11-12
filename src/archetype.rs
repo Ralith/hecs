@@ -32,8 +32,13 @@ impl Archetype {
             NonNull::new_unchecked(self.data.as_ptr().add(offset).cast::<T>() as *mut T)
         })
     }
+
     pub fn len(&self) -> usize {
         self.len as usize
+    }
+
+    pub fn entities(&self) -> NonNull<u32> {
+        unsafe { NonNull::new_unchecked(self.entities.as_ptr() as *mut _) }
     }
 
     /// `index` must be in-bounds and live
