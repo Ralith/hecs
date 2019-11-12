@@ -1,4 +1,7 @@
 mod archetype;
+mod query;
+
+pub use query::{Query, QueryIter, Read, Write};
 
 use std::any::TypeId;
 
@@ -89,6 +92,10 @@ impl World {
             return None;
         }
         unsafe { Some(self.archetypes[meta.archetype as usize].get_mut(meta.index)) }
+    }
+
+    pub fn query<'a, Q: Query<'a>>(&'a mut self) -> QueryIter<'a, Q> {
+        QueryIter::new(&mut self.archetypes)
     }
 }
 
