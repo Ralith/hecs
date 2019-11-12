@@ -37,6 +37,27 @@ impl<'a, T: Component> Fetch<'a> for FetchRead<T> {
     }
 }
 
+pub struct TryRead<T: Component>(PhantomData<fn() -> T>);
+
+impl<'a, T: Component> Query<'a> for TryRead<T> {
+    type Fetch = FetchTryRead<T>;
+}
+
+#[doc(hidden)]
+pub struct FetchTryRead<T>(Option<NonNull<T>>);
+
+impl<'a, T: Component> Fetch<'a> for FetchTryRead<T> {
+    type Item = Option<&'a T>;
+    fn get(archetype: &Archetype) -> Option<Self> {
+        Some(Self(archetype.data::<T>()))
+    }
+    unsafe fn next(&mut self) -> Option<&'a T> {
+        let x = self.0?.as_ptr();
+        self.0 = Some(NonNull::new_unchecked(x.add(1)));
+        Some(&*x)
+    }
+}
+
 pub struct Write<T: Component>(PhantomData<fn() -> T>);
 
 #[doc(hidden)]
@@ -55,6 +76,27 @@ impl<'a, T: Component> Fetch<'a> for FetchWrite<T> {
         let x = self.0.as_ptr();
         self.0 = NonNull::new_unchecked(x.add(1));
         &mut *x
+    }
+}
+
+pub struct TryWrite<T: Component>(PhantomData<fn() -> T>);
+
+impl<'a, T: Component> Query<'a> for TryWrite<T> {
+    type Fetch = FetchTryWrite<T>;
+}
+
+#[doc(hidden)]
+pub struct FetchTryWrite<T>(Option<NonNull<T>>);
+
+impl<'a, T: Component> Fetch<'a> for FetchTryWrite<T> {
+    type Item = Option<&'a mut T>;
+    fn get(archetype: &Archetype) -> Option<Self> {
+        Some(Self(archetype.data::<T>()))
+    }
+    unsafe fn next(&mut self) -> Option<&'a mut T> {
+        let x = self.0?.as_ptr();
+        self.0 = Some(NonNull::new_unchecked(x.add(1)));
+        Some(&mut *x)
     }
 }
 
