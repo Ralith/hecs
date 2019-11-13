@@ -1,5 +1,6 @@
 use std::alloc::{alloc, Layout};
 use std::any::TypeId;
+use std::cell::UnsafeCell;
 use std::ptr::{self, NonNull};
 
 use fxhash::FxHashMap;
@@ -12,7 +13,9 @@ pub struct Archetype {
     offsets: FxHashMap<TypeId, usize>,
     len: u32,
     entities: Box<[u32]>,
-    data: Box<[u8]>,
+    // UnsafeCell allows unique references into `data` to be constructed while shared references
+    // containing the `Archetype` exist
+    data: UnsafeCell<Box<[u8]>>,
 }
 
 impl Archetype {
@@ -22,14 +25,14 @@ impl Archetype {
             offsets: FxHashMap::default(),
             entities: Box::new([]),
             len: 0,
-            data: Box::new([]),
+            data: UnsafeCell::new(Box::new([])),
         }
     }
 
     pub fn data<T: Component>(&self) -> Option<NonNull<T>> {
         let offset = *self.offsets.get(&TypeId::of::<T>())?;
         Some(unsafe {
-            NonNull::new_unchecked(self.data.as_ptr().add(offset).cast::<T>() as *mut T)
+            NonNull::new_unchecked((*self.data.get()).as_ptr().add(offset).cast::<T>() as *mut T)
         })
     }
 
@@ -55,8 +58,8 @@ impl Archetype {
             .add(index as usize)
     }
 
-    /// `index` must be in-bounds and live
-    pub unsafe fn get_mut<T: Component>(&mut self, index: u32) -> &mut T {
+    /// `index` must be in-bounds and live and not aliased
+    pub unsafe fn get_mut<T: Component>(&self, index: u32) -> &mut T {
         debug_assert!(index < self.len);
         &mut *self
             .data::<T>()
@@ -98,19 +101,19 @@ impl Archetype {
             .unwrap(),
         );
         let mut new_data = Box::from_raw(std::slice::from_raw_parts_mut(alloc, data_size));
-        if !self.data.is_empty() {
+        if !(*self.data.get()).is_empty() {
             for ty in &self.types {
                 let old_off = *self.offsets.get(&ty.id).unwrap();
                 let new_off = *offsets.get(&ty.id).unwrap();
                 ptr::copy_nonoverlapping(
-                    self.data.as_ptr().add(old_off),
+                    (*self.data.get()).as_ptr().add(old_off),
                     new_data.as_mut_ptr().add(new_off),
                     ty.layout.size() * self.entities.len(),
                 );
             }
         }
 
-        self.data = new_data;
+        self.data = UnsafeCell::new(new_data);
         self.offsets = offsets;
         self.entities[self.len as usize] = id;
         self.len += 1;
@@ -121,8 +124,7 @@ impl Archetype {
     pub unsafe fn remove(&mut self, index: u32) -> Option<u32> {
         let last = self.len - 1;
         for ty in &self.types {
-            let base = self
-                .data
+            let base = (*self.data.get())
                 .as_mut_ptr()
                 .add(*self.offsets.get(&ty.id).unwrap());
             let removed = base.add(ty.layout.size() * index as usize);
@@ -163,8 +165,7 @@ impl Archetype {
     unsafe fn move_to(&mut self, index: u32, target: &mut Archetype, target_index: u32) {
         let last = self.len - 1;
         for ty in &self.types {
-            let base = self
-                .data
+            let base = (*self.data.get())
                 .as_mut_ptr()
                 .add(*self.offsets.get(&ty.id).unwrap());
             let moved = base.add(ty.layout.size() * index as usize);
@@ -202,8 +203,7 @@ impl Archetype {
         index: u32,
     ) {
         let offset = *self.offsets.get(&ty).unwrap();
-        let ptr = self
-            .data
+        let ptr = (*self.data.get())
             .as_mut_ptr()
             .add(offset + layout.size() * index as usize);
         ptr::copy_nonoverlapping(component, ptr, layout.size());

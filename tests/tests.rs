@@ -5,12 +5,12 @@ fn random_access() {
     let mut world = World::new();
     let e = world.spawn(("abc", 123));
     let f = world.spawn(("def", 456, true));
-    assert_eq!(world.get::<&'static str>(e), Ok(&"abc"));
-    assert_eq!(world.get::<i32>(e), Ok(&123));
-    assert_eq!(world.get::<&'static str>(f), Ok(&"def"));
-    assert_eq!(world.get::<i32>(f), Ok(&456));
+    assert_eq!(*world.get::<&'static str>(e).unwrap(), "abc");
+    assert_eq!(*world.get::<i32>(e).unwrap(), 123);
+    assert_eq!(*world.get::<&'static str>(f).unwrap(), "def");
+    assert_eq!(*world.get::<i32>(f).unwrap(), 456);
     *world.get_mut::<i32>(f).unwrap() = 42;
-    assert_eq!(world.get::<i32>(f), Ok(&42));
+    assert_eq!(*world.get::<i32>(f).unwrap(), 42);
 }
 
 #[test]
@@ -19,10 +19,10 @@ fn despawn() {
     let e = world.spawn(("abc", 123));
     let f = world.spawn(("def", 456));
     world.despawn(e).unwrap();
-    assert_eq!(world.get::<&'static str>(e), Err(NoSuchEntity));
-    assert_eq!(world.get::<i32>(e), Err(NoSuchEntity));
-    assert_eq!(world.get::<&'static str>(f), Ok(&"def"));
-    assert_eq!(world.get::<i32>(f), Ok(&456));
+    assert!(world.get::<&'static str>(e).is_err());
+    assert!(world.get::<i32>(e).is_err());
+    assert_eq!(*world.get::<&'static str>(f).unwrap(), "def");
+    assert_eq!(*world.get::<i32>(f).unwrap(), 456);
 }
 
 #[test]
@@ -88,8 +88,8 @@ fn build_entity() {
     let mut entity = EntityBuilder::new();
     entity.with("abc").with(123);
     let e = world.spawn(entity.build());
-    assert_eq!(world.get::<&'static str>(e), Ok(&"abc"));
-    assert_eq!(world.get::<i32>(e), Ok(&123));
+    assert_eq!(*world.get::<&'static str>(e).unwrap(), "abc");
+    assert_eq!(*world.get::<i32>(e).unwrap(), 123);
 }
 
 #[test]
@@ -107,21 +107,21 @@ fn dynamic_components() {
 }
 
 #[test]
-#[should_panic(expected = "component already borrowed")]
+#[should_panic(expected = "component type already borrowed")]
 fn illegal_borrow() {
     let mut world = World::new();
-    let e = world.spawn(("abc", 123));
-    let f = world.spawn(("def", 456));
+    world.spawn(("abc", 123));
+    world.spawn(("def", 456));
 
     world.iter::<(&mut i32, &i32)>();
 }
 
 #[test]
-#[should_panic(expected = "component already borrowed")]
+#[should_panic(expected = "component type already borrowed")]
 fn illegal_borrow_2() {
     let mut world = World::new();
-    let e = world.spawn(("abc", 123));
-    let f = world.spawn(("def", 456));
+    world.spawn(("abc", 123));
+    world.spawn(("def", 456));
 
     world.iter::<(&mut i32, &mut i32)>();
 }
@@ -129,8 +129,17 @@ fn illegal_borrow_2() {
 #[test]
 fn shared_borrow() {
     let mut world = World::new();
-    let e = world.spawn(("abc", 123));
-    let f = world.spawn(("def", 456));
+    world.spawn(("abc", 123));
+    world.spawn(("def", 456));
 
     world.iter::<(&i32, &i32)>();
+}
+
+#[test]
+#[should_panic(expected = "component type already borrowed")]
+fn illegal_random_access() {
+    let mut world = World::new();
+    let e = world.spawn(("abc", 123));
+    let _borrow = world.get_mut::<i32>(e).unwrap();
+    world.get::<i32>(e).unwrap();
 }

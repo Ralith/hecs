@@ -8,3 +8,5 @@ license = "MIT OR Apache-2.0"
 [dependencies]
 fxhash = "0.2.1"
 downcast-rs = "1.1.1"
+parking_lot = "0.9"
+lock_api = "0.3.1"

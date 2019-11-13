@@ -1,9 +1,10 @@
 use std::any::TypeId;
 use std::marker::PhantomData;
-use std::num::NonZeroUsize;
 use std::ptr::NonNull;
 
 use fxhash::FxHashMap;
+use lock_api::RawRwLock as _;
+use parking_lot::RawRwLock;
 
 use crate::archetype::Archetype;
 use crate::world::EntityMeta;
@@ -16,19 +17,50 @@ pub trait Query<'a>: Sized {
     // Future work: impl Iterator once arrays are IntoIterator, or &'static [TypeId] once TypeId::of
     // is const
     #[doc(hidden)]
-    fn for_each_unique(f: &mut impl FnMut(TypeId)) {}
+    fn for_each_unique(_: &mut impl FnMut(TypeId)) {}
     #[doc(hidden)]
-    fn for_each_shared(f: &mut impl FnMut(TypeId)) {}
+    fn for_each_shared(_: &mut impl FnMut(TypeId)) {}
 }
 
 #[derive(Default)]
 pub struct BorrowState {
-    states: FxHashMap<TypeId, Borrow>,
+    states: FxHashMap<TypeId, RawRwLock>,
 }
 
-enum Borrow {
-    Unique,
-    Shared(NonZeroUsize),
+impl BorrowState {
+    pub fn ensure(&mut self, ty: TypeId) {
+        use std::collections::hash_map::Entry;
+        match self.states.entry(ty) {
+            Entry::Vacant(e) => {
+                e.insert(RawRwLock::INIT);
+            }
+            Entry::Occupied(_) => {}
+        }
+    }
+
+    pub fn borrow(&self, ty: TypeId) {
+        assert!(
+            self.states.get(&ty).map_or(true, |x| x.try_lock_shared()),
+            "component type already borrowed exclusively"
+        );
+    }
+
+    pub fn borrow_mut(&self, ty: TypeId) {
+        assert!(
+            self.states
+                .get(&ty)
+                .map_or(true, |x| x.try_lock_exclusive()),
+            "component type already borrowed"
+        );
+    }
+
+    pub fn release(&self, ty: TypeId) {
+        self.states.get(&ty).map(|x| x.unlock_shared());
+    }
+
+    pub fn release_mut(&self, ty: TypeId) {
+        self.states.get(&ty).map(|x| x.unlock_exclusive());
+    }
 }
 
 #[doc(hidden)]
@@ -128,39 +160,24 @@ impl<'a, T: Component> Fetch<'a> for FetchTryWrite<T> {
 
 /// Iterator over the set of entities with the components required by `Q`
 pub struct QueryIter<'a, Q: Query<'a>> {
-    borrows: &'a mut BorrowState,
+    borrows: &'a BorrowState,
     meta: &'a [EntityMeta],
-    archetypes: std::slice::IterMut<'a, Archetype>,
+    archetypes: std::slice::Iter<'a, Archetype>,
     iter: Option<ChunkIter<'a, Q::Fetch>>,
 }
 
 impl<'a, Q: Query<'a>> QueryIter<'a, Q> {
     pub(crate) fn new(
-        borrows: &'a mut BorrowState,
+        borrows: &'a BorrowState,
         meta: &'a [EntityMeta],
-        archetypes: &'a mut [Archetype],
+        archetypes: &'a [Archetype],
     ) -> Self {
-        use std::collections::hash_map::Entry;
-        Q::for_each_unique(&mut |ty| {
-            if borrows.states.insert(ty, Borrow::Unique).is_some() {
-                panic!("component already borrowed");
-            }
-        });
-        Q::for_each_shared(&mut |ty| match borrows.states.entry(ty) {
-            Entry::Vacant(e) => {
-                e.insert(Borrow::Shared(NonZeroUsize::new(1).unwrap()));
-            }
-            Entry::Occupied(mut e) => match *e.get_mut() {
-                Borrow::Unique => panic!("component already borrowed uniquely"),
-                Borrow::Shared(ref mut n) => {
-                    *n = NonZeroUsize::new(n.get() + 1).unwrap();
-                }
-            },
-        });
+        Q::for_each_unique(&mut |ty| borrows.borrow_mut(ty));
+        Q::for_each_shared(&mut |ty| borrows.borrow(ty));
         Self {
             borrows,
             meta,
-            archetypes: archetypes.iter_mut(),
+            archetypes: archetypes.iter(),
             iter: None,
         }
     }
@@ -168,27 +185,8 @@ impl<'a, Q: Query<'a>> QueryIter<'a, Q> {
 
 impl<'a, Q: Query<'a>> Drop for QueryIter<'a, Q> {
     fn drop(&mut self) {
-        use std::collections::hash_map::Entry;
-        Q::for_each_unique(&mut |ty| {
-            self.borrows
-                .states
-                .remove(&ty)
-                .expect("borrow state corrupt");
-        });
-        Q::for_each_shared(&mut |ty| match self.borrows.states.entry(ty) {
-            Entry::Vacant(e) => unreachable!("borrow state corrupt"),
-            Entry::Occupied(mut e) => match *e.get_mut() {
-                Borrow::Unique => unreachable!("borrow state corrupt"),
-                Borrow::Shared(ref mut n) => match NonZeroUsize::new(n.get() - 1) {
-                    Some(x) => {
-                        *n = x;
-                    }
-                    None => {
-                        e.remove_entry();
-                    }
-                },
-            },
-        });
+        Q::for_each_unique(&mut |ty| self.borrows.release_mut(ty));
+        Q::for_each_shared(&mut |ty| self.borrows.release(ty));
     }
 }
 

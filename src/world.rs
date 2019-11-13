@@ -1,6 +1,8 @@
 use std::any::TypeId;
 use std::error::Error;
 use std::fmt;
+use std::ops::{Deref, DerefMut};
+use std::ptr::NonNull;
 
 use downcast_rs::{impl_downcast, Downcast};
 use fxhash::FxHashMap;
@@ -63,7 +65,11 @@ impl World {
         let archetype = match self.archetype_index.entry(components.elements()) {
             Entry::Occupied(x) => *x.get(),
             Entry::Vacant(x) => {
-                self.archetypes.push(Archetype::new(components.info()));
+                let info = components.info();
+                for ty in &info {
+                    self.borrows.ensure(ty.id());
+                }
+                self.archetypes.push(Archetype::new(info));
                 let index = self.archetypes.len() - 1;
                 x.insert(index);
                 index
@@ -96,21 +102,31 @@ impl World {
     }
 
     /// Get the `T` component of `entity`
-    pub fn get<T: Component>(&self, entity: Entity) -> Result<&T, NoSuchEntity> {
+    pub fn get<T: Component>(&self, entity: Entity) -> Result<Ref<'_, T>, NoSuchEntity> {
         let meta = &self.entities[entity.id as usize];
         if meta.generation != entity.generation {
             return Err(NoSuchEntity);
         }
-        unsafe { Ok(self.archetypes[meta.archetype as usize].get(meta.index)) }
+        unsafe {
+            Ok(Ref::new(
+                &self.borrows,
+                self.archetypes[meta.archetype as usize].get(meta.index),
+            ))
+        }
     }
 
     /// Get the `T` component of `entity` mutably
-    pub fn get_mut<T: Component>(&mut self, entity: Entity) -> Result<&mut T, NoSuchEntity> {
+    pub fn get_mut<T: Component>(&self, entity: Entity) -> Result<RefMut<'_, T>, NoSuchEntity> {
         let meta = &self.entities[entity.id as usize];
         if meta.generation != entity.generation {
             return Err(NoSuchEntity);
         }
-        unsafe { Ok(self.archetypes[meta.archetype as usize].get_mut(meta.index)) }
+        unsafe {
+            Ok(RefMut::new(
+                &self.borrows,
+                self.archetypes[meta.archetype as usize].get_mut(meta.index),
+            ))
+        }
     }
 
     /// Add `component` to `entity`
@@ -135,6 +151,7 @@ impl World {
             let target = match self.archetype_index.entry(elements) {
                 Entry::Occupied(x) => *x.get(),
                 Entry::Vacant(x) => {
+                    self.borrows.ensure(TypeId::of::<T>());
                     self.archetypes.push(Archetype::new(info));
                     let index = self.archetypes.len() - 1;
                     x.insert(index);
@@ -215,8 +232,72 @@ impl World {
     /// assert!(entities.contains(&(a, (&123, &true))));
     /// assert!(entities.contains(&(b, (&456, &false))));
     /// ```
-    pub fn iter<'a, Q: Query<'a>>(&'a mut self) -> QueryIter<'a, Q> {
-        QueryIter::new(&mut self.borrows, &self.entities, &mut self.archetypes)
+    pub fn iter<'a, Q: Query<'a>>(&'a self) -> QueryIter<'a, Q> {
+        QueryIter::new(&self.borrows, &self.entities, &self.archetypes)
+    }
+}
+
+unsafe impl Sync for World {}
+
+pub struct Ref<'a, T: Component> {
+    borrow: &'a BorrowState,
+    target: NonNull<T>,
+}
+
+impl<'a, T: Component> Ref<'a, T> {
+    fn new(borrow: &'a BorrowState, target: &'a T) -> Self {
+        borrow.borrow(TypeId::of::<T>());
+        Self {
+            borrow,
+            target: target.into(),
+        }
+    }
+}
+
+impl<'a, T: Component> Drop for Ref<'a, T> {
+    fn drop(&mut self) {
+        self.borrow.release(TypeId::of::<T>());
+    }
+}
+
+impl<'a, T: Component> Deref for Ref<'a, T> {
+    type Target = T;
+    fn deref(&self) -> &T {
+        unsafe { self.target.as_ref() }
+    }
+}
+
+pub struct RefMut<'a, T: Component> {
+    borrow: &'a BorrowState,
+    target: NonNull<T>,
+}
+
+impl<'a, T: Component> RefMut<'a, T> {
+    fn new(borrow: &'a BorrowState, target: &'a mut T) -> Self {
+        borrow.borrow_mut(TypeId::of::<T>());
+        Self {
+            borrow,
+            target: target.into(),
+        }
+    }
+}
+
+impl<'a, T: Component> Drop for RefMut<'a, T> {
+    fn drop(&mut self) {
+        self.borrow.release_mut(TypeId::of::<T>());
+    }
+}
+
+impl<'a, T: Component> Deref for RefMut<'a, T> {
+    type Target = T;
+    fn deref(&self) -> &T {
+        unsafe { self.target.as_ref() }
+    }
+}
+
+impl<'a, T: Component> DerefMut for RefMut<'a, T> {
+    fn deref_mut(&mut self) -> &mut T {
+        unsafe { self.target.as_mut() }
     }
 }
 
