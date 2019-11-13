@@ -36,7 +36,7 @@ impl World {
     ///
     /// # Example
     /// ```
-    /// # use simplecs::*;
+    /// # use hecs::*;
     /// let mut world = World::new();
     /// let a = world.spawn((123, "abc"));
     /// let b = world.spawn((456, true));
@@ -223,7 +223,7 @@ impl World {
     ///
     /// # Example
     /// ```
-    /// # use simplecs::*;
+    /// # use hecs::*;
     /// let mut world = World::new();
     /// let a = world.spawn((123, true, "abc"));
     /// let b = world.spawn((456, false));

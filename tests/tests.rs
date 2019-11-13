@@ -1,4 +1,4 @@
-use simplecs::*;
+use hecs::*;
 
 #[test]
 fn random_access() {
