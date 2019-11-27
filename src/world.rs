@@ -86,8 +86,6 @@ impl World {
     }
 
     /// Destroy an entity and all its components
-    ///
-    /// Returns false iff the entity was already destroyed.
     pub fn despawn(&mut self, entity: Entity) -> Result<(), NoSuchEntity> {
         let meta = &mut self.entities[entity.id as usize];
         if meta.generation != entity.generation {
@@ -131,8 +129,7 @@ impl World {
 
     /// Add `component` to `entity`
     ///
-    /// Computational cost is proportional to the number of components `entity` has. Returns `false`
-    /// if the entity does not exist.
+    /// Computational cost is proportional to the number of components `entity` has.
     pub fn insert<T: Component>(
         &mut self,
         entity: Entity,
