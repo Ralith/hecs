@@ -99,6 +99,30 @@ impl World {
         Ok(())
     }
 
+    /// Access certain components from all entities
+    ///
+    /// Yields `(Entity, Q)` tuples. `Q` can be a shared or unique reference to a component type, an
+    /// `Option` wrapping such a reference, or a tuple of other query types. Each component type may
+    /// only appear once. Entities which do not have a component type referenced outside of an
+    /// `Option` will be skipped.
+    ///
+    /// Entities are yielded in arbitrary order.
+    ///
+    /// # Example
+    /// ```
+    /// # use hecs::*;
+    /// let mut world = World::new();
+    /// let a = world.spawn((123, true, "abc"));
+    /// let b = world.spawn((456, false));
+    /// let entities = world.iter::<(&i32, &bool)>().collect::<Vec<_>>();
+    /// assert_eq!(entities.len(), 2);
+    /// assert!(entities.contains(&(a, (&123, &true))));
+    /// assert!(entities.contains(&(b, (&456, &false))));
+    /// ```
+    pub fn iter<'a, Q: Query<'a>>(&'a self) -> QueryIter<'a, Q> {
+        QueryIter::new(&self.borrows, &self.entities, &self.archetypes)
+    }
+
     /// Get the `T` component of `entity`
     pub fn get<T: Component>(&self, entity: Entity) -> Result<Ref<'_, T>, NoSuchEntity> {
         let meta = &self.entities[entity.id as usize];
@@ -208,30 +232,6 @@ impl World {
             Ok(x)
         }
     }
-
-    /// Access certain components from all entities
-    ///
-    /// Yields `(Entity, Q)` tuples. `Q` can be a shared or unique reference to a component type, an
-    /// `Option` wrapping such a reference, or a tuple of other query types. Each component type may
-    /// only appear once. Entities which do not have a component type referenced outside of an
-    /// `Option` will be skipped.
-    ///
-    /// Entities are yielded in arbitrary order.
-    ///
-    /// # Example
-    /// ```
-    /// # use hecs::*;
-    /// let mut world = World::new();
-    /// let a = world.spawn((123, true, "abc"));
-    /// let b = world.spawn((456, false));
-    /// let entities = world.iter::<(&i32, &bool)>().collect::<Vec<_>>();
-    /// assert_eq!(entities.len(), 2);
-    /// assert!(entities.contains(&(a, (&123, &true))));
-    /// assert!(entities.contains(&(b, (&456, &false))));
-    /// ```
-    pub fn iter<'a, Q: Query<'a>>(&'a self) -> QueryIter<'a, Q> {
-        QueryIter::new(&self.borrows, &self.entities, &self.archetypes)
-    }
 }
 
 unsafe impl Sync for World {}
@@ -306,6 +306,7 @@ fn index2<T>(x: &mut [T], i: usize, j: usize) -> (&mut T, &mut T) {
     unsafe { (&mut *ptr.add(i), &mut *ptr.add(j)) }
 }
 
+/// Error indicating that no entity with a particular ID exists
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct NoSuchEntity;
 
@@ -338,8 +339,11 @@ pub struct Entity {
 /// A collection of distinctly typed values that can be used to create an entity
 pub trait ComponentSet {
     // Future work: Reduce heap allocation, redundant sorting
+    #[doc(hidden)]
     fn elements(&self) -> Vec<TypeId>;
+    #[doc(hidden)]
     fn info(&self) -> Vec<TypeInfo>;
+    #[doc(hidden)]
     unsafe fn store(self, archetype: &mut Archetype, index: u32);
 }
 

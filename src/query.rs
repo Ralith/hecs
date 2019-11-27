@@ -16,8 +16,10 @@ pub trait Query<'a>: Sized {
     type Fetch: Fetch<'a, Item = Self>;
     // Future work: impl Iterator once arrays are IntoIterator, or &'static [TypeId] once TypeId::of
     // is const
+    /// Access the types that a unique reference will be acquired to
     #[doc(hidden)]
     fn for_each_unique(_: &mut impl FnMut(TypeId)) {}
+    /// Access the types that a shared reference will be acquired to
     #[doc(hidden)]
     fn for_each_shared(_: &mut impl FnMut(TypeId)) {}
 }
