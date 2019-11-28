@@ -23,8 +23,10 @@
 #![warn(missing_docs)]
 
 mod archetype;
+mod borrow;
 mod query;
 mod world;
 
+pub use borrow::{EntityRef, Ref, RefMut};
 pub use query::{Query, QueryIter};
 pub use world::{Component, ComponentSet, Entity, EntityBuilder, NoSuchEntity, World};

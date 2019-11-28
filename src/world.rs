@@ -1,15 +1,13 @@
-use std::any::TypeId;
+use std::any::{type_name, TypeId};
 use std::error::Error;
 use std::fmt;
-use std::ops::{Deref, DerefMut};
-use std::ptr::NonNull;
 
 use downcast_rs::{impl_downcast, Downcast};
 use fxhash::FxHashMap;
 
 use crate::archetype::{Archetype, TypeInfo};
-use crate::query::BorrowState;
-use crate::{Query, QueryIter};
+use crate::borrow::{BorrowState, Ref, RefMut};
+use crate::{EntityRef, Query, QueryIter};
 
 /// An unordered collection of entities, each having zero or more distinctly typed components
 ///
@@ -102,9 +100,9 @@ impl World {
     /// Access certain components from all entities
     ///
     /// Yields `(Entity, Q)` tuples. `Q` can be a shared or unique reference to a component type, an
-    /// `Option` wrapping such a reference, or a tuple of other query types. Each component type may
-    /// only appear once. Entities which do not have a component type referenced outside of an
-    /// `Option` will be skipped.
+    /// `Option` wrapping such a reference, or a tuple of other query types. Components queried with
+    /// `&mut` must only appear once. Entities which do not have a component type referenced outside
+    /// of an `Option` will be skipped.
     ///
     /// Entities are yielded in arbitrary order.
     ///
@@ -114,16 +112,18 @@ impl World {
     /// let mut world = World::new();
     /// let a = world.spawn((123, true, "abc"));
     /// let b = world.spawn((456, false));
-    /// let entities = world.iter::<(&i32, &bool)>().collect::<Vec<_>>();
+    /// let entities = world.query::<(&i32, &bool)>().collect::<Vec<_>>();
     /// assert_eq!(entities.len(), 2);
     /// assert!(entities.contains(&(a, (&123, &true))));
     /// assert!(entities.contains(&(b, (&456, &false))));
     /// ```
-    pub fn iter<'a, Q: Query<'a>>(&'a self) -> QueryIter<'a, Q> {
+    pub fn query<'a, Q: Query<'a>>(&'a self) -> QueryIter<'a, Q> {
         QueryIter::new(&self.borrows, &self.entities, &self.archetypes)
     }
 
     /// Get the `T` component of `entity`
+    ///
+    /// Panics if the entity has no such component
     pub fn get<T: Component>(&self, entity: Entity) -> Result<Ref<'_, T>, NoSuchEntity> {
         let meta = &self.entities[entity.id as usize];
         if meta.generation != entity.generation {
@@ -132,7 +132,9 @@ impl World {
         unsafe {
             Ok(Ref::new(
                 &self.borrows,
-                self.archetypes[meta.archetype as usize].get(meta.index),
+                self.archetypes[meta.archetype as usize]
+                    .get(meta.index)
+                    .unwrap_or_else(|| panic!("entity has no {} component", type_name::<T>())),
             ))
         }
     }
@@ -146,9 +148,24 @@ impl World {
         unsafe {
             Ok(RefMut::new(
                 &self.borrows,
-                self.archetypes[meta.archetype as usize].get_mut(meta.index),
+                self.archetypes[meta.archetype as usize]
+                    .get(meta.index)
+                    .unwrap_or_else(|| panic!("entity has no {} component", type_name::<T>())),
             ))
         }
+    }
+
+    /// Access an entity regardless of its component types
+    pub fn entity(&self, entity: Entity) -> Result<EntityRef<'_>, NoSuchEntity> {
+        let meta = &self.entities[entity.id as usize];
+        if meta.generation != entity.generation {
+            return Err(NoSuchEntity);
+        }
+        Ok(EntityRef::new(
+            &self.borrows,
+            &self.archetypes[meta.archetype as usize],
+            meta.index,
+        ))
     }
 
     /// Add `component` to `entity`
@@ -180,7 +197,10 @@ impl World {
                 }
             };
             if target == meta.archetype as usize {
-                *self.archetypes[meta.archetype as usize].get_mut(meta.index) = component;
+                *self.archetypes[meta.archetype as usize]
+                    .get(meta.index)
+                    .expect("corrupt archetype index")
+                    .as_mut() = component;
             } else {
                 let (source_arch, target_arch) =
                     index2(&mut self.archetypes, meta.archetype as usize, target);
@@ -235,68 +255,6 @@ impl World {
 }
 
 unsafe impl Sync for World {}
-
-pub struct Ref<'a, T: Component> {
-    borrow: &'a BorrowState,
-    target: NonNull<T>,
-}
-
-impl<'a, T: Component> Ref<'a, T> {
-    fn new(borrow: &'a BorrowState, target: &'a T) -> Self {
-        borrow.borrow(TypeId::of::<T>());
-        Self {
-            borrow,
-            target: target.into(),
-        }
-    }
-}
-
-impl<'a, T: Component> Drop for Ref<'a, T> {
-    fn drop(&mut self) {
-        self.borrow.release(TypeId::of::<T>());
-    }
-}
-
-impl<'a, T: Component> Deref for Ref<'a, T> {
-    type Target = T;
-    fn deref(&self) -> &T {
-        unsafe { self.target.as_ref() }
-    }
-}
-
-pub struct RefMut<'a, T: Component> {
-    borrow: &'a BorrowState,
-    target: NonNull<T>,
-}
-
-impl<'a, T: Component> RefMut<'a, T> {
-    fn new(borrow: &'a BorrowState, target: &'a mut T) -> Self {
-        borrow.borrow_mut(TypeId::of::<T>());
-        Self {
-            borrow,
-            target: target.into(),
-        }
-    }
-}
-
-impl<'a, T: Component> Drop for RefMut<'a, T> {
-    fn drop(&mut self) {
-        self.borrow.release_mut(TypeId::of::<T>());
-    }
-}
-
-impl<'a, T: Component> Deref for RefMut<'a, T> {
-    type Target = T;
-    fn deref(&self) -> &T {
-        unsafe { self.target.as_ref() }
-    }
-}
-
-impl<'a, T: Component> DerefMut for RefMut<'a, T> {
-    fn deref_mut(&mut self) -> &mut T {
-        unsafe { self.target.as_mut() }
-    }
-}
 
 fn index2<T>(x: &mut [T], i: usize, j: usize) -> (&mut T, &mut T) {
     assert!(i != j);

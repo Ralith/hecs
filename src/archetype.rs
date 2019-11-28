@@ -49,23 +49,11 @@ impl Archetype {
     }
 
     /// `index` must be in-bounds and live
-    pub unsafe fn get<T: Component>(&self, index: u32) -> &T {
+    pub unsafe fn get<T: Component>(&self, index: u32) -> Option<NonNull<T>> {
         debug_assert!(index < self.len);
-        &*self
-            .data::<T>()
-            .expect("no such component")
-            .as_ptr()
-            .add(index as usize)
-    }
-
-    /// `index` must be in-bounds and live and not aliased
-    pub unsafe fn get_mut<T: Component>(&self, index: u32) -> &mut T {
-        debug_assert!(index < self.len);
-        &mut *self
-            .data::<T>()
-            .expect("no such component")
-            .as_ptr()
-            .add(index as usize)
+        Some(NonNull::new_unchecked(
+            self.data::<T>()?.as_ptr().add(index as usize),
+        ))
     }
 
     /// Every type must be written immediately after this call

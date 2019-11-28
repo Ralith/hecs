@@ -1,71 +1,23 @@
-use std::any::TypeId;
+use std::any::{type_name, TypeId};
 use std::marker::PhantomData;
 use std::ptr::NonNull;
 
-use fxhash::FxHashMap;
-use lock_api::RawRwLock as _;
-use parking_lot::RawRwLock;
-
 use crate::archetype::Archetype;
+use crate::borrow::BorrowState;
 use crate::world::EntityMeta;
 use crate::{Component, Entity};
 
 /// A collection of component types to fetch from a `World`
 pub trait Query<'a>: Sized {
-    #[doc(hidden)]
+    /// Helper used to process the query
     type Fetch: Fetch<'a, Item = Self>;
-    // Future work: impl Iterator once arrays are IntoIterator, or &'static [TypeId] once TypeId::of
-    // is const
-    /// Access the types that a unique reference will be acquired to
-    #[doc(hidden)]
-    fn for_each_unique(_: &mut impl FnMut(TypeId)) {}
-    /// Access the types that a shared reference will be acquired to
-    #[doc(hidden)]
-    fn for_each_shared(_: &mut impl FnMut(TypeId)) {}
+    /// Dynamically borrow the component types to be accessed, or panic if borrows can't be acquired
+    fn borrow(state: &BorrowState);
+    /// Release dynamic borrows
+    fn release(state: &BorrowState);
 }
 
-#[derive(Default)]
-pub struct BorrowState {
-    states: FxHashMap<TypeId, RawRwLock>,
-}
-
-impl BorrowState {
-    pub fn ensure(&mut self, ty: TypeId) {
-        use std::collections::hash_map::Entry;
-        match self.states.entry(ty) {
-            Entry::Vacant(e) => {
-                e.insert(RawRwLock::INIT);
-            }
-            Entry::Occupied(_) => {}
-        }
-    }
-
-    pub fn borrow(&self, ty: TypeId) {
-        assert!(
-            self.states.get(&ty).map_or(true, |x| x.try_lock_shared()),
-            "component type already borrowed exclusively"
-        );
-    }
-
-    pub fn borrow_mut(&self, ty: TypeId) {
-        assert!(
-            self.states
-                .get(&ty)
-                .map_or(true, |x| x.try_lock_exclusive()),
-            "component type already borrowed"
-        );
-    }
-
-    pub fn release(&self, ty: TypeId) {
-        self.states.get(&ty).map(|x| x.unlock_shared());
-    }
-
-    pub fn release_mut(&self, ty: TypeId) {
-        self.states.get(&ty).map(|x| x.unlock_exclusive());
-    }
-}
-
-#[doc(hidden)]
+/// Streaming iterators over contiguous homogeneous ranges of components
 pub trait Fetch<'a>: Sized {
     type Item;
     fn get(archetype: &Archetype) -> Option<Self>;
@@ -74,8 +26,11 @@ pub trait Fetch<'a>: Sized {
 
 impl<'a, T: Component> Query<'a> for &'a T {
     type Fetch = FetchRead<T>;
-    fn for_each_shared(f: &mut impl FnMut(TypeId)) {
-        f(TypeId::of::<T>())
+    fn borrow(state: &BorrowState) {
+        state.borrow(TypeId::of::<T>(), type_name::<T>())
+    }
+    fn release(state: &BorrowState) {
+        state.release(TypeId::of::<T>())
     }
 }
 
@@ -96,8 +51,11 @@ impl<'a, T: Component> Fetch<'a> for FetchRead<T> {
 
 impl<'a, T: Component> Query<'a> for Option<&'a T> {
     type Fetch = FetchTryRead<T>;
-    fn for_each_shared(f: &mut impl FnMut(TypeId)) {
-        f(TypeId::of::<T>())
+    fn borrow(state: &BorrowState) {
+        state.borrow(TypeId::of::<T>(), type_name::<T>())
+    }
+    fn release(state: &BorrowState) {
+        state.release(TypeId::of::<T>())
     }
 }
 
@@ -118,8 +76,11 @@ impl<'a, T: Component> Fetch<'a> for FetchTryRead<T> {
 
 impl<'a, T: Component> Query<'a> for &'a mut T {
     type Fetch = FetchWrite<T>;
-    fn for_each_unique(f: &mut impl FnMut(TypeId)) {
-        f(TypeId::of::<T>())
+    fn borrow(state: &BorrowState) {
+        state.borrow_mut(TypeId::of::<T>(), type_name::<T>())
+    }
+    fn release(state: &BorrowState) {
+        state.release_mut(TypeId::of::<T>())
     }
 }
 
@@ -140,8 +101,11 @@ impl<'a, T: Component> Fetch<'a> for FetchWrite<T> {
 
 impl<'a, T: Component> Query<'a> for Option<&'a mut T> {
     type Fetch = FetchTryWrite<T>;
-    fn for_each_unique(f: &mut impl FnMut(TypeId)) {
-        f(TypeId::of::<T>())
+    fn borrow(state: &BorrowState) {
+        state.borrow_mut(TypeId::of::<T>(), type_name::<T>())
+    }
+    fn release(state: &BorrowState) {
+        state.release_mut(TypeId::of::<T>())
     }
 }
 
@@ -174,8 +138,7 @@ impl<'a, Q: Query<'a>> QueryIter<'a, Q> {
         meta: &'a [EntityMeta],
         archetypes: &'a [Archetype],
     ) -> Self {
-        Q::for_each_unique(&mut |ty| borrows.borrow_mut(ty));
-        Q::for_each_shared(&mut |ty| borrows.borrow(ty));
+        Q::borrow(borrows);
         Self {
             borrows,
             meta,
@@ -187,8 +150,7 @@ impl<'a, Q: Query<'a>> QueryIter<'a, Q> {
 
 impl<'a, Q: Query<'a>> Drop for QueryIter<'a, Q> {
     fn drop(&mut self) {
-        Q::for_each_unique(&mut |ty| self.borrows.release_mut(ty));
-        Q::for_each_shared(&mut |ty| self.borrows.release(ty));
+        Q::release(self.borrows);
     }
 }
 
@@ -265,11 +227,11 @@ macro_rules! tuple_impl {
         #[allow(unused_variables)]
         impl<'a, $($name: Query<'a>),*> Query<'a> for ($($name,)*) {
             type Fetch = (($($name::Fetch,)*));
-            fn for_each_unique(f: &mut impl FnMut(TypeId)) {
-                $($name::for_each_unique(f);)*
+            fn borrow(state: &BorrowState) {
+                $($name::borrow(state);)*
             }
-            fn for_each_shared(f: &mut impl FnMut(TypeId)) {
-                $($name::for_each_shared(f);)*
+            fn release(state: &BorrowState) {
+                $($name::release(state);)*
             }
         }
     }
