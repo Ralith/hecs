@@ -30,7 +30,10 @@ impl World {
 
     /// Create an entity with certain components
     ///
-    /// Returns the ID of the newly created entity
+    /// Returns the ID of the newly created entity.
+    ///
+    /// Arguments can be tuples or structs annotated with `#[derive(Bundle)]`. To spawn an entity
+    /// with only one component, use a one-element tuple like `(x,)`.
     ///
     /// # Example
     /// ```
@@ -97,7 +100,12 @@ impl World {
         Ok(())
     }
 
-    /// Access certain components from all entities
+    /// Whether `entity` still exists
+    pub fn contains(&self, entity: Entity) -> bool {
+        self.entities[entity.id as usize].generation == entity.generation
+    }
+
+    /// Iterate over all entities that have certain components
     ///
     /// Yields `(Entity, Q)` tuples. `Q` can be a shared or unique reference to a component type, an
     /// `Option` wrapping such a reference, or a tuple of valid `Q`s. Components queried with `&mut`
@@ -112,6 +120,7 @@ impl World {
     /// let mut world = World::new();
     /// let a = world.spawn((123, true, "abc"));
     /// let b = world.spawn((456, false));
+    /// let c = world.spawn((42, "def"));
     /// let entities = world.query::<(&i32, &bool)>().collect::<Vec<_>>();
     /// assert_eq!(entities.len(), 2);
     /// assert!(entities.contains(&(a, (&123, &true))));
@@ -121,9 +130,9 @@ impl World {
         QueryIter::new(&self.borrows, &self.entities, &self.archetypes)
     }
 
-    /// Get the `T` component of `entity`
+    /// Borrow the `T` component of `entity`
     ///
-    /// Panics if the entity has no such component
+    /// Panics if the entity has no such component or the component is already uniquely borrowed.
     pub fn get<T: Component>(&self, entity: Entity) -> Result<Ref<'_, T>, NoSuchEntity> {
         let meta = &self.entities[entity.id as usize];
         if meta.generation != entity.generation {
@@ -139,7 +148,9 @@ impl World {
         }
     }
 
-    /// Get the `T` component of `entity` mutably
+    /// Uniquely borrow the `T` component of `entity`
+    ///
+    /// Panics if the entity has no such component or the component is already borrowed.
     pub fn get_mut<T: Component>(&self, entity: Entity) -> Result<RefMut<'_, T>, NoSuchEntity> {
         let meta = &self.entities[entity.id as usize];
         if meta.generation != entity.generation {
@@ -156,6 +167,8 @@ impl World {
     }
 
     /// Access an entity regardless of its component types
+    ///
+    /// Does not immediately borrow any component.
     pub fn entity(&self, entity: Entity) -> Result<EntityRef<'_>, NoSuchEntity> {
         let meta = &self.entities[entity.id as usize];
         if meta.generation != entity.generation {
@@ -288,6 +301,8 @@ pub(crate) struct EntityMeta {
 }
 
 /// Lightweight unique ID of an entity
+///
+/// Obtained from `World::spawn`. Can be stored to refer to an entity in the future.
 #[derive(Clone, Copy, Debug, Hash, Eq, Ord, PartialEq, PartialOrd)]
 pub struct Entity {
     pub(crate) generation: u32,

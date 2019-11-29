@@ -124,7 +124,7 @@ impl<'a, T: Component> Fetch<'a> for FetchTryWrite<T> {
     }
 }
 
-/// Iterator over the set of entities with the components required by `Q`
+/// Iterator over the set of entities with the components in `Q`
 pub struct QueryIter<'a, Q: Query<'a>> {
     borrows: &'a BorrowState,
     meta: &'a [EntityMeta],
