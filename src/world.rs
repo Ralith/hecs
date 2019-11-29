@@ -306,10 +306,19 @@ pub trait ComponentSet {
 }
 
 /// Helper for incrementally constructing an entity with dynamic component types
+///
+/// ```
+/// # use hecs::*;
+/// let mut world = World::new();
+/// let mut builder = EntityBuilder::new();
+/// builder.with(123).with("abc");
+/// let e = world.spawn(builder.build());
+/// assert_eq!(*world.get::<i32>(e).unwrap(), 123);
+/// assert_eq!(*world.get::<&str>(e).unwrap(), "abc");
+/// ```
 #[derive(Default)]
 pub struct EntityBuilder {
-    components: Vec<Box<dyn Component>>,
-    types: Vec<TypeInfo>,
+    components: Vec<(TypeInfo, Box<dyn Component>)>,
 }
 
 impl EntityBuilder {
@@ -320,14 +329,14 @@ impl EntityBuilder {
 
     /// Add `component` to the entity
     pub fn with<T: Component>(&mut self, component: T) -> &mut Self {
-        self.components.push(Box::new(component));
-        self.types.push(TypeInfo::of::<T>());
+        self.components
+            .push((TypeInfo::of::<T>(), Box::new(component)));
         self
     }
 
-    /// Prepare for spawning
+    /// Construct a `ComponentSet` suitable for spawning
     pub fn build(mut self) -> BuiltEntity {
-        self.types.sort_unstable();
+        self.components.sort_unstable_by(|x, y| x.0.cmp(&y.0));
         BuiltEntity { inner: self }
     }
 }
@@ -339,20 +348,16 @@ pub struct BuiltEntity {
 
 impl ComponentSet for BuiltEntity {
     fn elements(&self) -> Vec<TypeId> {
-        self.inner.types.iter().map(|x| x.id()).collect()
+        self.inner.components.iter().map(|x| x.0.id()).collect()
     }
     fn info(&self) -> Vec<TypeInfo> {
-        self.inner.types.clone()
+        self.inner.components.iter().map(|x| x.0).collect()
     }
     unsafe fn store(self, archetype: &mut Archetype, index: u32) {
-        for (component, info) in self
-            .inner
-            .components
-            .into_iter()
-            .zip(self.inner.types.into_iter())
-        {
+        for (info, component) in self.inner.components.into_iter() {
             let component = Box::into_raw(component) as *mut u8;
-            archetype.put_dynamic(component, info.id(), info.layout(), index);
+            archetype.put_dynamic(component as *const u8, info.id(), info.layout(), index);
+            // We moved out of the box, so we need to free the memory without dropping its contents.
             std::alloc::dealloc(component, info.layout());
         }
     }

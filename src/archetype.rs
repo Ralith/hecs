@@ -189,7 +189,7 @@ impl Archetype {
 
     pub unsafe fn put_dynamic(
         &mut self,
-        component: *mut u8,
+        component: *const u8,
         ty: TypeId,
         layout: Layout,
         index: u32,
@@ -219,7 +219,7 @@ fn align(x: usize, alignment: usize) -> usize {
     (x + alignment - 1) & (!alignment + 1)
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub struct TypeInfo {
     id: TypeId,
     layout: Layout,
