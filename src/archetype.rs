@@ -20,6 +20,10 @@ pub struct Archetype {
 
 impl Archetype {
     pub fn new(types: Vec<TypeInfo>) -> Self {
+        debug_assert!(
+            types.windows(2).all(|x| x[0] < x[1]),
+            "types are not ordered consistently"
+        );
         Self {
             types,
             offsets: FxHashMap::default(),
