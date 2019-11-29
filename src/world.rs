@@ -105,7 +105,7 @@ impl World {
         self.entities[entity.id as usize].generation == entity.generation
     }
 
-    /// Iterate over all entities that have certain components
+    /// Efficiently iterate over all entities that have certain components
     ///
     /// Yields `(Entity, Q)` tuples. `Q` can be a shared or unique reference to a component type, an
     /// `Option` wrapping such a reference, or a tuple of valid `Q`s. Components queried with `&mut`
@@ -179,6 +179,21 @@ impl World {
             &self.archetypes[meta.archetype as usize],
             meta.index,
         ))
+    }
+
+    /// Iterate over all entities in the world
+    ///
+    /// Entities are yielded in arbitrary order. See also `World::query`.
+    ///
+    /// ```
+    /// # use hecs::*;
+    /// let mut world = World::new();
+    /// let a = world.spawn(());
+    /// let b = world.spawn(());
+    /// assert_eq!(world.iter().map(|(id, _)| id).collect::<Vec<_>>(), &[a, b]);
+    /// ```
+    pub fn iter(&self) -> Iter<'_> {
+        Iter::new(&self.borrows, &self.archetypes, &self.entities)
     }
 
     /// Add `component` to `entity`
@@ -268,6 +283,14 @@ impl World {
 }
 
 unsafe impl Sync for World {}
+
+impl<'a> IntoIterator for &'a World {
+    type IntoIter = Iter<'a>;
+    type Item = (Entity, EntityRef<'a>);
+    fn into_iter(self) -> Iter<'a> {
+        self.iter()
+    }
+}
 
 fn index2<T>(x: &mut [T], i: usize, j: usize) -> (&mut T, &mut T) {
     assert!(i != j);
@@ -375,6 +398,57 @@ impl ComponentSet for BuiltEntity {
             // We moved out of the box, so we need to free the memory without dropping its contents.
             std::alloc::dealloc(component, info.layout());
         }
+    }
+}
+
+/// Iterator over all of a world's entities
+pub struct Iter<'a> {
+    borrows: &'a BorrowState,
+    archetypes: &'a [Archetype],
+    // TODO: Walk archetypes for better cache locality
+    entities: std::iter::Enumerate<std::slice::Iter<'a, EntityMeta>>,
+}
+
+impl<'a> Iter<'a> {
+    fn new(
+        borrows: &'a BorrowState,
+        archetypes: &'a [Archetype],
+        entities: &'a [EntityMeta],
+    ) -> Self {
+        Self {
+            borrows,
+            archetypes,
+            entities: entities.iter().enumerate(),
+        }
+    }
+}
+
+impl<'a> Iterator for Iter<'a> {
+    type Item = (Entity, EntityRef<'a>);
+    fn next(&mut self) -> Option<Self::Item> {
+        let (id, meta) = self.entities.next()?;
+        let entity = Entity {
+            id: id as u32,
+            generation: meta.generation,
+        };
+        Some((
+            entity,
+            EntityRef::new(
+                self.borrows,
+                &self.archetypes[meta.archetype as usize],
+                meta.index,
+            ),
+        ))
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.entities.size_hint()
+    }
+}
+
+impl ExactSizeIterator for Iter<'_> {
+    fn len(&self) -> usize {
+        self.entities.len()
     }
 }
 
