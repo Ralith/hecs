@@ -19,7 +19,6 @@
 //! assert_eq!(*world.get::<i32>(b).unwrap(), 42);
 //! ```
 
-
 #![warn(missing_docs)]
 
 mod archetype;

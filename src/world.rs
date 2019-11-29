@@ -9,7 +9,7 @@ use crate::archetype::{Archetype, TypeInfo};
 use crate::borrow::{BorrowState, Ref, RefMut};
 use crate::{EntityRef, Query, QueryIter};
 
-/// An unordered collection of entities, each having zero or more distinctly typed components
+/// An unordered collection of entities, each having any number of distinctly typed components
 ///
 /// The components of entities who have the same set of component types are stored in contiguous
 /// runs, allowing for extremely fast, cache-friendly iteration.
@@ -100,9 +100,9 @@ impl World {
     /// Access certain components from all entities
     ///
     /// Yields `(Entity, Q)` tuples. `Q` can be a shared or unique reference to a component type, an
-    /// `Option` wrapping such a reference, or a tuple of other query types. Components queried with
-    /// `&mut` must only appear once. Entities which do not have a component type referenced outside
-    /// of an `Option` will be skipped.
+    /// `Option` wrapping such a reference, or a tuple of valid `Q`s. Components queried with `&mut`
+    /// must only appear once. Entities which do not have a component type referenced outside of an
+    /// `Option` will be skipped.
     ///
     /// Entities are yielded in arbitrary order.
     ///

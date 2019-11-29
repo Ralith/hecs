@@ -52,7 +52,7 @@ impl BorrowState {
     }
 }
 
-/// Shared borrow of a particular component of a particular entity
+/// Shared borrow of an entity's component
 #[derive(Clone)]
 pub struct Ref<'a, T: Component> {
     borrow: &'a BorrowState,
@@ -82,7 +82,7 @@ impl<'a, T: Component> Deref for Ref<'a, T> {
     }
 }
 
-/// Unique borrow of a particular component of a particular entity
+/// Unique borrow of an entity's component
 pub struct RefMut<'a, T: Component> {
     borrow: &'a BorrowState,
     target: NonNull<T>,
