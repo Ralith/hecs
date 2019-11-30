@@ -48,6 +48,10 @@ impl Archetype {
         unsafe { NonNull::new_unchecked(self.entities.as_ptr() as *mut _) }
     }
 
+    pub fn entity_id(&self, index: u32) -> u32 {
+        self.entities[index as usize]
+    }
+
     pub fn types(&self) -> &[TypeInfo] {
         &self.types
     }

@@ -404,9 +404,10 @@ impl ComponentSet for BuiltEntity {
 /// Iterator over all of a world's entities
 pub struct Iter<'a> {
     borrows: &'a BorrowState,
-    archetypes: &'a [Archetype],
-    // TODO: Walk archetypes for better cache locality
-    entities: std::iter::Enumerate<std::slice::Iter<'a, EntityMeta>>,
+    archetypes: std::slice::Iter<'a, Archetype>,
+    entities: &'a [EntityMeta],
+    current: Option<&'a Archetype>,
+    index: u32,
 }
 
 impl<'a> Iter<'a> {
@@ -417,8 +418,10 @@ impl<'a> Iter<'a> {
     ) -> Self {
         Self {
             borrows,
-            archetypes,
-            entities: entities.iter().enumerate(),
+            archetypes: archetypes.iter(),
+            entities: entities,
+            current: None,
+            index: 0,
         }
     }
 }
@@ -426,29 +429,34 @@ impl<'a> Iter<'a> {
 impl<'a> Iterator for Iter<'a> {
     type Item = (Entity, EntityRef<'a>);
     fn next(&mut self) -> Option<Self::Item> {
-        let (id, meta) = self.entities.next()?;
-        let entity = Entity {
-            id: id as u32,
-            generation: meta.generation,
-        };
-        Some((
-            entity,
-            EntityRef::new(
-                self.borrows,
-                &self.archetypes[meta.archetype as usize],
-                meta.index,
-            ),
-        ))
+        loop {
+            match self.current {
+                None => {
+                    self.current = Some(self.archetypes.next()?);
+                    self.index = 0;
+                }
+                Some(current) => {
+                    if self.index == current.len() as u32 {
+                        self.current = None;
+                        continue;
+                    }
+                    let index = self.index;
+                    self.index += 1;
+                    let id = current.entity_id(index);
+                    return Some((
+                        Entity {
+                            id,
+                            generation: self.entities[id as usize].generation,
+                        },
+                        EntityRef::new(self.borrows, current, index),
+                    ));
+                }
+            }
+        }
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        self.entities.size_hint()
-    }
-}
-
-impl ExactSizeIterator for Iter<'_> {
-    fn len(&self) -> usize {
-        self.entities.len()
+        (0, Some(self.entities.len()))
     }
 }
 
