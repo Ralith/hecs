@@ -21,7 +21,7 @@ pub trait Query<'a>: Sized {
 pub trait Fetch<'a>: Sized {
     type Item;
     /// Construct a `Fetch` for `archetype` if it should be traversed
-    fn get(archetype: &Archetype) -> Option<Self>;
+    fn get(archetype: &'a Archetype) -> Option<Self>;
     /// Access the next item in this archetype without bounds checking
     unsafe fn next(&mut self) -> Self::Item;
 }
@@ -41,7 +41,7 @@ pub struct FetchRead<T>(NonNull<T>);
 
 impl<'a, T: Component> Fetch<'a> for FetchRead<T> {
     type Item = &'a T;
-    fn get(archetype: &Archetype) -> Option<Self> {
+    fn get(archetype: &'a Archetype) -> Option<Self> {
         archetype.data::<T>().map(Self)
     }
     unsafe fn next(&mut self) -> &'a T {
@@ -66,7 +66,7 @@ pub struct FetchTryRead<T>(Option<NonNull<T>>);
 
 impl<'a, T: Component> Fetch<'a> for FetchTryRead<T> {
     type Item = Option<&'a T>;
-    fn get(archetype: &Archetype) -> Option<Self> {
+    fn get(archetype: &'a Archetype) -> Option<Self> {
         Some(Self(archetype.data::<T>()))
     }
     unsafe fn next(&mut self) -> Option<&'a T> {
@@ -91,7 +91,7 @@ pub struct FetchWrite<T>(NonNull<T>);
 
 impl<'a, T: Component> Fetch<'a> for FetchWrite<T> {
     type Item = &'a mut T;
-    fn get(archetype: &Archetype) -> Option<Self> {
+    fn get(archetype: &'a Archetype) -> Option<Self> {
         archetype.data::<T>().map(Self)
     }
     unsafe fn next(&mut self) -> &'a mut T {
@@ -116,7 +116,7 @@ pub struct FetchTryWrite<T>(Option<NonNull<T>>);
 
 impl<'a, T: Component> Fetch<'a> for FetchTryWrite<T> {
     type Item = Option<&'a mut T>;
-    fn get(archetype: &Archetype) -> Option<Self> {
+    fn get(archetype: &'a Archetype) -> Option<Self> {
         Some(Self(archetype.data::<T>()))
     }
     unsafe fn next(&mut self) -> Option<&'a mut T> {
@@ -216,7 +216,7 @@ macro_rules! tuple_impl {
         impl<'a, $($name: Fetch<'a>),*> Fetch<'a> for ($($name,)*) {
             type Item = ($($name::Item,)*);
             #[allow(unused_variables)]
-            fn get(archetype: &Archetype) -> Option<Self> {
+            fn get(archetype: &'a Archetype) -> Option<Self> {
                 Some(($($name::get(archetype)?,)*))
             }
             unsafe fn next(&mut self) -> Self::Item {
