@@ -97,6 +97,7 @@ impl World {
         {
             self.entities[moved as usize].index = meta.index;
         }
+        self.free.push(entity.id);
         Ok(())
     }
 
@@ -517,3 +518,18 @@ tuple_impl!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O);
 // tuple_impl!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z, AA, AB, AC, AD, AE);
 // tuple_impl!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z, AA, AB, AC, AD, AE, AF);
 // tuple_impl!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z, AA, AB, AC, AD, AE, AF, AG);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn id_reuse() {
+        let mut world = World::new();
+        let a = world.spawn(());
+        world.despawn(a).unwrap();
+        let b = world.spawn(());
+        assert_eq!(a.id, b.id);
+        assert_ne!(a.generation, b.generation);
+    }
+}
