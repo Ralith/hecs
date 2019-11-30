@@ -273,7 +273,7 @@ impl World {
             };
             let (source_arch, target_arch) =
                 index2(&mut self.archetypes, meta.archetype as usize, target);
-            let x = source_arch.read::<T>(meta.index);
+            let x = source_arch.take::<T>(meta.index);
             let components = source_arch.move_component_set(meta.index);
             meta.archetype = target as u32;
             meta.index = target_arch.allocate(entity.id);
@@ -350,7 +350,7 @@ pub trait ComponentSet {
 /// # use hecs::*;
 /// let mut world = World::new();
 /// let mut builder = EntityBuilder::new();
-/// builder.with(123).with("abc");
+/// builder.add(123).add("abc");
 /// let e = world.spawn(builder.build());
 /// assert_eq!(*world.get::<i32>(e).unwrap(), 123);
 /// assert_eq!(*world.get::<&str>(e).unwrap(), "abc");
@@ -367,7 +367,7 @@ impl EntityBuilder {
     }
 
     /// Add `component` to the entity
-    pub fn with<T: Component>(&mut self, component: T) -> &mut Self {
+    pub fn add<T: Component>(&mut self, component: T) -> &mut Self {
         self.components
             .push((TypeInfo::of::<T>(), Box::new(component)));
         self
@@ -420,7 +420,7 @@ impl<'a> Iter<'a> {
         Self {
             borrows,
             archetypes: archetypes.iter(),
-            entities: entities,
+            entities,
             current: None,
             index: 0,
         }

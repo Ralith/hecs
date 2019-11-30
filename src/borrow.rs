@@ -16,39 +16,35 @@ pub struct BorrowState {
 
 impl BorrowState {
     pub(crate) fn ensure(&mut self, ty: TypeId) {
-        use std::collections::hash_map::Entry;
-        match self.states.entry(ty) {
-            Entry::Vacant(e) => {
-                e.insert(RawRwLock::INIT);
-            }
-            Entry::Occupied(_) => {}
-        }
+        self.states.entry(ty).or_insert(RawRwLock::INIT);
     }
 
     pub fn borrow(&self, ty: TypeId, name: &str) {
-        assert!(
-            self.states.get(&ty).map_or(true, |x| x.try_lock_shared()),
-            "{} already borrowed uniquely",
-            name
-        );
+        if self.states.get(&ty).map_or(false, |x| !x.try_lock_shared()) {
+            panic!("{} already borrowed uniquely", name);
+        }
     }
 
     pub fn borrow_mut(&self, ty: TypeId, name: &str) {
-        assert!(
-            self.states
-                .get(&ty)
-                .map_or(true, |x| x.try_lock_exclusive()),
-            "{} already borrowed",
-            name
-        );
+        if self
+            .states
+            .get(&ty)
+            .map_or(false, |x| !x.try_lock_exclusive())
+        {
+            panic!("{} already borrowed", name);
+        }
     }
 
     pub fn release(&self, ty: TypeId) {
-        self.states.get(&ty).map(|x| x.unlock_shared());
+        if let Some(x) = self.states.get(&ty) {
+            x.unlock_shared();
+        }
     }
 
     pub fn release_mut(&self, ty: TypeId) {
-        self.states.get(&ty).map(|x| x.unlock_exclusive());
+        if let Some(x) = self.states.get(&ty) {
+            x.unlock_exclusive();
+        }
     }
 }
 
@@ -62,10 +58,7 @@ pub struct Ref<'a, T: Component> {
 impl<'a, T: Component> Ref<'a, T> {
     pub(crate) unsafe fn new(borrow: &'a BorrowState, target: NonNull<T>) -> Self {
         borrow.borrow(TypeId::of::<T>(), type_name::<T>());
-        Self {
-            borrow,
-            target: target,
-        }
+        Self { borrow, target }
     }
 }
 

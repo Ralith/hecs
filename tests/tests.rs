@@ -5,9 +5,9 @@ fn random_access() {
     let mut world = World::new();
     let e = world.spawn(("abc", 123));
     let f = world.spawn(("def", 456, true));
-    assert_eq!(*world.get::<&'static str>(e).unwrap(), "abc");
+    assert_eq!(*world.get::<&str>(e).unwrap(), "abc");
     assert_eq!(*world.get::<i32>(e).unwrap(), 123);
-    assert_eq!(*world.get::<&'static str>(f).unwrap(), "def");
+    assert_eq!(*world.get::<&str>(f).unwrap(), "def");
     assert_eq!(*world.get::<i32>(f).unwrap(), 456);
     *world.get_mut::<i32>(f).unwrap() = 42;
     assert_eq!(*world.get::<i32>(f).unwrap(), 42);
@@ -19,9 +19,9 @@ fn despawn() {
     let e = world.spawn(("abc", 123));
     let f = world.spawn(("def", 456));
     world.despawn(e).unwrap();
-    assert!(world.get::<&'static str>(e).is_err());
+    assert!(world.get::<&str>(e).is_err());
     assert!(world.get::<i32>(e).is_err());
-    assert_eq!(*world.get::<&'static str>(f).unwrap(), "def");
+    assert_eq!(*world.get::<&str>(f).unwrap(), "def");
     assert_eq!(*world.get::<i32>(f).unwrap(), 456);
 }
 
@@ -31,7 +31,7 @@ fn query_all() {
     let e = world.spawn(("abc", 123));
     let f = world.spawn(("def", 456));
 
-    let ents = world.query::<(&i32, &&'static str)>().collect::<Vec<_>>();
+    let ents = world.query::<(&i32, &&str)>().collect::<Vec<_>>();
     assert_eq!(ents.len(), 2);
     assert!(ents.contains(&(e, (&123, &"abc"))));
     assert!(ents.contains(&(f, (&456, &"def"))));
@@ -86,9 +86,9 @@ fn query_optional_component() {
 fn build_entity() {
     let mut world = World::new();
     let mut entity = EntityBuilder::new();
-    entity.with("abc").with(123);
+    entity.add("abc").add(123);
     let e = world.spawn(entity.build());
-    assert_eq!(*world.get::<&'static str>(e).unwrap(), "abc");
+    assert_eq!(*world.get::<&str>(e).unwrap(), "abc");
     assert_eq!(*world.get::<i32>(e).unwrap(), 123);
 }
 

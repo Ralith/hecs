@@ -56,7 +56,7 @@ impl Archetype {
         &self.types
     }
 
-    /// `index` must be in-bounds and live
+    /// `index` must be in-bounds
     pub unsafe fn get<T: Component>(&self, index: u32) -> Option<NonNull<T>> {
         debug_assert!(index < self.len);
         Some(NonNull::new_unchecked(
@@ -142,12 +142,13 @@ impl Archetype {
         }
     }
 
-    /// Extract a component prior to the entity being moved to an archetype that lacks it
-    pub unsafe fn read<T: Component>(&mut self, index: u32) -> T {
-        self.data::<T>()
+    /// Move out of an entity's component
+    ///
+    /// Further access to this component is UB!
+    pub unsafe fn take<T: Component>(&mut self, index: u32) -> T {
+        self.get::<T>(index)
             .expect("no such component")
             .as_ptr()
-            .add(index as usize)
             .read()
     }
 
@@ -184,10 +185,9 @@ impl Archetype {
     }
 
     pub unsafe fn put<T: Component>(&mut self, component: T, index: u32) {
-        self.data::<T>()
-            .unwrap()
+        self.get::<T>(index)
+            .expect("no such component")
             .as_ptr()
-            .add(index as usize)
             .write(component);
     }
 
