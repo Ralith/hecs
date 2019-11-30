@@ -108,10 +108,10 @@ impl World {
 
     /// Efficiently iterate over all entities that have certain components
     ///
-    /// Yields `(Entity, Q)` tuples. `Q` can be a shared or unique reference to a component type, an
-    /// `Option` wrapping such a reference, or a tuple of valid `Q`s. Components queried with `&mut`
-    /// must only appear once. Entities which do not have a component type referenced outside of an
-    /// `Option` will be skipped.
+    /// Yields `(Entity, Q)` tuples, where `Q` is some query type. A query type is `&T`, `&mut T`, a
+    /// tuple of query types, or an `Option` wrapping a query type, where `T` is any component
+    /// type. Components queried with `&mut` must only appear once. Entities which do not have a
+    /// component type referenced outside of an `Option` will be skipped.
     ///
     /// Entities are yielded in arbitrary order.
     ///

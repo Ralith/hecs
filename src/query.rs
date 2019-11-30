@@ -51,31 +51,6 @@ impl<'a, T: Component> Fetch<'a> for FetchRead<T> {
     }
 }
 
-impl<'a, T: Component> Query<'a> for Option<&'a T> {
-    type Fetch = FetchTryRead<T>;
-    fn borrow(state: &BorrowState) {
-        state.borrow(TypeId::of::<T>(), type_name::<T>())
-    }
-    fn release(state: &BorrowState) {
-        state.release(TypeId::of::<T>())
-    }
-}
-
-#[doc(hidden)]
-pub struct FetchTryRead<T>(Option<NonNull<T>>);
-
-impl<'a, T: Component> Fetch<'a> for FetchTryRead<T> {
-    type Item = Option<&'a T>;
-    fn get(archetype: &'a Archetype) -> Option<Self> {
-        Some(Self(archetype.data::<T>()))
-    }
-    unsafe fn next(&mut self) -> Option<&'a T> {
-        let x = self.0?.as_ptr();
-        self.0 = Some(NonNull::new_unchecked(x.add(1)));
-        Some(&*x)
-    }
-}
-
 impl<'a, T: Component> Query<'a> for &'a mut T {
     type Fetch = FetchWrite<T>;
     fn borrow(state: &BorrowState) {
@@ -101,28 +76,26 @@ impl<'a, T: Component> Fetch<'a> for FetchWrite<T> {
     }
 }
 
-impl<'a, T: Component> Query<'a> for Option<&'a mut T> {
-    type Fetch = FetchTryWrite<T>;
+impl<'a, T: Query<'a>> Query<'a> for Option<T> {
+    type Fetch = TryFetch<T::Fetch>;
     fn borrow(state: &BorrowState) {
-        state.borrow_mut(TypeId::of::<T>(), type_name::<T>())
+        T::borrow(state);
     }
     fn release(state: &BorrowState) {
-        state.release_mut(TypeId::of::<T>())
+        T::release(state);
     }
 }
 
 #[doc(hidden)]
-pub struct FetchTryWrite<T>(Option<NonNull<T>>);
+pub struct TryFetch<T>(Option<T>);
 
-impl<'a, T: Component> Fetch<'a> for FetchTryWrite<T> {
-    type Item = Option<&'a mut T>;
+impl<'a, T: Fetch<'a>> Fetch<'a> for TryFetch<T> {
+    type Item = Option<T::Item>;
     fn get(archetype: &'a Archetype) -> Option<Self> {
-        Some(Self(archetype.data::<T>()))
+        Some(Self(T::get(archetype)))
     }
-    unsafe fn next(&mut self) -> Option<&'a mut T> {
-        let x = self.0?.as_ptr();
-        self.0 = Some(NonNull::new_unchecked(x.add(1)));
-        Some(&mut *x)
+    unsafe fn next(&mut self) -> Option<T::Item> {
+        Some(self.0.as_mut()?.next())
     }
 }
 
