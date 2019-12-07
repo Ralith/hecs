@@ -6,11 +6,13 @@ use std::ptr::{self, NonNull};
 
 use fxhash::FxHashMap;
 
+use crate::world::ArchetypeTable;
 use crate::{Component, DynamicBundle};
 
 /// A collection of entities having the same component types
 pub struct Archetype {
     types: Vec<TypeInfo>,
+    ids: Vec<TypeId>,
     offsets: FxHashMap<TypeId, usize>,
     len: u32,
     entities: Box<[u32]>,
@@ -26,6 +28,7 @@ impl Archetype {
             "types are not ordered consistently"
         );
         Self {
+            ids: types.iter().map(|x| x.id()).collect(),
             types,
             offsets: FxHashMap::default(),
             entities: Box::new([]),
@@ -291,12 +294,12 @@ pub struct EntityBundle<'a> {
 }
 
 impl<'a> DynamicBundle for EntityBundle<'a> {
-    fn elements(&self) -> Vec<TypeId> {
-        self.archetype.types.iter().map(|x| x.id).collect()
+    fn get_archetype(&self, table: &mut ArchetypeTable) -> u32 {
+        table
+            .get_id(&self.archetype.ids)
+            .unwrap_or_else(|| table.alloc(self.archetype.types.clone()))
     }
-    fn info(&self) -> Vec<TypeInfo> {
-        self.archetype.types.clone()
-    }
+
     unsafe fn store(self, archetype: &mut Archetype, index: u32) {
         self.archetype.move_to(self.index, archetype, index);
     }
