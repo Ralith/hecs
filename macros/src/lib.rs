@@ -20,7 +20,6 @@ use syn::{parse_macro_input, DeriveInput};
 ///     mesh: MeshId,
 ///     position: Position,
 /// }
-///
 /// let mut world = World::new();
 /// let position = Position([1.0, 2.0, 3.0]);
 /// let e = world.spawn(StaticMesh { position, mesh: MeshId("example.gltf") });
@@ -43,22 +42,7 @@ pub fn derive_bundle(input: TokenStream) -> TokenStream {
         }
     };
     let ident = input.ident;
-    let tys = match data.fields {
-        syn::Fields::Named(ref fields) => fields.named.iter().map(|f| &f.ty).collect(),
-        syn::Fields::Unnamed(ref fields) => fields.unnamed.iter().map(|f| &f.ty).collect(),
-        syn::Fields::Unit => Vec::new(),
-    };
-    let fields = match data.fields {
-        syn::Fields::Named(ref fields) => fields
-            .named
-            .iter()
-            .map(|f| f.ident.clone().unwrap())
-            .collect(),
-        syn::Fields::Unnamed(ref fields) => (0..fields.unnamed.len())
-            .map(|i| syn::Ident::new(&i.to_string(), Span::call_site()))
-            .collect(),
-        syn::Fields::Unit => Vec::new(),
-    };
+    let (tys, fields) = struct_fields(&data.fields);
 
     let n = tys.len();
     let code = quote! {
@@ -108,4 +92,130 @@ pub fn derive_bundle(input: TokenStream) -> TokenStream {
         }
     };
     TokenStream::from(code)
+}
+
+/// Implement `Query` for a struct whose fields are queries
+///
+/// ```
+/// # use hecs::*;
+/// #[derive(Query, PartialEq, Debug)]
+/// struct MyQuery<'a> {
+///     foo: &'a i32,
+///     bar: Option<&'a mut bool>,
+/// }
+/// let mut world = World::new();
+/// let e = world.spawn((42,));
+/// assert_eq!(world.query::<MyQuery>().collect::<Vec<_>>(), &[(e, MyQuery { foo: &42, bar: None })]);
+/// ```
+#[proc_macro_derive(Query)]
+pub fn derive_query(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    let lifetimes = input.generics.lifetimes().collect::<Vec<_>>();
+
+    let lifetime = match lifetimes[..] {
+        [x] => x.lifetime.clone(),
+        _ => {
+            return TokenStream::from(
+                quote! { compile_error!("derive(Query) must be applied to structs with exactly one unbounded lifetime parameter"); },
+            );
+        }
+    };
+    if input.generics.where_clause.is_some() {
+        return TokenStream::from(
+            quote! { compile_error!("derive(Query) does not support where clauses"); },
+        );
+    }
+    let data = match input.data {
+        syn::Data::Struct(s) => s,
+        _ => {
+            return TokenStream::from(
+                quote! { compile_error!("derive(Query) only supports structs"); },
+            )
+        }
+    };
+    let ident = input.ident;
+    let vis = input.vis;
+    let fetch = syn::Ident::new(&format!("{}Fetch", ident), Span::call_site());
+
+    let (tys, fields) = struct_fields(&data.fields);
+
+    let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
+
+    let fetch_def = match data.fields {
+        syn::Fields::Named(_) => quote! {
+            #[doc(hidden)]
+            #vis struct #fetch #ty_generics #where_clause {
+                #(
+                    #fields: <#tys as Query<#lifetime>>::Fetch,
+                )*
+            }
+        },
+        syn::Fields::Unnamed(_) => quote! {
+            #[doc(hidden)]
+            #vis struct #fetch #ty_generics (
+                #(
+                    #fields: <#tys as Query<#lifetime>>::Fetch,
+                )*
+            ) #where_clause;
+        },
+        syn::Fields::Unit => quote! { struct #fetch #ty_generics #where_clause {} },
+    };
+
+    let code = quote! {
+        #fetch_def
+
+        impl #impl_generics ::hecs::Fetch<#lifetime> for #fetch #ty_generics #where_clause {
+            type Item = #ident #ty_generics;
+
+            fn get(archetype: & #lifetime Archetype) -> Option<Self> {
+                Some(Self {
+                    #(
+                        #fields: <#tys as Query<#lifetime>>::Fetch::get(archetype)?,
+                    )*
+                })
+            }
+
+            unsafe fn next(&mut self) -> Self::Item {
+                #ident {
+                    #(
+                        #fields: self.#fields.next(),
+                    )*
+                }
+            }
+        }
+
+        impl #impl_generics ::hecs::Query<#lifetime> for #ident #ty_generics #where_clause {
+            type Fetch = #fetch #ty_generics;
+
+            fn borrow(state: &BorrowState) {
+                #(
+                    <#tys as Query>::borrow(state);
+                )*
+            }
+
+            fn release(state: &BorrowState) {
+                #(
+                    <#tys as Query>::release(state);
+                )*
+            }
+        }
+    };
+    TokenStream::from(code)
+}
+
+fn struct_fields(fields: &syn::Fields) -> (Vec<&syn::Type>, Vec<syn::Ident>) {
+    match fields {
+        syn::Fields::Named(ref fields) => fields
+            .named
+            .iter()
+            .map(|f| (&f.ty, f.ident.clone().unwrap()))
+            .unzip(),
+        syn::Fields::Unnamed(ref fields) => fields
+            .unnamed
+            .iter()
+            .enumerate()
+            .map(|(i, f)| (&f.ty, syn::Ident::new(&i.to_string(), Span::call_site())))
+            .unzip(),
+        syn::Fields::Unit => (Vec::new(), Vec::new()),
+    }
 }

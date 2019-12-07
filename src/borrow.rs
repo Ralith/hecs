@@ -9,6 +9,7 @@ use parking_lot::RawRwLock;
 use crate::archetype::Archetype;
 use crate::world::Component;
 
+/// Tracks which components of a world are borrowed in what ways
 #[derive(Default)]
 pub struct BorrowState {
     states: FxHashMap<TypeId, RawRwLock>,
@@ -19,12 +20,14 @@ impl BorrowState {
         self.states.entry(ty).or_insert(RawRwLock::INIT);
     }
 
+    /// Acquire a shared borrow
     pub fn borrow(&self, ty: TypeId, name: &str) {
         if self.states.get(&ty).map_or(false, |x| !x.try_lock_shared()) {
             panic!("{} already borrowed uniquely", name);
         }
     }
 
+    /// Acquire a unique borrow
     pub fn borrow_mut(&self, ty: TypeId, name: &str) {
         if self
             .states
@@ -35,12 +38,14 @@ impl BorrowState {
         }
     }
 
+    /// Release a shared borrow
     pub fn release(&self, ty: TypeId) {
         if let Some(x) = self.states.get(&ty) {
             x.unlock_shared();
         }
     }
 
+    /// Release a unique borrow
     pub fn release_mut(&self, ty: TypeId) {
         if let Some(x) = self.states.get(&ty) {
             x.unlock_exclusive();

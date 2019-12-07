@@ -19,6 +19,7 @@ pub trait Query<'a>: Sized {
 
 /// Streaming iterators over contiguous homogeneous ranges of components
 pub trait Fetch<'a>: Sized {
+    /// Type of value to be fetched
     type Item;
     /// Construct a `Fetch` for `archetype` if it should be traversed
     fn get(archetype: &'a Archetype) -> Option<Self>;

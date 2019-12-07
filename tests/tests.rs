@@ -172,3 +172,27 @@ fn bad_bundle_derive() {
     let mut world = World::new();
     world.spawn(Foo { x: 42, y: 42 });
 }
+
+#[test]
+#[cfg(feature = "macros")]
+fn derived_query() {
+    #[derive(Query, PartialEq)]
+    struct Q<'a> {
+        x: &'a i32,
+        y: Option<&'a bool>,
+    }
+
+    let mut world = World::new();
+    let e = world.spawn((42, true));
+    let f = world.spawn((17,));
+    let ents = world.query::<Q>().collect::<Vec<_>>();
+    assert_eq!(ents.len(), 2);
+    assert!(ents.contains(&(
+        e,
+        Q {
+            x: &42,
+            y: Some(&true),
+        }
+    )));
+    assert!(ents.contains(&(f, Q { x: &17, y: None })));
+}

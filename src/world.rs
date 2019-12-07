@@ -102,6 +102,9 @@ impl World {
     ///
     /// Entities are yielded in arbitrary order.
     ///
+    /// Query types can also be constructed with `#[derive(Query)]` on a struct whose fields all
+    /// have query types.
+    ///
     /// # Example
     /// ```
     /// # use hecs::*;
