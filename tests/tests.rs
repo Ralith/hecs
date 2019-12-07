@@ -96,14 +96,17 @@ fn build_entity() {
 fn dynamic_components() {
     let mut world = World::new();
     let e = world.spawn((42,));
-    world.insert(e, true).unwrap();
+    world.insert(e, (true, "abc")).unwrap();
     assert_eq!(
         world.query::<(&i32, &bool)>().collect::<Vec<_>>(),
         &[(e, (&42, &true))]
     );
     assert_eq!(world.remove::<i32>(e), Ok(42));
     assert_eq!(world.query::<(&i32, &bool)>().collect::<Vec<_>>(), &[]);
-    assert_eq!(world.query::<&bool>().collect::<Vec<_>>(), &[(e, &true)]);
+    assert_eq!(
+        world.query::<(&bool, &&str)>().collect::<Vec<_>>(),
+        &[(e, (&true, &"abc"))]
+    );
 }
 
 #[test]

@@ -198,14 +198,11 @@ impl World {
         Iter::new(&self.borrows, &self.archetypes, &self.entities)
     }
 
-    /// Add `component` to `entity`
+    /// Add `components` to `entity`
     ///
-    /// Computational cost is proportional to the number of components `entity` has.
-    pub fn insert<T: Component>(
-        &mut self,
-        entity: Entity,
-        component: T,
-    ) -> Result<(), NoSuchEntity> {
+    /// Computational cost is proportional to the number of components `entity` has. If an entity
+    /// already has a component of a certain type, it is dropped and replaced.
+    pub fn insert(&mut self, entity: Entity, components: impl Bundle) -> Result<(), NoSuchEntity> {
         use std::collections::hash_map::Entry;
 
         let meta = &mut self.entities[entity.id as usize];
@@ -213,36 +210,43 @@ impl World {
             return Err(NoSuchEntity);
         }
         unsafe {
-            let mut info = self.archetypes[meta.archetype as usize].types().to_vec();
-            info.push(TypeInfo::of::<T>());
+            let arch = &mut self.archetypes[meta.archetype as usize];
+            let mut info = arch.types().to_vec();
+            for ty in components.type_info() {
+                if let Some(ptr) = arch.get_dynamic(ty.id(), ty.layout().size(), meta.index) {
+                    ty.drop(ptr.as_ptr());
+                } else {
+                    self.borrows.ensure(ty.id());
+                    info.push(ty);
+                }
+            }
+            info.sort();
+
             let elements = info.iter().map(|x| x.id()).collect::<Vec<_>>();
             let target = match self.index.entry(elements) {
                 Entry::Occupied(x) => *x.get(),
                 Entry::Vacant(x) => {
-                    self.borrows.ensure(TypeId::of::<T>());
+                    let index = self.archetypes.len() as u32;
                     self.archetypes.push(Archetype::new(info));
-                    let index = (self.archetypes.len() - 1) as u32;
                     x.insert(index);
                     index
                 }
             };
             if target == meta.archetype {
-                *self.archetypes[meta.archetype as usize]
-                    .get(meta.index)
-                    .expect("corrupt archetype index")
-                    .as_mut() = component;
-            } else {
-                let (source_arch, target_arch) = index2(
-                    &mut self.archetypes,
-                    meta.archetype as usize,
-                    target as usize,
-                );
-                let components = source_arch.move_component_set(meta.index);
-                meta.archetype = target;
-                meta.index = target_arch.allocate(entity.id);
-                components.store(target_arch, meta.index);
-                target_arch.put(component, meta.index);
+                components.store(&mut self.archetypes[meta.archetype as usize], meta.index);
+                return Ok(());
             }
+
+            let (source_arch, target_arch) = index2(
+                &mut self.archetypes,
+                meta.archetype as usize,
+                target as usize,
+            );
+            let old_components = source_arch.move_component_set(meta.index);
+            meta.archetype = target;
+            meta.index = target_arch.allocate(entity.id);
+            old_components.store(target_arch, meta.index);
+            components.store(target_arch, meta.index);
         }
         Ok(())
     }

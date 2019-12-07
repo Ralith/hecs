@@ -67,6 +67,22 @@ impl Archetype {
         ))
     }
 
+    /// `index` must be in-bounds
+    pub(crate) unsafe fn get_dynamic(
+        &self,
+        ty: TypeId,
+        size: usize,
+        index: u32,
+    ) -> Option<NonNull<u8>> {
+        debug_assert!(index < self.len);
+        Some(NonNull::new_unchecked(
+            (*self.data.get())
+                .as_mut_ptr()
+                .add(*self.offsets.get(&ty)? + size * index as usize)
+                .cast::<u8>(),
+        ))
+    }
+
     /// Every type must be written immediately after this call
     pub(crate) unsafe fn allocate(&mut self, id: u32) -> u32 {
         if (self.len as usize) < self.entities.len() {
