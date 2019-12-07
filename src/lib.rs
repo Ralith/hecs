@@ -26,12 +26,14 @@
 
 mod archetype;
 mod borrow;
+mod entity_builder;
 mod query;
 mod world;
 
 pub use borrow::{EntityRef, Ref, RefMut};
+pub use entity_builder::{BuiltEntity, EntityBuilder};
 pub use query::{Query, QueryIter};
-pub use world::{Bundle, Component, Entity, EntityBuilder, Iter, NoSuchEntity, World};
+pub use world::{Bundle, Component, Entity, Iter, NoSuchEntity, World};
 
 // Detailed needed by the macros
 #[doc(hidden)]
