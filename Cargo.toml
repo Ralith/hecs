@@ -19,3 +19,13 @@ parking_lot = "0.9"
 lock_api = "0.3.1"
 hecs-macros = { path = "macros", version = "0.1.0", optional = true }
 once_cell = { version = "1.2", optional = true }
+
+[dev-dependencies]
+bencher = "0.1.5"
+
+[[bench]]
+name = "bench"
+harness = false
+
+[profile.release]
+debug = true
