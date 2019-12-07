@@ -140,14 +140,16 @@ impl Archetype {
     pub(crate) unsafe fn remove(&mut self, index: u32) -> Option<u32> {
         let last = self.len - 1;
         for ty in &self.types {
-            let base = (*self.data.get())
-                .as_mut_ptr()
-                .add(*self.offsets.get(&ty.id).unwrap());
-            let removed = base.add(ty.layout.size() * index as usize);
-            (ty.drop)(removed.cast::<u8>());
+            let removed = self
+                .get_dynamic(ty.id, ty.layout.size(), index)
+                .unwrap()
+                .as_ptr();
+            (ty.drop)(removed);
             if index != last {
                 ptr::copy_nonoverlapping(
-                    base.add(ty.layout.size() * last as usize),
+                    self.get_dynamic(ty.id, ty.layout.size(), last)
+                        .unwrap()
+                        .as_ptr(),
                     removed,
                     ty.layout.size(),
                 );
@@ -182,17 +184,19 @@ impl Archetype {
     unsafe fn move_to(&mut self, index: u32, target: &mut Archetype, target_index: u32) {
         let last = self.len - 1;
         for ty in &self.types {
-            let base = (*self.data.get())
-                .as_mut_ptr()
-                .add(*self.offsets.get(&ty.id).unwrap());
-            let moved = base.add(ty.layout.size() * index as usize);
+            let moved = self
+                .get_dynamic(ty.id, ty.layout.size(), index)
+                .unwrap()
+                .as_ptr();
             // Tolerate missing components
             if target.offsets.contains_key(&ty.id) {
                 target.put_dynamic(moved.cast::<u8>(), ty.id, ty.layout, target_index);
             }
             if index != last {
                 ptr::copy_nonoverlapping(
-                    base.add(ty.layout.size() * last as usize),
+                    self.get_dynamic(ty.id, ty.layout.size(), last)
+                        .unwrap()
+                        .as_ptr(),
                     moved,
                     ty.layout.size(),
                 );
@@ -224,17 +228,18 @@ impl Archetype {
         layout: Layout,
         index: u32,
     ) {
-        let offset = *self.offsets.get(&ty).unwrap();
-        let ptr = (*self.data.get())
-            .as_mut_ptr()
-            .add(offset + layout.size() * index as usize);
-        ptr::copy_nonoverlapping(component, ptr.cast::<u8>(), layout.size());
+        let ptr = self
+            .get_dynamic(ty, layout.size(), index)
+            .unwrap()
+            .as_ptr()
+            .cast::<u8>();
+        ptr::copy_nonoverlapping(component, ptr, layout.size());
     }
 }
 
 impl Drop for Archetype {
     fn drop(&mut self) {
-        for i in 0..self.len {
+        for i in (0..self.len).rev() {
             if self.entities[i as usize] != !0 {
                 unsafe {
                     self.remove(i);
