@@ -47,7 +47,7 @@ pub fn derive_bundle(input: TokenStream) -> TokenStream {
     let n = tys.len();
     let code = quote! {
         impl ::hecs::Bundle for #ident {
-            fn elements() -> &'static [std::any::TypeId] {
+            fn get_archetype(&self, table: &mut ::hecs::ArchetypeTable) -> u32 {
                 use std::any::TypeId;
                 use std::mem;
 
@@ -69,14 +69,9 @@ pub fn derive_bundle(input: TokenStream) -> TokenStream {
                     }
                     ids
                 });
-                &*ELEMENTS
-            }
-        }
 
-        impl ::hecs::DynamicBundle for #ident {
-            fn get_archetype(&self, table: &mut ::hecs::ArchetypeTable) -> u32 {
                 table
-                    .get_id(Self::elements())
+                    .get_id(&*ELEMENTS)
                     .unwrap_or_else(|| {
                         let mut info = vec![#(::hecs::TypeInfo::of::<#tys>()),*];
                         info.sort_unstable();

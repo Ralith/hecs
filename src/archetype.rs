@@ -7,7 +7,7 @@ use std::ptr::{self, NonNull};
 use fxhash::FxHashMap;
 
 use crate::world::ArchetypeTable;
-use crate::{Component, DynamicBundle};
+use crate::{Bundle, Component};
 
 /// A collection of entities having the same component types
 pub struct Archetype {
@@ -299,7 +299,7 @@ pub struct EntityBundle<'a> {
     index: u32,
 }
 
-impl<'a> DynamicBundle for EntityBundle<'a> {
+impl<'a> Bundle for EntityBundle<'a> {
     fn get_archetype(&self, table: &mut ArchetypeTable) -> u32 {
         table
             .get_id(&self.archetype.ids)

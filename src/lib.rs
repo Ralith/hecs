@@ -31,23 +31,20 @@ mod world;
 
 pub use borrow::{EntityRef, Ref, RefMut};
 pub use query::{Query, QueryIter};
-pub use world::{
-    Bundle, Component, DynamicBundle, Entity, EntityBuilder, Iter, NoSuchEntity, World,
-};
+pub use world::{Bundle, Component, Entity, EntityBuilder, Iter, NoSuchEntity, World};
 
 // Detailed needed by the macros
 #[doc(hidden)]
 pub use archetype::{Archetype, TypeInfo};
 #[doc(hidden)]
 pub use borrow::BorrowState;
-#[doc(hidden)]
-pub use world::ArchetypeTable;
-#[doc(hidden)]
-pub use query::Fetch;
 #[cfg(feature = "macros")]
 #[doc(hidden)]
 pub use once_cell;
+#[doc(hidden)]
+pub use query::Fetch;
+#[doc(hidden)]
+pub use world::ArchetypeTable;
 
 #[cfg(feature = "macros")]
 pub use hecs_macros::{Bundle, Query};
-

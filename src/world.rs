@@ -42,7 +42,7 @@ impl World {
     /// let a = world.spawn((123, "abc"));
     /// let b = world.spawn((456, true));
     /// ```
-    pub fn spawn(&mut self, components: impl DynamicBundle) -> Entity {
+    pub fn spawn(&mut self, components: impl Bundle) -> Entity {
         let entity = match self.free.pop() {
             Some(i) => Entity {
                 generation: self.entities[i as usize].generation,
@@ -377,17 +377,8 @@ pub struct Entity {
     pub(crate) id: u32,
 }
 
-/// A statically typed collection of components
-pub trait Bundle: DynamicBundle {
-    /// The components in the collection
-    ///
-    /// Must be sorted by alignment descending, then id.
-    #[doc(hidden)]
-    fn elements() -> &'static [TypeId];
-}
-
-/// A collection of components
-pub trait DynamicBundle {
+/// A collection of components used to spawn an entity
+pub trait Bundle {
     #[doc(hidden)]
     fn get_archetype(&self, table: &mut ArchetypeTable) -> u32;
     #[doc(hidden)]
@@ -466,7 +457,7 @@ impl EntityBuilder {
         }
     }
 
-    /// Construct a `DynamicBundle` suitable for spawning
+    /// Construct a `Bundle` suitable for spawning
     pub fn build(&mut self) -> BuiltEntity<'_> {
         self.info.sort_unstable_by(|x, y| x.0.cmp(&y.0));
         self.ids.clear();
@@ -483,7 +474,7 @@ pub struct BuiltEntity<'a> {
     builder: &'a mut EntityBuilder,
 }
 
-impl DynamicBundle for BuiltEntity<'_> {
+impl Bundle for BuiltEntity<'_> {
     fn get_archetype(&self, table: &mut ArchetypeTable) -> u32 {
         table
             .get_id(&self.builder.ids)
@@ -568,7 +559,7 @@ impl<'a> Iterator for Iter<'a> {
 
 macro_rules! tuple_impl {
     ($($name: ident),*) => {
-        impl<$($name: Component),*> DynamicBundle for ($($name,)*) {
+        impl<$($name: Component),*> Bundle for ($($name,)*) {
             fn get_archetype(&self, table: &mut ArchetypeTable) -> u32 {
                 const N: usize = count!($($name),*);
                 let mut xs: [TypeInfo; N] = [$(TypeInfo::of::<$name>()),*];
