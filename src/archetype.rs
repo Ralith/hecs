@@ -5,7 +5,7 @@ use std::ptr::{self, NonNull};
 
 use fxhash::FxHashMap;
 
-use crate::{Component, ComponentSet};
+use crate::{Bundle, Component};
 
 /// A collection of entities having the same component types
 pub struct Archetype {
@@ -152,8 +152,8 @@ impl Archetype {
             .read()
     }
 
-    pub unsafe fn move_component_set(&mut self, index: u32) -> EntityComponentSet {
-        EntityComponentSet {
+    pub unsafe fn move_component_set(&mut self, index: u32) -> EntityBundle {
+        EntityBundle {
             archetype: self,
             index,
         }
@@ -279,12 +279,12 @@ impl TypeInfo {
     }
 }
 
-pub struct EntityComponentSet<'a> {
+pub struct EntityBundle<'a> {
     archetype: &'a mut Archetype,
     index: u32,
 }
 
-impl<'a> ComponentSet for EntityComponentSet<'a> {
+impl<'a> Bundle for EntityBundle<'a> {
     fn elements(&self) -> Vec<TypeId> {
         self.archetype.types.iter().map(|x| x.id).collect()
     }

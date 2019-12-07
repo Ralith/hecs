@@ -31,4 +31,4 @@ mod world;
 
 pub use borrow::{EntityRef, Ref, RefMut};
 pub use query::{Query, QueryIter};
-pub use world::{Component, ComponentSet, Entity, EntityBuilder, Iter, NoSuchEntity, World};
+pub use world::{Bundle, Component, Entity, EntityBuilder, Iter, NoSuchEntity, World};

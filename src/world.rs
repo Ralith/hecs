@@ -42,7 +42,7 @@ impl World {
     /// let a = world.spawn((123, "abc"));
     /// let b = world.spawn((456, true));
     /// ```
-    pub fn spawn(&mut self, components: impl ComponentSet) -> Entity {
+    pub fn spawn(&mut self, components: impl Bundle) -> Entity {
         use std::collections::hash_map::Entry;
 
         let entity = match self.free.pop() {
@@ -334,7 +334,7 @@ pub struct Entity {
 }
 
 /// A collection of distinctly typed values that can be used to create an entity
-pub trait ComponentSet {
+pub trait Bundle {
     // Future work: Reduce heap allocation, redundant sorting
     #[doc(hidden)]
     fn elements(&self) -> Vec<TypeId>;
@@ -373,7 +373,7 @@ impl EntityBuilder {
         self
     }
 
-    /// Construct a `ComponentSet` suitable for spawning
+    /// Construct a `Bundle` suitable for spawning
     pub fn build(mut self) -> BuiltEntity {
         self.components.sort_unstable_by(|x, y| x.0.cmp(&y.0));
         BuiltEntity { inner: self }
@@ -385,7 +385,7 @@ pub struct BuiltEntity {
     inner: EntityBuilder,
 }
 
-impl ComponentSet for BuiltEntity {
+impl Bundle for BuiltEntity {
     fn elements(&self) -> Vec<TypeId> {
         self.inner.components.iter().map(|x| x.0.id()).collect()
     }
@@ -463,7 +463,7 @@ impl<'a> Iterator for Iter<'a> {
 
 macro_rules! tuple_impl {
     ($($name: ident),*) => {
-        impl<$($name: Component),*> ComponentSet for ($($name,)*) {
+        impl<$($name: Component),*> Bundle for ($($name,)*) {
             fn elements(&self) -> Vec<TypeId> {
                 self.info().into_iter().map(|x| x.id()).collect()
             }
