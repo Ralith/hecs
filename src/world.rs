@@ -115,7 +115,11 @@ impl World {
     /// assert!(entities.contains(&(b, (&456, &false))));
     /// ```
     pub fn query<'a, Q: Query<'a>>(&'a self) -> QueryIter<'a, Q> {
-        QueryIter::new(&self.archetypes.borrows, &self.entities, &self.archetypes.archetypes)
+        QueryIter::new(
+            &self.archetypes.borrows,
+            &self.entities,
+            &self.archetypes.archetypes,
+        )
     }
 
     /// Borrow the `T` component of `entity`
@@ -181,7 +185,11 @@ impl World {
     /// assert_eq!(world.iter().map(|(id, _)| id).collect::<Vec<_>>(), &[a, b]);
     /// ```
     pub fn iter(&self) -> Iter<'_> {
-        Iter::new(&self.archetypes.borrows, &self.archetypes.archetypes, &self.entities)
+        Iter::new(
+            &self.archetypes.borrows,
+            &self.archetypes.archetypes,
+            &self.entities,
+        )
     }
 
     /// Add `component` to `entity`
@@ -288,6 +296,7 @@ impl<'a> IntoIterator for &'a World {
     }
 }
 
+/// Storage indexed by component types
 #[derive(Default)]
 pub struct ArchetypeTable {
     index: FxHashMap<Vec<TypeId>, u32>,
@@ -296,11 +305,23 @@ pub struct ArchetypeTable {
 }
 
 impl ArchetypeTable {
+    /// Get the archetype ID for a set of component types
+    ///
+    /// `tys` must be sorted by alignment descending, then id.
     pub fn get_id(&mut self, tys: &[TypeId]) -> Option<u32> {
         self.index.get(tys).copied()
     }
 
+    /// Create a new archetype
+    ///
+    /// `get_id` for these types must have returned `None`. `info` must be sorted.
     pub fn alloc(&mut self, info: Vec<TypeInfo>) -> u32 {
+        debug_assert!(
+            self.index
+                .get(&info.iter().map(|x| x.id()).collect::<Vec<_>>())
+                .is_none(),
+            "archetype already exists"
+        );
         for ty in &info {
             self.borrows.ensure(ty.id());
         }
@@ -351,6 +372,15 @@ pub(crate) struct EntityMeta {
 pub struct Entity {
     pub(crate) generation: u32,
     pub(crate) id: u32,
+}
+
+/// A statically typed collection of components
+pub trait Bundle: DynamicBundle {
+    /// The components in the collection
+    ///
+    /// Must be sorted by alignment descending, then id.
+    #[doc(hidden)]
+    fn elements() -> &'static [TypeId];
 }
 
 /// A collection of components

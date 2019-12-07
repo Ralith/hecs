@@ -143,3 +143,32 @@ fn illegal_random_access() {
     let _borrow = world.get_mut::<i32>(e).unwrap();
     world.get::<i32>(e).unwrap();
 }
+
+#[test]
+#[cfg(feature = "macros")]
+fn derived_bundle() {
+    #[derive(Bundle)]
+    struct Foo {
+        x: i32,
+        y: f64,
+    }
+
+    let mut world = World::new();
+    let e = world.spawn(Foo { x: 42, y: 1.0 });
+    assert_eq!(*world.get::<i32>(e).unwrap(), 42);
+    assert_eq!(*world.get::<f64>(e).unwrap(), 1.0);
+}
+
+#[test]
+#[cfg(feature = "macros")]
+#[should_panic(expected = "each type must occur at most once")]
+fn bad_bundle_derive() {
+    #[derive(Bundle)]
+    struct Foo {
+        x: i32,
+        y: i32,
+    }
+
+    let mut world = World::new();
+    world.spawn(Foo { x: 42, y: 42 });
+}

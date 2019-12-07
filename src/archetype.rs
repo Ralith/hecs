@@ -22,10 +22,10 @@ pub struct Archetype {
 }
 
 impl Archetype {
-    pub fn new(types: Vec<TypeInfo>) -> Self {
+    pub(crate) fn new(types: Vec<TypeInfo>) -> Self {
         debug_assert!(
             types.windows(2).all(|x| x[0] < x[1]),
-            "types are not ordered consistently"
+            "type info not sorted"
         );
         Self {
             ids: types.iter().map(|x| x.id()).collect(),
@@ -37,31 +37,31 @@ impl Archetype {
         }
     }
 
-    pub fn data<T: Component>(&self) -> Option<NonNull<T>> {
+    pub(crate) fn data<T: Component>(&self) -> Option<NonNull<T>> {
         let offset = *self.offsets.get(&TypeId::of::<T>())?;
         Some(unsafe {
             NonNull::new_unchecked((*self.data.get()).as_ptr().add(offset).cast::<T>() as *mut T)
         })
     }
 
-    pub fn len(&self) -> usize {
+    pub(crate) fn len(&self) -> usize {
         self.len as usize
     }
 
-    pub fn entities(&self) -> NonNull<u32> {
+    pub(crate) fn entities(&self) -> NonNull<u32> {
         unsafe { NonNull::new_unchecked(self.entities.as_ptr() as *mut _) }
     }
 
-    pub fn entity_id(&self, index: u32) -> u32 {
+    pub(crate) fn entity_id(&self, index: u32) -> u32 {
         self.entities[index as usize]
     }
 
-    pub fn types(&self) -> &[TypeInfo] {
+    pub(crate) fn types(&self) -> &[TypeInfo] {
         &self.types
     }
 
     /// `index` must be in-bounds
-    pub unsafe fn get<T: Component>(&self, index: u32) -> Option<NonNull<T>> {
+    pub(crate) unsafe fn get<T: Component>(&self, index: u32) -> Option<NonNull<T>> {
         debug_assert!(index < self.len);
         Some(NonNull::new_unchecked(
             self.data::<T>()?.as_ptr().add(index as usize),
@@ -69,7 +69,7 @@ impl Archetype {
     }
 
     /// Every type must be written immediately after this call
-    pub unsafe fn allocate(&mut self, id: u32) -> u32 {
+    pub(crate) unsafe fn allocate(&mut self, id: u32) -> u32 {
         if (self.len as usize) < self.entities.len() {
             self.entities[self.len as usize] = id;
             self.len += 1;
@@ -122,7 +122,7 @@ impl Archetype {
     }
 
     /// Returns the ID of the entity moved into `index`, if any
-    pub unsafe fn remove(&mut self, index: u32) -> Option<u32> {
+    pub(crate) unsafe fn remove(&mut self, index: u32) -> Option<u32> {
         let last = self.len - 1;
         for ty in &self.types {
             let base = (*self.data.get())
@@ -150,14 +150,14 @@ impl Archetype {
     /// Move out of an entity's component
     ///
     /// Further access to this component is UB!
-    pub unsafe fn take<T: Component>(&mut self, index: u32) -> T {
+    pub(crate) unsafe fn take<T: Component>(&mut self, index: u32) -> T {
         self.get::<T>(index)
             .expect("no such component")
             .as_ptr()
             .read()
     }
 
-    pub unsafe fn move_component_set(&mut self, index: u32) -> EntityBundle {
+    pub(crate) unsafe fn move_component_set(&mut self, index: u32) -> EntityBundle {
         EntityBundle {
             archetype: self,
             index,
@@ -189,6 +189,12 @@ impl Archetype {
         self.len -= 1;
     }
 
+    /// Write a component into the entity at `index`
+    ///
+    /// Leaks any existing component.
+    ///
+    /// # Safety
+    /// `index` must be in bounds.
     pub unsafe fn put<T: Component>(&mut self, component: T, index: u32) {
         self.get::<T>(index)
             .expect("no such component")
@@ -196,7 +202,7 @@ impl Archetype {
             .write(component);
     }
 
-    pub unsafe fn put_dynamic(
+    pub(crate) unsafe fn put_dynamic(
         &mut self,
         component: *mut u8,
         ty: TypeId,
@@ -228,6 +234,7 @@ fn align(x: usize, alignment: usize) -> usize {
     (x + alignment - 1) & (!alignment + 1)
 }
 
+/// Metadata required to store a component
 #[derive(Debug, Copy, Clone)]
 pub struct TypeInfo {
     id: TypeId,
@@ -236,15 +243,28 @@ pub struct TypeInfo {
 }
 
 impl TypeInfo {
-    pub fn id(&self) -> TypeId {
+    /// Metadata for `T`
+    pub fn of<T: 'static>() -> Self {
+        unsafe fn drop_ptr<T>(x: *mut u8) {
+            x.cast::<T>().drop_in_place()
+        }
+
+        Self {
+            id: TypeId::of::<T>(),
+            layout: Layout::new::<T>(),
+            drop: drop_ptr::<T>,
+        }
+    }
+
+    pub(crate) fn id(&self) -> TypeId {
         self.id
     }
 
-    pub fn layout(&self) -> Layout {
+    pub(crate) fn layout(&self) -> Layout {
         self.layout
     }
 
-    pub unsafe fn drop(&self, data: *mut u8) {
+    pub(crate) unsafe fn drop(&self, data: *mut u8) {
         (self.drop)(data)
     }
 }
@@ -273,20 +293,6 @@ impl PartialEq for TypeInfo {
 }
 
 impl Eq for TypeInfo {}
-
-impl TypeInfo {
-    pub fn of<T: 'static>() -> Self {
-        unsafe fn drop_ptr<T>(x: *mut u8) {
-            x.cast::<T>().drop_in_place()
-        }
-
-        Self {
-            id: TypeId::of::<T>(),
-            layout: Layout::new::<T>(),
-            drop: drop_ptr::<T>,
-        }
-    }
-}
 
 pub struct EntityBundle<'a> {
     archetype: &'a mut Archetype,
