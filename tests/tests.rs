@@ -199,3 +199,11 @@ fn derived_query() {
     )));
     assert!(ents.contains(&(f, Q { x: &17, y: None })));
 }
+
+#[test]
+fn spawn_many() {
+    let mut world = World::new();
+    for _ in 0..100_000 {
+        world.spawn((42u128,));
+    }
+}

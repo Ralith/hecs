@@ -92,13 +92,10 @@ impl Archetype {
         }
 
         // At this point we need to allocate more storage.
-        let count = if self.entities.len() == 0 {
-            64
-        } else {
-            self.entities.len() * 2
-        };
+        let old_count = self.entities.len();
+        let count = if old_count == 0 { 64 } else { old_count * 2 };
         let mut new_entities = vec![!0; count].into_boxed_slice();
-        new_entities[0..self.entities.len()].copy_from_slice(&self.entities);
+        new_entities[0..old_count].copy_from_slice(&self.entities);
         self.entities = new_entities;
 
         let mut data_size = 0;
@@ -124,7 +121,7 @@ impl Archetype {
                 ptr::copy_nonoverlapping(
                     (*self.data.get()).as_ptr().add(old_off),
                     new_data.as_mut_ptr().add(new_off),
-                    ty.layout.size() * self.entities.len(),
+                    ty.layout.size() * old_count,
                 );
             }
         }
