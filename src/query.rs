@@ -132,6 +132,7 @@ impl<'a, Q: Query<'a>> Drop for QueryIter<'a, Q> {
 
 impl<'a, Q: Query<'a>> Iterator for QueryIter<'a, Q> {
     type Item = (Entity, Q);
+    #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             match self.iter {
