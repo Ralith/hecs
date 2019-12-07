@@ -6,7 +6,7 @@ use std::ptr::{self, NonNull};
 
 use fxhash::FxHashMap;
 
-use crate::{Bundle, Component};
+use crate::{Component, DynamicBundle};
 
 /// A collection of entities having the same component types
 pub struct Archetype {
@@ -290,7 +290,7 @@ pub struct EntityBundle<'a> {
     index: u32,
 }
 
-impl<'a> Bundle for EntityBundle<'a> {
+impl<'a> DynamicBundle for EntityBundle<'a> {
     fn elements(&self) -> Vec<TypeId> {
         self.archetype.types.iter().map(|x| x.id).collect()
     }
