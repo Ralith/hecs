@@ -1,6 +1,8 @@
+use std::alloc::{alloc, Layout};
 use std::any::{type_name, TypeId};
 use std::error::Error;
-use std::fmt;
+use std::mem::{self, MaybeUninit};
+use std::{fmt, ptr};
 
 use downcast_rs::{impl_downcast, Downcast};
 use fxhash::FxHashMap;
@@ -346,6 +348,8 @@ pub trait Bundle {
 
 /// Helper for incrementally constructing an entity with dynamic component types
 ///
+/// Can be reused efficiently.
+///
 /// ```
 /// # use hecs::*;
 /// let mut world = World::new();
@@ -355,49 +359,100 @@ pub trait Bundle {
 /// assert_eq!(*world.get::<i32>(e).unwrap(), 123);
 /// assert_eq!(*world.get::<&str>(e).unwrap(), "abc");
 /// ```
-#[derive(Default)]
 pub struct EntityBuilder {
-    components: Vec<(TypeInfo, Box<dyn Component>)>,
+    storage: Box<[MaybeUninit<u8>]>,
+    // Backwards from the end!
+    cursor: *mut u8,
+    max_align: usize,
+    info: Vec<(TypeInfo, *mut u8)>,
 }
 
 impl EntityBuilder {
     /// Create a builder representing an entity with no components
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            storage: Box::new([]),
+            cursor: ptr::null_mut(),
+            max_align: 16,
+            info: Vec::new(),
+        }
     }
 
     /// Add `component` to the entity
     pub fn add<T: Component>(&mut self, component: T) -> &mut Self {
-        self.components
-            .push((TypeInfo::of::<T>(), Box::new(component)));
+        self.max_align = self.max_align.max(mem::align_of::<T>());
+        if (self.cursor as usize) < mem::size_of::<T>() {
+            self.grow(mem::size_of::<T>());
+        }
+        unsafe {
+            self.cursor = (self.cursor.sub(mem::size_of::<T>()) as usize
+                & !(mem::align_of::<T>() - 1)) as *mut u8;
+            if self.cursor.cast() < self.storage.as_mut_ptr() {
+                self.grow(mem::size_of::<T>());
+                self.cursor = (self.cursor.sub(mem::size_of::<T>()) as usize
+                    & !(mem::align_of::<T>() - 1)) as *mut u8;
+            }
+            ptr::write(self.cursor.cast::<T>(), component);
+        }
+        self.info.push((TypeInfo::of::<T>(), self.cursor));
         self
     }
 
+    fn grow(&mut self, min_increment: usize) {
+        let new_len = (self.storage.len() + min_increment)
+            .next_power_of_two()
+            .max(self.storage.len() * 2)
+            .max(64);
+        unsafe {
+            let alloc = alloc(Layout::from_size_align(new_len, self.max_align).unwrap())
+                .cast::<MaybeUninit<u8>>();
+            let mut new_storage = Box::from_raw(std::slice::from_raw_parts_mut(alloc, new_len));
+            new_storage[new_len - self.storage.len()..].copy_from_slice(&self.storage);
+            self.cursor = new_storage
+                .as_mut_ptr()
+                .add(new_len - self.storage.len())
+                .cast();
+            self.storage = new_storage;
+        }
+    }
+
     /// Construct a `Bundle` suitable for spawning
-    pub fn build(mut self) -> BuiltEntity {
-        self.components.sort_unstable_by(|x, y| x.0.cmp(&y.0));
-        BuiltEntity { inner: self }
+    pub fn build(&mut self) -> BuiltEntity<'_> {
+        self.info.sort_unstable_by(|x, y| x.0.cmp(&y.0));
+        BuiltEntity { builder: self }
     }
 }
+
+unsafe impl Send for EntityBuilder {}
+unsafe impl Sync for EntityBuilder {}
 
 /// The output of an `EntityBuilder`, suitable for passing to `World::spawn`
-pub struct BuiltEntity {
-    inner: EntityBuilder,
+pub struct BuiltEntity<'a> {
+    builder: &'a mut EntityBuilder,
 }
 
-impl Bundle for BuiltEntity {
+impl Bundle for BuiltEntity<'_> {
     fn elements(&self) -> Vec<TypeId> {
-        self.inner.components.iter().map(|x| x.0.id()).collect()
+        self.builder.info.iter().map(|x| x.0.id()).collect()
     }
+
     fn info(&self) -> Vec<TypeInfo> {
-        self.inner.components.iter().map(|x| x.0).collect()
+        self.builder.info.iter().map(|x| x.0).collect()
     }
+
     unsafe fn store(self, archetype: &mut Archetype, index: u32) {
-        for (info, component) in self.inner.components.into_iter() {
-            let component = Box::into_raw(component) as *mut u8;
-            archetype.put_dynamic(component as *const u8, info.id(), info.layout(), index);
-            // We moved out of the box, so we need to free the memory without dropping its contents.
-            std::alloc::dealloc(component, info.layout());
+        for (ty, component) in self.builder.info.drain(..) {
+            archetype.put_dynamic(component, ty.id(), ty.layout(), index);
+        }
+    }
+}
+
+impl Drop for BuiltEntity<'_> {
+    fn drop(&mut self) {
+        for (ty, component) in self.builder.info.drain(..) {
+            unsafe {
+                ty.drop(component);
+            }
         }
     }
 }

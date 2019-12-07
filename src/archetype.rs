@@ -195,7 +195,7 @@ impl Archetype {
 
     pub unsafe fn put_dynamic(
         &mut self,
-        component: *const u8,
+        component: *mut u8,
         ty: TypeId,
         layout: Layout,
         index: u32,
@@ -239,6 +239,10 @@ impl TypeInfo {
 
     pub fn layout(&self) -> Layout {
         self.layout
+    }
+
+    pub unsafe fn drop(&self, data: *mut u8) {
+        (self.drop)(data)
     }
 }
 
