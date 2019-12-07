@@ -19,7 +19,9 @@ use crate::{EntityRef, Query, QueryIter};
 pub struct World {
     entities: Vec<EntityMeta>,
     free: Vec<u32>,
-    archetypes: ArchetypeTable,
+    index: FxHashMap<Vec<TypeId>, u32>,
+    archetypes: Vec<Archetype>,
+    borrows: BorrowState,
 }
 
 impl World {
@@ -61,9 +63,19 @@ impl World {
                 }
             }
         };
-        let archetype = components.get_archetype(&mut self.archetypes);
+        let archetype = components.with_ids(|ids| {
+            self.index.get(ids).copied().unwrap_or_else(|| {
+                for &id in ids {
+                    self.borrows.ensure(id);
+                }
+                let x = self.archetypes.len() as u32;
+                self.archetypes.push(Archetype::new(components.type_info()));
+                self.index.insert(ids.to_vec(), x);
+                x
+            })
+        });
         self.entities[entity.id as usize].archetype = archetype;
-        let archetype = &mut self.archetypes.archetypes[archetype as usize];
+        let archetype = &mut self.archetypes[archetype as usize];
         unsafe {
             let index = archetype.allocate(entity.id);
             self.entities[entity.id as usize].index = index;
@@ -79,8 +91,7 @@ impl World {
             return Err(NoSuchEntity);
         }
         meta.generation += 1;
-        if let Some(moved) =
-            unsafe { self.archetypes.archetypes[meta.archetype as usize].remove(meta.index) }
+        if let Some(moved) = unsafe { self.archetypes[meta.archetype as usize].remove(meta.index) }
         {
             self.entities[moved as usize].index = meta.index;
         }
@@ -118,11 +129,7 @@ impl World {
     /// assert!(entities.contains(&(b, (&456, &false))));
     /// ```
     pub fn query<'a, Q: Query<'a>>(&'a self) -> QueryIter<'a, Q> {
-        QueryIter::new(
-            &self.archetypes.borrows,
-            &self.entities,
-            &self.archetypes.archetypes,
-        )
+        QueryIter::new(&self.borrows, &self.entities, &self.archetypes)
     }
 
     /// Borrow the `T` component of `entity`
@@ -135,8 +142,8 @@ impl World {
         }
         unsafe {
             Ok(Ref::new(
-                &self.archetypes.borrows,
-                self.archetypes.archetypes[meta.archetype as usize]
+                &self.borrows,
+                self.archetypes[meta.archetype as usize]
                     .get(meta.index)
                     .unwrap_or_else(|| panic!("entity has no {} component", type_name::<T>())),
             ))
@@ -153,8 +160,8 @@ impl World {
         }
         unsafe {
             Ok(RefMut::new(
-                &self.archetypes.borrows,
-                self.archetypes.archetypes[meta.archetype as usize]
+                &self.borrows,
+                self.archetypes[meta.archetype as usize]
                     .get(meta.index)
                     .unwrap_or_else(|| panic!("entity has no {} component", type_name::<T>())),
             ))
@@ -170,8 +177,8 @@ impl World {
             return Err(NoSuchEntity);
         }
         Ok(EntityRef::new(
-            &self.archetypes.borrows,
-            &self.archetypes.archetypes[meta.archetype as usize],
+            &self.borrows,
+            &self.archetypes[meta.archetype as usize],
             meta.index,
         ))
     }
@@ -188,11 +195,7 @@ impl World {
     /// assert_eq!(world.iter().map(|(id, _)| id).collect::<Vec<_>>(), &[a, b]);
     /// ```
     pub fn iter(&self) -> Iter<'_> {
-        Iter::new(
-            &self.archetypes.borrows,
-            &self.archetypes.archetypes,
-            &self.entities,
-        )
+        Iter::new(&self.borrows, &self.archetypes, &self.entities)
     }
 
     /// Add `component` to `entity`
@@ -210,29 +213,27 @@ impl World {
             return Err(NoSuchEntity);
         }
         unsafe {
-            let mut info = self.archetypes.archetypes[meta.archetype as usize]
-                .types()
-                .to_vec();
+            let mut info = self.archetypes[meta.archetype as usize].types().to_vec();
             info.push(TypeInfo::of::<T>());
             let elements = info.iter().map(|x| x.id()).collect::<Vec<_>>();
-            let target = match self.archetypes.index.entry(elements) {
+            let target = match self.index.entry(elements) {
                 Entry::Occupied(x) => *x.get(),
                 Entry::Vacant(x) => {
-                    self.archetypes.borrows.ensure(TypeId::of::<T>());
-                    self.archetypes.archetypes.push(Archetype::new(info));
-                    let index = (self.archetypes.archetypes.len() - 1) as u32;
+                    self.borrows.ensure(TypeId::of::<T>());
+                    self.archetypes.push(Archetype::new(info));
+                    let index = (self.archetypes.len() - 1) as u32;
                     x.insert(index);
                     index
                 }
             };
             if target == meta.archetype {
-                *self.archetypes.archetypes[meta.archetype as usize]
+                *self.archetypes[meta.archetype as usize]
                     .get(meta.index)
                     .expect("corrupt archetype index")
                     .as_mut() = component;
             } else {
                 let (source_arch, target_arch) = index2(
-                    &mut self.archetypes.archetypes,
+                    &mut self.archetypes,
                     meta.archetype as usize,
                     target as usize,
                 );
@@ -258,24 +259,24 @@ impl World {
             return Err(NoSuchEntity);
         }
         unsafe {
-            let info = self.archetypes.archetypes[meta.archetype as usize]
+            let info = self.archetypes[meta.archetype as usize]
                 .types()
                 .iter()
                 .cloned()
                 .filter(|x| x.id() != TypeId::of::<T>())
                 .collect::<Vec<_>>();
             let elements = info.iter().map(|x| x.id()).collect::<Vec<_>>();
-            let target = match self.archetypes.index.entry(elements) {
+            let target = match self.index.entry(elements) {
                 Entry::Occupied(x) => *x.get(),
                 Entry::Vacant(x) => {
-                    self.archetypes.archetypes.push(Archetype::new(info));
-                    let index = (self.archetypes.archetypes.len() - 1) as u32;
+                    self.archetypes.push(Archetype::new(info));
+                    let index = (self.archetypes.len() - 1) as u32;
                     x.insert(index);
                     index
                 }
             };
             let (source_arch, target_arch) = index2(
-                &mut self.archetypes.archetypes,
+                &mut self.archetypes,
                 meta.archetype as usize,
                 target as usize,
             );
@@ -296,44 +297,6 @@ impl<'a> IntoIterator for &'a World {
     type Item = (Entity, EntityRef<'a>);
     fn into_iter(self) -> Iter<'a> {
         self.iter()
-    }
-}
-
-/// Storage indexed by component types
-#[derive(Default)]
-pub struct ArchetypeTable {
-    index: FxHashMap<Vec<TypeId>, u32>,
-    archetypes: Vec<Archetype>,
-    borrows: BorrowState,
-}
-
-impl ArchetypeTable {
-    /// Get the archetype ID for a set of component types
-    ///
-    /// `tys` must be sorted by alignment descending, then id.
-    pub fn get_id(&mut self, tys: &[TypeId]) -> Option<u32> {
-        self.index.get(tys).copied()
-    }
-
-    /// Create a new archetype
-    ///
-    /// `get_id` for these types must have returned `None`. `info` must be sorted.
-    pub fn alloc(&mut self, info: Vec<TypeInfo>) -> u32 {
-        debug_assert!(
-            self.index
-                .get(&info.iter().map(|x| x.id()).collect::<Vec<_>>())
-                .is_none(),
-            "archetype already exists"
-        );
-        for ty in &info {
-            self.borrows.ensure(ty.id());
-        }
-        let x = self.archetypes.len() as u32;
-        self.index
-            .insert(info.iter().map(|x| x.id()).collect(), x)
-            .map(|_| panic!("duplicate archetype"));
-        self.archetypes.push(Archetype::new(info));
-        x
     }
 }
 
@@ -380,7 +343,9 @@ pub struct Entity {
 /// A collection of components used to spawn an entity
 pub trait Bundle {
     #[doc(hidden)]
-    fn get_archetype(&self, table: &mut ArchetypeTable) -> u32;
+    fn with_ids<T>(&self, f: impl FnOnce(&[TypeId]) -> T) -> T;
+    #[doc(hidden)]
+    fn type_info(&self) -> Vec<TypeInfo>;
     #[doc(hidden)]
     unsafe fn store(self, archetype: &mut Archetype, index: u32);
 }
@@ -475,10 +440,13 @@ pub struct BuiltEntity<'a> {
 }
 
 impl Bundle for BuiltEntity<'_> {
-    fn get_archetype(&self, table: &mut ArchetypeTable) -> u32 {
-        table
-            .get_id(&self.builder.ids)
-            .unwrap_or_else(|| table.alloc(self.builder.info.iter().map(|x| x.0).collect()))
+    fn with_ids<T>(&self, f: impl FnOnce(&[TypeId]) -> T) -> T {
+        f(&self.builder.ids)
+    }
+
+    #[doc(hidden)]
+    fn type_info(&self) -> Vec<TypeInfo> {
+        self.builder.info.iter().map(|x| x.0).collect()
     }
 
     unsafe fn store(self, archetype: &mut Archetype, index: u32) {
@@ -560,15 +528,21 @@ impl<'a> Iterator for Iter<'a> {
 macro_rules! tuple_impl {
     ($($name: ident),*) => {
         impl<$($name: Component),*> Bundle for ($($name,)*) {
-            fn get_archetype(&self, table: &mut ArchetypeTable) -> u32 {
+            fn with_ids<T>(&self, f: impl FnOnce(&[TypeId]) -> T) -> T {
                 const N: usize = count!($($name),*);
-                let mut xs: [TypeInfo; N] = [$(TypeInfo::of::<$name>()),*];
-                xs.sort_unstable();
+                let mut xs: [(usize, TypeId); N] = [$((std::mem::align_of::<$name>(), TypeId::of::<$name>())),*];
+                xs.sort_unstable_by(|x, y| x.0.cmp(&y.0).reverse().then(x.1.cmp(&y.1)));
                 let mut ids = [TypeId::of::<()>(); N];
-                for (id, info) in ids.iter_mut().zip(xs.iter()) {
-                    *id = info.id();
+                for (slot, &(_, id)) in ids.iter_mut().zip(xs.iter()) {
+                    *slot = id;
                 }
-                table.get_id(&ids).unwrap_or_else(|| table.alloc(xs.to_vec()))
+                f(&ids)
+            }
+
+            fn type_info(&self) -> Vec<TypeInfo> {
+                let mut xs = vec![$(TypeInfo::of::<$name>()),*];
+                xs.sort_unstable();
+                xs
             }
 
             #[allow(unused_variables)]

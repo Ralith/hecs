@@ -43,8 +43,6 @@ pub use borrow::BorrowState;
 pub use once_cell;
 #[doc(hidden)]
 pub use query::Fetch;
-#[doc(hidden)]
-pub use world::ArchetypeTable;
 
 #[cfg(feature = "macros")]
 pub use hecs_macros::{Bundle, Query};

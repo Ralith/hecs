@@ -6,7 +6,6 @@ use std::ptr::{self, NonNull};
 
 use fxhash::FxHashMap;
 
-use crate::world::ArchetypeTable;
 use crate::{Bundle, Component};
 
 /// A collection of entities having the same component types
@@ -300,10 +299,12 @@ pub struct EntityBundle<'a> {
 }
 
 impl<'a> Bundle for EntityBundle<'a> {
-    fn get_archetype(&self, table: &mut ArchetypeTable) -> u32 {
-        table
-            .get_id(&self.archetype.ids)
-            .unwrap_or_else(|| table.alloc(self.archetype.types.clone()))
+    fn with_ids<T>(&self, f: impl FnOnce(&[TypeId]) -> T) -> T {
+        f(&self.archetype.ids)
+    }
+
+    fn type_info(&self) -> Vec<TypeInfo> {
+        self.archetype.types.clone()
     }
 
     unsafe fn store(self, archetype: &mut Archetype, index: u32) {
