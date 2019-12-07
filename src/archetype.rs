@@ -1,6 +1,7 @@
 use std::alloc::{alloc, Layout};
 use std::any::TypeId;
 use std::cell::UnsafeCell;
+use std::mem::MaybeUninit;
 use std::ptr::{self, NonNull};
 
 use fxhash::FxHashMap;
@@ -15,7 +16,7 @@ pub struct Archetype {
     entities: Box<[u32]>,
     // UnsafeCell allows unique references into `data` to be constructed while shared references
     // containing the `Archetype` exist
-    data: UnsafeCell<Box<[u8]>>,
+    data: UnsafeCell<Box<[MaybeUninit<u8>]>>,
 }
 
 impl Archetype {
@@ -95,7 +96,8 @@ impl Archetype {
                 self.types.first().map_or(1, |x| x.layout.align()),
             )
             .unwrap(),
-        );
+        )
+        .cast::<MaybeUninit<u8>>();
         let mut new_data = Box::from_raw(std::slice::from_raw_parts_mut(alloc, data_size));
         if !(*self.data.get()).is_empty() {
             for ty in &self.types {
@@ -124,7 +126,7 @@ impl Archetype {
                 .as_mut_ptr()
                 .add(*self.offsets.get(&ty.id).unwrap());
             let removed = base.add(ty.layout.size() * index as usize);
-            (ty.drop)(removed);
+            (ty.drop)(removed.cast::<u8>());
             if index != last {
                 ptr::copy_nonoverlapping(
                     base.add(ty.layout.size() * last as usize),
@@ -168,7 +170,7 @@ impl Archetype {
             let moved = base.add(ty.layout.size() * index as usize);
             // Tolerate missing components
             if target.offsets.contains_key(&ty.id) {
-                target.put_dynamic(moved, ty.id, ty.layout, target_index);
+                target.put_dynamic(moved.cast::<u8>(), ty.id, ty.layout, target_index);
             }
             if index != last {
                 ptr::copy_nonoverlapping(
@@ -202,7 +204,7 @@ impl Archetype {
         let ptr = (*self.data.get())
             .as_mut_ptr()
             .add(offset + layout.size() * index as usize);
-        ptr::copy_nonoverlapping(component, ptr, layout.size());
+        ptr::copy_nonoverlapping(component, ptr.cast::<u8>(), layout.size());
     }
 }
 
