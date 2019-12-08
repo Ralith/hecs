@@ -15,8 +15,7 @@ use crate::{Bundle, DynamicBundle, EntityRef, MissingComponent, Query, QueryIter
 /// runs, allowing for extremely fast, cache-friendly iteration.
 #[derive(Default)]
 pub struct World {
-    entities: Vec<EntityMeta>,
-    free: Vec<u32>,
+    entities: Entities,
     index: FxHashMap<Vec<TypeId>, u32>,
     archetypes: Vec<Archetype>,
     borrows: BorrowState,
@@ -43,24 +42,7 @@ impl World {
     /// let b = world.spawn((456, true));
     /// ```
     pub fn spawn(&mut self, components: impl DynamicBundle) -> Entity {
-        let entity = match self.free.pop() {
-            Some(i) => Entity {
-                generation: self.entities[i as usize].generation,
-                id: i,
-            },
-            None => {
-                let i = self.entities.len() as u32;
-                self.entities.push(EntityMeta {
-                    generation: 0,
-                    archetype: 0,
-                    index: 0,
-                });
-                Entity {
-                    generation: 0,
-                    id: i,
-                }
-            }
-        };
+        let entity = self.entities.alloc();
         let archetype = components.with_ids(|ids| {
             self.index.get(ids).copied().unwrap_or_else(|| {
                 for &id in ids {
@@ -72,11 +54,11 @@ impl World {
                 x
             })
         });
-        self.entities[entity.id as usize].archetype = archetype;
+        self.entities.meta[entity.id as usize].location.archetype = archetype;
         let archetype = &mut self.archetypes[archetype as usize];
         unsafe {
             let index = archetype.allocate(entity.id);
-            self.entities[entity.id as usize].index = index;
+            self.entities.meta[entity.id as usize].location.index = index;
             components.store(archetype, index);
         }
         entity
@@ -84,22 +66,16 @@ impl World {
 
     /// Destroy an entity and all its components
     pub fn despawn(&mut self, entity: Entity) -> Result<(), NoSuchEntity> {
-        let meta = &mut self.entities[entity.id as usize];
-        if meta.generation != entity.generation {
-            return Err(NoSuchEntity);
+        let loc = self.entities.free(entity)?;
+        if let Some(moved) = unsafe { self.archetypes[loc.archetype as usize].remove(loc.index) } {
+            self.entities.meta[moved as usize].location.index = loc.index;
         }
-        meta.generation += 1;
-        if let Some(moved) = unsafe { self.archetypes[meta.archetype as usize].remove(meta.index) }
-        {
-            self.entities[moved as usize].index = meta.index;
-        }
-        self.free.push(entity.id);
         Ok(())
     }
 
     /// Whether `entity` still exists
     pub fn contains(&self, entity: Entity) -> bool {
-        self.entities[entity.id as usize].generation == entity.generation
+        self.entities.meta[entity.id as usize].generation == entity.generation
     }
 
     /// Efficiently iterate over all entities that have certain components
@@ -127,22 +103,22 @@ impl World {
     /// assert!(entities.contains(&(b, (&456, &false))));
     /// ```
     pub fn query<'a, Q: Query<'a>>(&'a self) -> QueryIter<'a, Q> {
-        QueryIter::new(&self.borrows, &self.entities, &self.archetypes)
+        QueryIter::new(&self.borrows, &self.entities.meta, &self.archetypes)
     }
 
     /// Borrow the `T` component of `entity`
     ///
     /// Panics if the component is already uniquely borrowed.
     pub fn get<T: Component>(&self, entity: Entity) -> Result<Ref<'_, T>, ComponentError> {
-        let meta = &self.entities[entity.id as usize];
+        let meta = &self.entities.meta[entity.id as usize];
         if meta.generation != entity.generation {
             return Err(ComponentError::NoSuchEntity);
         }
         unsafe {
             Ok(Ref::new(
                 &self.borrows,
-                self.archetypes[meta.archetype as usize]
-                    .get(meta.index)
+                self.archetypes[meta.location.archetype as usize]
+                    .get(meta.location.index)
                     .ok_or_else(|| MissingComponent::new::<T>())?,
             ))
         }
@@ -152,15 +128,15 @@ impl World {
     ///
     /// Panics if the component is already borrowed.
     pub fn get_mut<T: Component>(&self, entity: Entity) -> Result<RefMut<'_, T>, ComponentError> {
-        let meta = &self.entities[entity.id as usize];
+        let meta = &self.entities.meta[entity.id as usize];
         if meta.generation != entity.generation {
             return Err(ComponentError::NoSuchEntity);
         }
         unsafe {
             Ok(RefMut::new(
                 &self.borrows,
-                self.archetypes[meta.archetype as usize]
-                    .get(meta.index)
+                self.archetypes[meta.location.archetype as usize]
+                    .get(meta.location.index)
                     .ok_or_else(|| MissingComponent::new::<T>())?,
             ))
         }
@@ -170,14 +146,14 @@ impl World {
     ///
     /// Does not immediately borrow any component.
     pub fn entity(&self, entity: Entity) -> Result<EntityRef<'_>, NoSuchEntity> {
-        let meta = &self.entities[entity.id as usize];
+        let meta = &self.entities.meta[entity.id as usize];
         if meta.generation != entity.generation {
             return Err(NoSuchEntity);
         }
         Ok(EntityRef::new(
             &self.borrows,
-            &self.archetypes[meta.archetype as usize],
-            meta.index,
+            &self.archetypes[meta.location.archetype as usize],
+            meta.location.index,
         ))
     }
 
@@ -193,7 +169,7 @@ impl World {
     /// assert_eq!(world.iter().map(|(id, _)| id).collect::<Vec<_>>(), &[a, b]);
     /// ```
     pub fn iter(&self) -> Iter<'_> {
-        Iter::new(&self.borrows, &self.archetypes, &self.entities)
+        Iter::new(&self.borrows, &self.archetypes, &self.entities.meta)
     }
 
     /// Add `components` to `entity`
@@ -207,15 +183,16 @@ impl World {
     ) -> Result<(), NoSuchEntity> {
         use std::collections::hash_map::Entry;
 
-        let meta = &mut self.entities[entity.id as usize];
+        let meta = &mut self.entities.meta[entity.id as usize];
         if meta.generation != entity.generation {
             return Err(NoSuchEntity);
         }
+        let loc = &mut meta.location;
         unsafe {
-            let arch = &mut self.archetypes[meta.archetype as usize];
+            let arch = &mut self.archetypes[loc.archetype as usize];
             let mut info = arch.types().to_vec();
             for ty in components.type_info() {
-                if let Some(ptr) = arch.get_dynamic(ty.id(), ty.layout().size(), meta.index) {
+                if let Some(ptr) = arch.get_dynamic(ty.id(), ty.layout().size(), loc.index) {
                     ty.drop(ptr.as_ptr());
                 } else {
                     self.borrows.ensure(ty.id());
@@ -234,21 +211,21 @@ impl World {
                     index
                 }
             };
-            if target == meta.archetype {
-                components.store(&mut self.archetypes[meta.archetype as usize], meta.index);
+            if target == loc.archetype {
+                components.store(&mut self.archetypes[loc.archetype as usize], loc.index);
                 return Ok(());
             }
 
             let (source_arch, target_arch) = index2(
                 &mut self.archetypes,
-                meta.archetype as usize,
+                loc.archetype as usize,
                 target as usize,
             );
-            let old_components = source_arch.move_component_set(meta.index);
-            meta.archetype = target;
-            meta.index = target_arch.allocate(entity.id);
-            old_components.store(target_arch, meta.index);
-            components.store(target_arch, meta.index);
+            let old_components = source_arch.move_component_set(loc.index);
+            loc.archetype = target;
+            loc.index = target_arch.allocate(entity.id);
+            old_components.store(target_arch, loc.index);
+            components.store(target_arch, loc.index);
         }
         Ok(())
     }
@@ -273,13 +250,14 @@ impl World {
     pub fn remove<T: Bundle>(&mut self, entity: Entity) -> Result<T, ComponentError> {
         use std::collections::hash_map::Entry;
 
-        let meta = &mut self.entities[entity.id as usize];
+        let meta = &mut self.entities.meta[entity.id as usize];
         if meta.generation != entity.generation {
             return Err(ComponentError::NoSuchEntity);
         }
+        let loc = &mut meta.location;
         unsafe {
             let removed = T::with_ids(|ids| ids.iter().copied().collect::<FxHashSet<_>>());
-            let info = self.archetypes[meta.archetype as usize]
+            let info = self.archetypes[loc.archetype as usize]
                 .types()
                 .iter()
                 .cloned()
@@ -297,14 +275,14 @@ impl World {
             };
             let (source_arch, target_arch) = index2(
                 &mut self.archetypes,
-                meta.archetype as usize,
+                loc.archetype as usize,
                 target as usize,
             );
-            let x = T::take(source_arch, meta.index)?;
-            let components = source_arch.move_component_set(meta.index);
-            meta.archetype = target;
-            meta.index = target_arch.allocate(entity.id);
-            components.store(target_arch, meta.index);
+            let x = T::take(source_arch, loc.index)?;
+            let components = source_arch.move_component_set(loc.index);
+            loc.archetype = target;
+            loc.index = target_arch.allocate(entity.id);
+            components.store(target_arch, loc.index);
             Ok(x)
         }
     }
@@ -384,12 +362,6 @@ impl Error for NoSuchEntity {}
 pub trait Component: Downcast + Send + Sync + 'static {}
 impl_downcast!(Component);
 impl<T: Send + Sync + 'static> Component for T {}
-
-pub(crate) struct EntityMeta {
-    pub(crate) generation: u32,
-    archetype: u32,
-    index: u32,
-}
 
 /// Lightweight unique ID of an entity
 ///
@@ -474,6 +446,59 @@ impl<A: DynamicBundle> Extend<A> for World {
             self.spawn(x);
         }
     }
+}
+
+#[derive(Default)]
+struct Entities {
+    meta: Vec<EntityMeta>,
+    free: Vec<u32>,
+}
+
+impl Entities {
+    fn alloc(&mut self) -> Entity {
+        match self.free.pop() {
+            Some(i) => Entity {
+                generation: self.meta[i as usize].generation,
+                id: i,
+            },
+            None => {
+                let i = self.meta.len() as u32;
+                self.meta.push(EntityMeta {
+                    generation: 0,
+                    location: Location {
+                        archetype: 0,
+                        index: 0,
+                    },
+                });
+                Entity {
+                    generation: 0,
+                    id: i,
+                }
+            }
+        }
+    }
+
+    fn free(&mut self, entity: Entity) -> Result<Location, NoSuchEntity> {
+        let meta = &mut self.meta[entity.id as usize];
+        if meta.generation != entity.generation {
+            return Err(NoSuchEntity);
+        }
+        meta.generation += 1;
+        self.free.push(entity.id);
+        Ok(meta.location)
+    }
+}
+
+#[derive(Copy, Clone)]
+pub(crate) struct EntityMeta {
+    pub(crate) generation: u32,
+    location: Location,
+}
+
+#[derive(Copy, Clone)]
+struct Location {
+    archetype: u32,
+    index: u32,
 }
 
 #[cfg(test)]
