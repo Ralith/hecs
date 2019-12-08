@@ -164,11 +164,8 @@ impl Archetype {
     /// Move out of an entity's component
     ///
     /// Further access to this component is UB!
-    pub unsafe fn take<T: Component>(&mut self, index: u32) -> T {
-        self.get::<T>(index)
-            .expect("no such component")
-            .as_ptr()
-            .read()
+    pub unsafe fn take<T: Component>(&mut self, index: u32) -> Option<T> {
+        Some(self.get::<T>(index)?.as_ptr().read())
     }
 
     pub(crate) unsafe fn move_component_set(&mut self, index: u32) -> EntityBundle {

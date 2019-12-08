@@ -85,10 +85,10 @@ pub fn derive_bundle(input: TokenStream) -> TokenStream {
                 )*
             }
 
-            unsafe fn take(archetype: &mut ::hecs::Archetype, index: u32) -> Self {
-                Self {
-                    #(#fields: archetype.take(index),)*
-                }
+            unsafe fn take(archetype: &mut ::hecs::Archetype, index: u32) -> Result<Self, hecs::MissingComponent> {
+                Ok(Self {
+                    #(#fields: archetype.take(index).ok_or_else(|| MissingComponent::new::<#tys>())?,)*
+                })
             }
         }
     };

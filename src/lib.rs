@@ -32,10 +32,10 @@ mod query;
 mod world;
 
 pub use borrow::{EntityRef, Ref, RefMut};
-pub use bundle::{Bundle, DynamicBundle};
+pub use bundle::{Bundle, DynamicBundle, MissingComponent};
 pub use entity_builder::{BuiltEntity, EntityBuilder};
 pub use query::{Query, QueryIter};
-pub use world::{Component, Entity, Iter, NoSuchEntity, World};
+pub use world::{Component, ComponentError, Entity, Iter, NoSuchEntity, World};
 
 // Detailed needed by the macros
 #[doc(hidden)]

@@ -1,4 +1,5 @@
-use std::any::TypeId;
+use std::any::{type_name, TypeId};
+use std::fmt;
 
 use crate::archetype::{Archetype, TypeInfo};
 use crate::Component;
@@ -23,7 +24,9 @@ pub trait Bundle {
     unsafe fn store(self, archetype: &mut Archetype, index: u32);
     /// Construct `Self` by moving components out of `archetype`
     #[doc(hidden)]
-    unsafe fn take(archetype: &mut Archetype, index: u32) -> Self;
+    unsafe fn take(archetype: &mut Archetype, index: u32) -> Result<Self, MissingComponent>
+    where
+        Self: Sized;
 }
 
 impl<B: Bundle> DynamicBundle for B {
@@ -42,6 +45,25 @@ impl<B: Bundle> DynamicBundle for B {
         <B as Bundle>::store(self, archetype, index)
     }
 }
+
+/// Error indicating that an entity did not have a required component
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+pub struct MissingComponent(&'static str);
+
+impl MissingComponent {
+    /// Construct an error representing a missing `T`
+    pub fn new<T: Component>() -> Self {
+        Self(type_name::<T>())
+    }
+}
+
+impl fmt::Display for MissingComponent {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "missing {} component", self.0)
+    }
+}
+
+impl std::error::Error for MissingComponent {}
 
 macro_rules! tuple_impl {
     ($($name: ident),*) => {
@@ -73,8 +95,8 @@ macro_rules! tuple_impl {
             }
 
             #[allow(unused_variables)]
-            unsafe fn take(archetype: &mut Archetype, index: u32) -> Self {
-                ($(archetype.take::<$name>(index),)*)
+            unsafe fn take(archetype: &mut Archetype, index: u32) -> Result<Self, MissingComponent> {
+                Ok(($(archetype.take::<$name>(index).ok_or_else(|| MissingComponent::new::<$name>())?,)*))
             }
         }
     }

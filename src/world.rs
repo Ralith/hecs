@@ -1,4 +1,4 @@
-use std::any::{type_name, TypeId};
+use std::any::TypeId;
 use std::error::Error;
 use std::fmt;
 
@@ -7,7 +7,7 @@ use fxhash::{FxHashMap, FxHashSet};
 
 use crate::archetype::Archetype;
 use crate::borrow::BorrowState;
-use crate::{Bundle, DynamicBundle, EntityRef, Query, QueryIter, Ref, RefMut};
+use crate::{Bundle, DynamicBundle, EntityRef, MissingComponent, Query, QueryIter, Ref, RefMut};
 
 /// An unordered collection of entities, each having any number of distinctly typed components
 ///
@@ -132,36 +132,36 @@ impl World {
 
     /// Borrow the `T` component of `entity`
     ///
-    /// Panics if the entity has no such component or the component is already uniquely borrowed.
-    pub fn get<T: Component>(&self, entity: Entity) -> Result<Ref<'_, T>, NoSuchEntity> {
+    /// Panics if the component is already uniquely borrowed.
+    pub fn get<T: Component>(&self, entity: Entity) -> Result<Ref<'_, T>, ComponentError> {
         let meta = &self.entities[entity.id as usize];
         if meta.generation != entity.generation {
-            return Err(NoSuchEntity);
+            return Err(ComponentError::NoSuchEntity);
         }
         unsafe {
             Ok(Ref::new(
                 &self.borrows,
                 self.archetypes[meta.archetype as usize]
                     .get(meta.index)
-                    .unwrap_or_else(|| panic!("entity has no {} component", type_name::<T>())),
+                    .ok_or_else(|| MissingComponent::new::<T>())?,
             ))
         }
     }
 
     /// Uniquely borrow the `T` component of `entity`
     ///
-    /// Panics if the entity has no such component or the component is already borrowed.
-    pub fn get_mut<T: Component>(&self, entity: Entity) -> Result<RefMut<'_, T>, NoSuchEntity> {
+    /// Panics if the component is already borrowed.
+    pub fn get_mut<T: Component>(&self, entity: Entity) -> Result<RefMut<'_, T>, ComponentError> {
         let meta = &self.entities[entity.id as usize];
         if meta.generation != entity.generation {
-            return Err(NoSuchEntity);
+            return Err(ComponentError::NoSuchEntity);
         }
         unsafe {
             Ok(RefMut::new(
                 &self.borrows,
                 self.archetypes[meta.archetype as usize]
                     .get(meta.index)
-                    .unwrap_or_else(|| panic!("entity has no {} component", type_name::<T>())),
+                    .ok_or_else(|| MissingComponent::new::<T>())?,
             ))
         }
     }
@@ -267,13 +267,15 @@ impl World {
     /// Remove components from `entity`
     ///
     /// Computational cost is proportional to the number of components `entity` has. The entity
-    /// itself is not removed, even if no components remain; use `despawn` for that.
-    pub fn remove<T: Bundle>(&mut self, entity: Entity) -> Result<T, NoSuchEntity> {
+    /// itself is not removed, even if no components remain; use `despawn` for that. If any
+    /// component in `T` is not present in `entity`, no components are removed and an error is
+    /// returned.
+    pub fn remove<T: Bundle>(&mut self, entity: Entity) -> Result<T, ComponentError> {
         use std::collections::hash_map::Entry;
 
         let meta = &mut self.entities[entity.id as usize];
         if meta.generation != entity.generation {
-            return Err(NoSuchEntity);
+            return Err(ComponentError::NoSuchEntity);
         }
         unsafe {
             let removed = T::with_ids(|ids| ids.iter().copied().collect::<FxHashSet<_>>());
@@ -298,7 +300,7 @@ impl World {
                 meta.archetype as usize,
                 target as usize,
             );
-            let x = T::take(source_arch, meta.index);
+            let x = T::take(source_arch, meta.index)?;
             let components = source_arch.move_component_set(meta.index);
             meta.archetype = target;
             meta.index = target_arch.allocate(entity.id);
@@ -310,7 +312,7 @@ impl World {
     /// Remove the `T` component from `entity`
     ///
     /// See `remove`.
-    pub fn remove_one<T: Component>(&mut self, entity: Entity) -> Result<T, NoSuchEntity> {
+    pub fn remove_one<T: Component>(&mut self, entity: Entity) -> Result<T, ComponentError> {
         self.remove::<(T,)>(entity).map(|(x,)| x)
     }
 }
@@ -331,6 +333,39 @@ fn index2<T>(x: &mut [T], i: usize, j: usize) -> (&mut T, &mut T) {
     assert!(j < x.len());
     let ptr = x.as_mut_ptr();
     unsafe { (&mut *ptr.add(i), &mut *ptr.add(j)) }
+}
+
+/// Errors that arise when accessing components
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+pub enum ComponentError {
+    /// The entity was already despawned
+    NoSuchEntity,
+    /// The entity did not have a requested component
+    MissingComponent(MissingComponent),
+}
+
+impl std::error::Error for ComponentError {}
+
+impl fmt::Display for ComponentError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use ComponentError::*;
+        match *self {
+            NoSuchEntity => f.write_str("no such entity"),
+            MissingComponent(ref x) => x.fmt(f),
+        }
+    }
+}
+
+impl From<NoSuchEntity> for ComponentError {
+    fn from(NoSuchEntity: NoSuchEntity) -> Self {
+        ComponentError::NoSuchEntity
+    }
+}
+
+impl From<MissingComponent> for ComponentError {
+    fn from(x: MissingComponent) -> Self {
+        ComponentError::MissingComponent(x)
+    }
 }
 
 /// Error indicating that no entity with a particular ID exists
