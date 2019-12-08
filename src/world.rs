@@ -401,6 +401,17 @@ impl<'a> Iterator for Iter<'a> {
     }
 }
 
+impl<A: Bundle> Extend<A> for World {
+    fn extend<T>(&mut self, iter: T)
+    where
+        T: IntoIterator<Item = A>
+    {
+        for x in iter {
+            self.spawn(x);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
