@@ -394,10 +394,16 @@ pub(crate) struct EntityMeta {
 /// Lightweight unique ID of an entity
 ///
 /// Obtained from `World::spawn`. Can be stored to refer to an entity in the future.
-#[derive(Clone, Copy, Debug, Hash, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Hash, Eq, Ord, PartialEq, PartialOrd)]
 pub struct Entity {
     pub(crate) generation: u32,
     pub(crate) id: u32,
+}
+
+impl fmt::Debug for Entity {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}v{}", self.id, self.generation)
+    }
 }
 
 /// Iterator over all of a world's entities
