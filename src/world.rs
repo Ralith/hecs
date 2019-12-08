@@ -3,11 +3,11 @@ use std::error::Error;
 use std::fmt;
 
 use downcast_rs::{impl_downcast, Downcast};
-use fxhash::FxHashMap;
+use fxhash::{FxHashMap, FxHashSet};
 
 use crate::archetype::Archetype;
 use crate::borrow::BorrowState;
-use crate::{Bundle, EntityRef, Query, QueryIter, Ref, RefMut};
+use crate::{Bundle, DynamicBundle, EntityRef, Query, QueryIter, Ref, RefMut};
 
 /// An unordered collection of entities, each having any number of distinctly typed components
 ///
@@ -42,7 +42,7 @@ impl World {
     /// let a = world.spawn((123, "abc"));
     /// let b = world.spawn((456, true));
     /// ```
-    pub fn spawn(&mut self, components: impl Bundle) -> Entity {
+    pub fn spawn(&mut self, components: impl DynamicBundle) -> Entity {
         let entity = match self.free.pop() {
             Some(i) => Entity {
                 generation: self.entities[i as usize].generation,
@@ -200,7 +200,11 @@ impl World {
     ///
     /// Computational cost is proportional to the number of components `entity` has. If an entity
     /// already has a component of a certain type, it is dropped and replaced.
-    pub fn insert(&mut self, entity: Entity, components: impl Bundle) -> Result<(), NoSuchEntity> {
+    pub fn insert(
+        &mut self,
+        entity: Entity,
+        components: impl DynamicBundle,
+    ) -> Result<(), NoSuchEntity> {
         use std::collections::hash_map::Entry;
 
         let meta = &mut self.entities[entity.id as usize];
@@ -249,11 +253,22 @@ impl World {
         Ok(())
     }
 
-    /// Remove the `T` component from `entity`
+    /// Add `component` to `entity`
     ///
-    /// Computational cost is proportional to the number of components `entity` has. Returns the
-    /// removed component in `Some` if the entity is live and had a `T` component.
-    pub fn remove<T: Component>(&mut self, entity: Entity) -> Result<T, NoSuchEntity> {
+    /// See `insert`.
+    pub fn insert_one(
+        &mut self,
+        entity: Entity,
+        component: impl Component,
+    ) -> Result<(), NoSuchEntity> {
+        self.insert(entity, (component,))
+    }
+
+    /// Remove components from `entity`
+    ///
+    /// Computational cost is proportional to the number of components `entity` has. The entity
+    /// itself is not removed, even if no components remain; use `despawn` for that.
+    pub fn remove<T: Bundle>(&mut self, entity: Entity) -> Result<T, NoSuchEntity> {
         use std::collections::hash_map::Entry;
 
         let meta = &mut self.entities[entity.id as usize];
@@ -261,11 +276,12 @@ impl World {
             return Err(NoSuchEntity);
         }
         unsafe {
+            let removed = T::with_ids(|ids| ids.iter().copied().collect::<FxHashSet<_>>());
             let info = self.archetypes[meta.archetype as usize]
                 .types()
                 .iter()
                 .cloned()
-                .filter(|x| x.id() != TypeId::of::<T>())
+                .filter(|x| !removed.contains(&x.id()))
                 .collect::<Vec<_>>();
             let elements = info.iter().map(|x| x.id()).collect::<Vec<_>>();
             let target = match self.index.entry(elements) {
@@ -282,13 +298,20 @@ impl World {
                 meta.archetype as usize,
                 target as usize,
             );
-            let x = source_arch.take::<T>(meta.index);
+            let x = T::take(source_arch, meta.index);
             let components = source_arch.move_component_set(meta.index);
             meta.archetype = target;
             meta.index = target_arch.allocate(entity.id);
             components.store(target_arch, meta.index);
             Ok(x)
         }
+    }
+
+    /// Remove the `T` component from `entity`
+    ///
+    /// See `remove`.
+    pub fn remove_one<T: Component>(&mut self, entity: Entity) -> Result<T, NoSuchEntity> {
+        self.remove::<(T,)>(entity).map(|(x,)| x)
     }
 }
 
@@ -401,10 +424,10 @@ impl<'a> Iterator for Iter<'a> {
     }
 }
 
-impl<A: Bundle> Extend<A> for World {
+impl<A: DynamicBundle> Extend<A> for World {
     fn extend<T>(&mut self, iter: T)
     where
-        T: IntoIterator<Item = A>
+        T: IntoIterator<Item = A>,
     {
         for x in iter {
             self.spawn(x);

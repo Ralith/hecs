@@ -3,8 +3,8 @@ use std::any::TypeId;
 use crate::archetype::{Archetype, TypeInfo};
 use crate::Component;
 
-/// A collection of components used to spawn an entity
-pub trait Bundle {
+/// A dynamically typed collection of components
+pub trait DynamicBundle {
     #[doc(hidden)]
     fn with_ids<T>(&self, f: impl FnOnce(&[TypeId]) -> T) -> T;
     #[doc(hidden)]
@@ -13,10 +13,40 @@ pub trait Bundle {
     unsafe fn store(self, archetype: &mut Archetype, index: u32);
 }
 
+/// A statically typed collection of components
+pub trait Bundle {
+    #[doc(hidden)]
+    fn with_ids<T>(f: impl FnOnce(&[TypeId]) -> T) -> T;
+    #[doc(hidden)]
+    fn type_info() -> Vec<TypeInfo>;
+    #[doc(hidden)]
+    unsafe fn store(self, archetype: &mut Archetype, index: u32);
+    /// Construct `Self` by moving components out of `archetype`
+    #[doc(hidden)]
+    unsafe fn take(archetype: &mut Archetype, index: u32) -> Self;
+}
+
+impl<B: Bundle> DynamicBundle for B {
+    #[inline]
+    fn with_ids<T>(&self, f: impl FnOnce(&[TypeId]) -> T) -> T {
+        <B as Bundle>::with_ids(f)
+    }
+
+    #[inline]
+    fn type_info(&self) -> Vec<TypeInfo> {
+        <B as Bundle>::type_info()
+    }
+
+    #[inline]
+    unsafe fn store(self, archetype: &mut Archetype, index: u32) {
+        <B as Bundle>::store(self, archetype, index)
+    }
+}
+
 macro_rules! tuple_impl {
     ($($name: ident),*) => {
         impl<$($name: Component),*> Bundle for ($($name,)*) {
-            fn with_ids<T>(&self, f: impl FnOnce(&[TypeId]) -> T) -> T {
+            fn with_ids<T>(f: impl FnOnce(&[TypeId]) -> T) -> T {
                 const N: usize = count!($($name),*);
                 let mut xs: [(usize, TypeId); N] = [$((std::mem::align_of::<$name>(), TypeId::of::<$name>())),*];
                 xs.sort_unstable_by(|x, y| x.0.cmp(&y.0).reverse().then(x.1.cmp(&y.1)));
@@ -27,7 +57,7 @@ macro_rules! tuple_impl {
                 f(&ids)
             }
 
-            fn type_info(&self) -> Vec<TypeInfo> {
+            fn type_info() -> Vec<TypeInfo> {
                 let mut xs = vec![$(TypeInfo::of::<$name>()),*];
                 xs.sort_unstable();
                 xs
@@ -40,6 +70,11 @@ macro_rules! tuple_impl {
                 $(
                     archetype.put($name, index);
                 )*
+            }
+
+            #[allow(unused_variables)]
+            unsafe fn take(archetype: &mut Archetype, index: u32) -> Self {
+                ($(archetype.take::<$name>(index),)*)
             }
         }
     }

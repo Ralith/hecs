@@ -101,7 +101,7 @@ fn dynamic_components() {
         world.query::<(&i32, &bool)>().collect::<Vec<_>>(),
         &[(e, (&42, &true))]
     );
-    assert_eq!(world.remove::<i32>(e), Ok(42));
+    assert_eq!(world.remove_one::<i32>(e), Ok(42));
     assert_eq!(world.query::<(&i32, &bool)>().collect::<Vec<_>>(), &[]);
     assert_eq!(
         world.query::<(&bool, &&str)>().collect::<Vec<_>>(),

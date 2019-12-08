@@ -6,7 +6,7 @@ use std::ptr::{self, NonNull};
 
 use fxhash::FxHashMap;
 
-use crate::{Bundle, Component};
+use crate::{Component, DynamicBundle};
 
 /// A collection of entities having the same component types
 pub struct Archetype {
@@ -164,7 +164,7 @@ impl Archetype {
     /// Move out of an entity's component
     ///
     /// Further access to this component is UB!
-    pub(crate) unsafe fn take<T: Component>(&mut self, index: u32) -> T {
+    pub unsafe fn take<T: Component>(&mut self, index: u32) -> T {
         self.get::<T>(index)
             .expect("no such component")
             .as_ptr()
@@ -316,7 +316,7 @@ pub struct EntityBundle<'a> {
     index: u32,
 }
 
-impl<'a> Bundle for EntityBundle<'a> {
+impl<'a> DynamicBundle for EntityBundle<'a> {
     fn with_ids<T>(&self, f: impl FnOnce(&[TypeId]) -> T) -> T {
         f(&self.archetype.ids)
     }

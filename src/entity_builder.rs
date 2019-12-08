@@ -4,7 +4,7 @@ use std::mem::{self, MaybeUninit};
 use std::ptr;
 
 use crate::archetype::{Archetype, TypeInfo};
-use crate::{Bundle, Component};
+use crate::{Component, DynamicBundle};
 
 /// Helper for incrementally constructing an entity with dynamic component types
 ///
@@ -95,7 +95,7 @@ pub struct BuiltEntity<'a> {
     builder: &'a mut EntityBuilder,
 }
 
-impl Bundle for BuiltEntity<'_> {
+impl DynamicBundle for BuiltEntity<'_> {
     fn with_ids<T>(&self, f: impl FnOnce(&[TypeId]) -> T) -> T {
         f(&self.builder.ids)
     }
