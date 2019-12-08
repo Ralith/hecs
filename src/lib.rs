@@ -1,8 +1,8 @@
 //! A handy ECS
 //!
-//! hecs provides a high-performance, minimalist ECS world. It is a library, not a framework. In
-//! place of an explicit "System" abstraction, a `World`'s entities are easily queried from regular
-//! code. Organize your application however you like!
+//! hecs provides a high-performance, minimalist entity-component-system (ECS) world. It is a
+//! library, not a framework. In place of an explicit "System" abstraction, a `World`'s entities are
+//! easily queried from regular code. Organize your application however you like!
 //!
 //! In order of importance, hecs pursues:
 //! - fast traversals

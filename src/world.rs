@@ -11,6 +11,9 @@ use crate::{Bundle, DynamicBundle, EntityRef, MissingComponent, Query, QueryIter
 
 /// An unordered collection of entities, each having any number of distinctly typed components
 ///
+/// Similar to `HashMap<Entity, Vec<Box<dyn Any>>>` where each `Vec` never contains two of the same
+/// type, but far more efficient to traverse.
+///
 /// The components of entities who have the same set of component types are stored in contiguous
 /// runs, allowing for extremely fast, cache-friendly iteration.
 #[derive(Default)]
