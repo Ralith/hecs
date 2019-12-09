@@ -465,6 +465,14 @@ impl<A: DynamicBundle> Extend<A> for World {
     }
 }
 
+impl<A: DynamicBundle> std::iter::FromIterator<A> for World {
+    fn from_iter<I: IntoIterator<Item = A>>(iter: I) -> Self {
+        let mut world = World::new();
+        world.extend(iter);
+        world
+    }
+}
+
 #[derive(Default)]
 struct Entities {
     meta: Vec<EntityMeta>,
