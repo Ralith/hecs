@@ -13,9 +13,10 @@
 // limitations under the License.
 
 use std::any::{type_name, TypeId};
-use std::fmt;
+use std::ptr::NonNull;
+use std::{fmt, mem};
 
-use crate::archetype::{Archetype, TypeInfo};
+use crate::archetype::TypeInfo;
 use crate::Component;
 
 /// A dynamically typed collection of components
@@ -24,8 +25,12 @@ pub trait DynamicBundle {
     fn with_ids<T>(&self, f: impl FnOnce(&[TypeId]) -> T) -> T;
     #[doc(hidden)]
     fn type_info(&self) -> Vec<TypeInfo>;
+    /// Allow a callback to move all components out of the bundle
+    ///
+    /// Must invoke `f` only with a valid pointer, its type, and the pointee's size. A `false`
+    /// return value indicates that the value was not moved and should be dropped.
     #[doc(hidden)]
-    unsafe fn store(self, archetype: &mut Archetype, index: u32);
+    unsafe fn put(self, f: impl FnMut(*mut u8, TypeId, usize) -> bool);
 }
 
 /// A statically typed collection of components
@@ -34,11 +39,17 @@ pub trait Bundle {
     fn with_ids<T>(f: impl FnOnce(&[TypeId]) -> T) -> T;
     #[doc(hidden)]
     fn type_info() -> Vec<TypeInfo>;
+    /// Allow a callback to move all components out of the bundle
+    ///
+    /// Must invoke `f` only with a valid pointer, its type, and the pointee's size. A `false`
+    /// return value indicates that the value was not moved and should be dropped.
     #[doc(hidden)]
-    unsafe fn store(self, archetype: &mut Archetype, index: u32);
-    /// Construct `Self` by moving components out of `archetype`
+    unsafe fn put(self, f: impl FnMut(*mut u8, TypeId, usize) -> bool);
+    /// Construct `Self` by moving components out of pointers fetched by `f`
     #[doc(hidden)]
-    unsafe fn take(archetype: &mut Archetype, index: u32) -> Result<Self, MissingComponent>
+    unsafe fn get(
+        f: impl FnMut(TypeId, usize) -> Option<NonNull<u8>>,
+    ) -> Result<Self, MissingComponent>
     where
         Self: Sized;
 }
@@ -55,8 +66,8 @@ impl<B: Bundle> DynamicBundle for B {
     }
 
     #[inline]
-    unsafe fn store(self, archetype: &mut Archetype, index: u32) {
-        <B as Bundle>::store(self, archetype, index)
+    unsafe fn put(self, f: impl FnMut(*mut u8, TypeId, usize) -> bool) {
+        <B as Bundle>::put(self, f)
     }
 }
 
@@ -99,18 +110,30 @@ macro_rules! tuple_impl {
                 xs
             }
 
-            #[allow(unused_variables)]
-            unsafe fn store(self, archetype: &mut Archetype, index: u32) {
+            #[allow(unused_variables, unused_mut)]
+            unsafe fn put(self, mut f: impl FnMut(*mut u8, TypeId, usize) -> bool) {
                 #[allow(non_snake_case)]
-                let ($($name,)*) = self;
+                let ($(mut $name,)*) = self;
                 $(
-                    archetype.put($name, index);
+                    if f(
+                        (&mut $name as *mut $name).cast::<u8>(),
+                        TypeId::of::<$name>(),
+                        mem::size_of::<$name>()
+                    ) {
+                        mem::forget($name)
+                    }
                 )*
             }
 
-            #[allow(unused_variables)]
-            unsafe fn take(archetype: &mut Archetype, index: u32) -> Result<Self, MissingComponent> {
-                Ok(($(archetype.take::<$name>(index).ok_or_else(|| MissingComponent::new::<$name>())?,)*))
+            #[allow(unused_variables, unused_mut)]
+            unsafe fn get(mut f: impl FnMut(TypeId, usize) -> Option<NonNull<u8>>) -> Result<Self, MissingComponent> {
+                Ok(($(
+                    f(TypeId::of::<$name>(), mem::size_of::<$name>())
+                      .ok_or_else(MissingComponent::new::<$name>)?
+                      .as_ptr()
+                      .cast::<$name>()
+                      .read(),
+                )*))
             }
         }
     }

@@ -14,7 +14,7 @@
 
 use std::any::TypeId;
 use std::error::Error;
-use std::fmt;
+use std::{fmt, ptr};
 
 use downcast_rs::{impl_downcast, Downcast};
 use fxhash::{FxHashMap, FxHashSet};
@@ -76,7 +76,10 @@ impl World {
         unsafe {
             let index = archetype.allocate(entity.id);
             self.entities.meta[entity.id as usize].location.index = index;
-            components.store(archetype, index);
+            components.put(|ptr, ty, size| {
+                archetype.put_dynamic(ptr, ty, size, index);
+                true
+            });
         }
         entity
     }
@@ -229,7 +232,11 @@ impl World {
                 }
             };
             if target == loc.archetype {
-                components.store(&mut self.archetypes[loc.archetype as usize], loc.index);
+                let arch = &mut self.archetypes[loc.archetype as usize];
+                components.put(|ptr, ty, size| {
+                    arch.put_dynamic(ptr, ty, size, loc.index);
+                    true
+                });
                 return Ok(());
             }
 
@@ -241,8 +248,14 @@ impl World {
             let old_components = source_arch.move_component_set(loc.index);
             loc.archetype = target;
             loc.index = target_arch.allocate(entity.id);
-            old_components.store(target_arch, loc.index);
-            components.store(target_arch, loc.index);
+            old_components.put(|ptr, ty, size| {
+                target_arch.put_dynamic(ptr, ty, size, loc.index);
+                true
+            });
+            components.put(|ptr, ty, size| {
+                target_arch.put_dynamic(ptr, ty, size, loc.index);
+                true
+            });
         }
         Ok(())
     }
@@ -295,11 +308,19 @@ impl World {
                 loc.archetype as usize,
                 target as usize,
             );
-            let x = T::take(source_arch, loc.index)?;
+            let x = T::get(|ty, size| source_arch.get_dynamic(ty, size, loc.index))?;
             let components = source_arch.move_component_set(loc.index);
             loc.archetype = target;
             loc.index = target_arch.allocate(entity.id);
-            components.store(target_arch, loc.index);
+            components.put(|src, ty, size| {
+                // Only move the components present in the target archetype, i.e. the non-removed ones.
+                if let Some(dst) = target_arch.get_dynamic(ty, size, loc.index) {
+                    ptr::copy_nonoverlapping(src, dst.as_ptr(), size);
+                    true
+                } else {
+                    false
+                }
+            });
             Ok(x)
         }
     }

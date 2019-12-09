@@ -17,7 +17,7 @@ use std::any::TypeId;
 use std::mem::{self, MaybeUninit};
 use std::ptr;
 
-use crate::archetype::{Archetype, TypeInfo};
+use crate::archetype::TypeInfo;
 use crate::{Component, DynamicBundle};
 
 /// Helper for incrementally constructing an entity with dynamic component types
@@ -77,8 +77,8 @@ impl EntityBuilder {
             .max(self.storage.len() * 2)
             .max(64);
         unsafe {
-            let alloc = alloc(Layout::from_size_align(new_len, 16).unwrap())
-                .cast::<MaybeUninit<u8>>();
+            let alloc =
+                alloc(Layout::from_size_align(new_len, 16).unwrap()).cast::<MaybeUninit<u8>>();
             let mut new_storage = Box::from_raw(std::slice::from_raw_parts_mut(alloc, new_len));
             new_storage[new_len - self.storage.len()..].copy_from_slice(&self.storage);
             self.cursor = new_storage
@@ -136,9 +136,11 @@ impl DynamicBundle for BuiltEntity<'_> {
         self.builder.info.iter().map(|x| x.0).collect()
     }
 
-    unsafe fn store(self, archetype: &mut Archetype, index: u32) {
+    unsafe fn put(self, mut f: impl FnMut(*mut u8, TypeId, usize) -> bool) {
         for (ty, component) in self.builder.info.drain(..) {
-            archetype.put_dynamic(component, ty.id(), ty.layout().size(), index);
+            if !f(component, ty.id(), ty.layout().size()) {
+                ty.drop(component);
+            }
         }
     }
 }

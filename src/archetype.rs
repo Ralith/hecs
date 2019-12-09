@@ -175,13 +175,6 @@ impl Archetype {
         }
     }
 
-    /// Move out of an entity's component
-    ///
-    /// Further access to this component is UB!
-    pub unsafe fn take<T: Component>(&mut self, index: u32) -> Option<T> {
-        Some(self.get::<T>(index)?.as_ptr().read())
-    }
-
     pub(crate) unsafe fn move_component_set(&mut self, index: u32) -> EntityBundle {
         EntityBundle {
             archetype: self,
@@ -189,17 +182,15 @@ impl Archetype {
         }
     }
 
-    unsafe fn move_to(&mut self, index: u32, target: &mut Archetype, target_index: u32) {
+    unsafe fn move_to(&mut self, index: u32, mut f: impl FnMut(*mut u8, TypeId, usize) -> bool) {
         let last = self.len - 1;
         for ty in &self.types {
             let moved = self
                 .get_dynamic(ty.id, ty.layout.size(), index)
                 .unwrap()
                 .as_ptr();
-            // Tolerate missing components
-            if target.offsets.contains_key(&ty.id) {
-                target.put_dynamic(moved.cast::<u8>(), ty.id, ty.layout.size(), target_index);
-            }
+            // Unused fields were already moved out of
+            f(moved, ty.id(), ty.layout().size());
             if index != last {
                 ptr::copy_nonoverlapping(
                     self.get_dynamic(ty.id, ty.layout.size(), last)
@@ -336,7 +327,7 @@ impl<'a> DynamicBundle for EntityBundle<'a> {
         self.archetype.types.clone()
     }
 
-    unsafe fn store(self, archetype: &mut Archetype, index: u32) {
-        self.archetype.move_to(self.index, archetype, index);
+    unsafe fn put(self, f: impl FnMut(*mut u8, TypeId, usize) -> bool) {
+        self.archetype.move_to(self.index, f);
     }
 }

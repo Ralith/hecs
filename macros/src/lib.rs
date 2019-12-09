@@ -93,15 +93,25 @@ pub fn derive_bundle(input: TokenStream) -> TokenStream {
                 info
             }
 
-            unsafe fn store(self, archetype: &mut ::hecs::Archetype, index: u32) {
+            unsafe fn put(mut self, mut f: impl FnMut(*mut u8, std::any::TypeId, usize) -> bool) {
                 #(
-                    archetype.put(self.#fields, index);
+                    if f((&mut self.#fields as *mut #tys).cast::<u8>(), std::any::TypeId::of::<#tys>(), std::mem::size_of::<#tys>()) {
+                        std::mem::forget(self.#fields);
+                    }
                 )*
             }
 
-            unsafe fn take(archetype: &mut ::hecs::Archetype, index: u32) -> Result<Self, hecs::MissingComponent> {
+            unsafe fn get(
+                mut f: impl FnMut(std::any::TypeId, usize) -> Option<std::ptr::NonNull<u8>>,
+            ) -> Result<Self, MissingComponent> {
                 Ok(Self {
-                    #(#fields: archetype.take(index).ok_or_else(|| MissingComponent::new::<#tys>())?,)*
+                    #(
+                        #fields: f(std::any::TypeId::of::<#tys>(), std::mem::size_of::<#tys>())
+                            .ok_or_else(MissingComponent::new::<#tys>)?
+                            .cast::<#tys>()
+                            .as_ptr()
+                            .read(),
+                    )*
                 })
             }
         }
