@@ -23,7 +23,6 @@ pub struct EntityBuilder {
     storage: Box<[MaybeUninit<u8>]>,
     // Backwards from the end!
     cursor: *mut u8,
-    max_align: usize,
     info: Vec<(TypeInfo, *mut u8)>,
     ids: Vec<TypeId>,
 }
@@ -34,7 +33,6 @@ impl EntityBuilder {
         Self {
             storage: Box::new([]),
             cursor: ptr::null_mut(),
-            max_align: 16,
             info: Vec::new(),
             ids: Vec::new(),
         }
@@ -42,7 +40,6 @@ impl EntityBuilder {
 
     /// Add `component` to the entity
     pub fn add<T: Component>(&mut self, component: T) -> &mut Self {
-        self.max_align = self.max_align.max(mem::align_of::<T>());
         if (self.cursor as usize) < mem::size_of::<T>() {
             self.grow(mem::size_of::<T>());
         }
@@ -50,7 +47,7 @@ impl EntityBuilder {
             self.cursor = (self.cursor.sub(mem::size_of::<T>()) as usize
                 & !(mem::align_of::<T>() - 1)) as *mut u8;
             if self.cursor.cast() < self.storage.as_mut_ptr() {
-                self.grow(mem::size_of::<T>());
+                self.grow(mem::size_of::<T>().max(mem::align_of::<T>()));
                 self.cursor = (self.cursor.sub(mem::size_of::<T>()) as usize
                     & !(mem::align_of::<T>() - 1)) as *mut u8;
             }
@@ -66,7 +63,7 @@ impl EntityBuilder {
             .max(self.storage.len() * 2)
             .max(64);
         unsafe {
-            let alloc = alloc(Layout::from_size_align(new_len, self.max_align).unwrap())
+            let alloc = alloc(Layout::from_size_align(new_len, 16).unwrap())
                 .cast::<MaybeUninit<u8>>();
             let mut new_storage = Box::from_raw(std::slice::from_raw_parts_mut(alloc, new_len));
             new_storage[new_len - self.storage.len()..].copy_from_slice(&self.storage);
@@ -90,7 +87,6 @@ impl EntityBuilder {
     /// The builder is cleared implicitly when an entity is built, so this doesn't usually need to
     /// be called.
     pub fn clear(&mut self) {
-        self.max_align = 16;
         self.ids.clear();
         unsafe {
             for (ty, component) in self.info.drain(..) {
