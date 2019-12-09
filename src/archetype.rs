@@ -198,7 +198,7 @@ impl Archetype {
                 .as_ptr();
             // Tolerate missing components
             if target.offsets.contains_key(&ty.id) {
-                target.put_dynamic(moved.cast::<u8>(), ty.id, ty.layout, target_index);
+                target.put_dynamic(moved.cast::<u8>(), ty.id, ty.layout.size(), target_index);
             }
             if index != last {
                 ptr::copy_nonoverlapping(
@@ -233,15 +233,15 @@ impl Archetype {
         &mut self,
         component: *mut u8,
         ty: TypeId,
-        layout: Layout,
+        size: usize,
         index: u32,
     ) {
         let ptr = self
-            .get_dynamic(ty, layout.size(), index)
+            .get_dynamic(ty, size, index)
             .unwrap()
             .as_ptr()
             .cast::<u8>();
-        ptr::copy_nonoverlapping(component, ptr, layout.size());
+        ptr::copy_nonoverlapping(component, ptr, size);
     }
 }
 

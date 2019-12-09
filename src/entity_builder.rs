@@ -138,7 +138,7 @@ impl DynamicBundle for BuiltEntity<'_> {
 
     unsafe fn store(self, archetype: &mut Archetype, index: u32) {
         for (ty, component) in self.builder.info.drain(..) {
-            archetype.put_dynamic(component, ty.id(), ty.layout(), index);
+            archetype.put_dynamic(component, ty.id(), ty.layout().size(), index);
         }
     }
 }
