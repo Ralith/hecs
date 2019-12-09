@@ -8,7 +8,7 @@ use crate::{Component, DynamicBundle};
 
 /// Helper for incrementally constructing an entity with dynamic component types
 ///
-/// Can be reused efficiently.
+/// Prefer reusing the same builder over creating new ones repeatedly.
 ///
 /// ```
 /// # use hecs::*;
@@ -81,14 +81,35 @@ impl EntityBuilder {
     /// Construct a `Bundle` suitable for spawning
     pub fn build(&mut self) -> BuiltEntity<'_> {
         self.info.sort_unstable_by(|x, y| x.0.cmp(&y.0));
-        self.ids.clear();
         self.ids.extend(self.info.iter().map(|x| x.0.id()));
         BuiltEntity { builder: self }
+    }
+
+    /// Drop previously `add`ed components
+    ///
+    /// The builder is cleared implicitly when an entity is built, so this doesn't usually need to
+    /// be called.
+    pub fn clear(&mut self) {
+        self.max_align = 16;
+        self.ids.clear();
+        unsafe {
+            for (ty, component) in self.info.drain(..) {
+                ty.drop(component);
+            }
+            self.cursor = self.storage.as_mut_ptr().add(self.storage.len()).cast();
+        }
     }
 }
 
 unsafe impl Send for EntityBuilder {}
 unsafe impl Sync for EntityBuilder {}
+
+impl Drop for EntityBuilder {
+    fn drop(&mut self) {
+        // Ensure buffered components aren't leaked
+        self.clear();
+    }
+}
 
 /// The output of an `EntityBuilder`, suitable for passing to `World::spawn`
 pub struct BuiltEntity<'a> {
@@ -114,10 +135,8 @@ impl DynamicBundle for BuiltEntity<'_> {
 
 impl Drop for BuiltEntity<'_> {
     fn drop(&mut self) {
-        for (ty, component) in self.builder.info.drain(..) {
-            unsafe {
-                ty.drop(component);
-            }
-        }
+        // Ensures components aren't leaked if `store` was never called, and prepares the builder
+        // for reuse.
+        self.builder.clear();
     }
 }
