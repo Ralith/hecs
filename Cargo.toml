@@ -1,15 +1,22 @@
 [package]
 name = "hecs"
 version = "0.1.0"
+description = "A fast, minimal, and ergonomic entity-component-system"
 authors = ["Benjamin Saunders <ben.e.saunders@gmail.com>"]
 edition = "2018"
 license = "MIT OR Apache-2.0"
+readme = "README.md"
+keywords = ["ecs", "entity"]
+categories = ["data-structures", "game-engines"]
+
+[badges]
+maintenance = { status = "actively-developed" }
 
 [package.metadata.docs.rs]
 all-features = true
 
 [features]
-# Enables derive(Bundle)
+# Enables derive(Bundle) and derive(Query)
 macros = ["hecs-macros", "once_cell"]
 
 [dependencies]
