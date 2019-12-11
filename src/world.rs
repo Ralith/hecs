@@ -287,7 +287,7 @@ impl World {
         }
         let loc = &mut meta.location;
         unsafe {
-            let removed = T::with_ids(|ids| ids.iter().copied().collect::<FxHashSet<_>>());
+            let removed = T::with_static_ids(|ids| ids.iter().copied().collect::<FxHashSet<_>>());
             let info = self.archetypes[loc.archetype as usize]
                 .types()
                 .iter()

@@ -60,8 +60,28 @@ pub fn derive_bundle(input: TokenStream) -> TokenStream {
 
     let n = tys.len();
     let code = quote! {
+        impl ::hecs::DynamicBundle for #ident {
+            fn with_ids<T>(&self, f: impl FnOnce(&[std::any::TypeId]) -> T) -> T {
+                Self::with_static_ids(f)
+            }
+
+            fn type_info(&self) -> Vec<::hecs::TypeInfo> {
+                let mut info = vec![#(::hecs::TypeInfo::of::<#tys>()),*];
+                info.sort_unstable();
+                info
+            }
+
+            unsafe fn put(mut self, mut f: impl FnMut(*mut u8, std::any::TypeId, usize) -> bool) {
+                #(
+                    if f((&mut self.#fields as *mut #tys).cast::<u8>(), std::any::TypeId::of::<#tys>(), std::mem::size_of::<#tys>()) {
+                        std::mem::forget(self.#fields);
+                    }
+                )*
+            }
+        }
+
         impl ::hecs::Bundle for #ident {
-            fn with_ids<T>(f: impl FnOnce(&[std::any::TypeId]) -> T) -> T {
+            fn with_static_ids<T>(f: impl FnOnce(&[std::any::TypeId]) -> T) -> T {
                 use std::any::TypeId;
                 use std::mem;
 
@@ -85,20 +105,6 @@ pub fn derive_bundle(input: TokenStream) -> TokenStream {
                 });
 
                 f(&*ELEMENTS)
-            }
-
-            fn type_info() -> Vec<::hecs::TypeInfo> {
-                let mut info = vec![#(::hecs::TypeInfo::of::<#tys>()),*];
-                info.sort_unstable();
-                info
-            }
-
-            unsafe fn put(mut self, mut f: impl FnMut(*mut u8, std::any::TypeId, usize) -> bool) {
-                #(
-                    if f((&mut self.#fields as *mut #tys).cast::<u8>(), std::any::TypeId::of::<#tys>(), std::mem::size_of::<#tys>()) {
-                        std::mem::forget(self.#fields);
-                    }
-                )*
             }
 
             unsafe fn get(

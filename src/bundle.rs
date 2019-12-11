@@ -34,17 +34,9 @@ pub trait DynamicBundle {
 }
 
 /// A statically typed collection of components
-pub trait Bundle {
+pub trait Bundle: DynamicBundle {
     #[doc(hidden)]
-    fn with_ids<T>(f: impl FnOnce(&[TypeId]) -> T) -> T;
-    #[doc(hidden)]
-    fn type_info() -> Vec<TypeInfo>;
-    /// Allow a callback to move all components out of the bundle
-    ///
-    /// Must invoke `f` only with a valid pointer, its type, and the pointee's size. A `false`
-    /// return value indicates that the value was not moved and should be dropped.
-    #[doc(hidden)]
-    unsafe fn put(self, f: impl FnMut(*mut u8, TypeId, usize) -> bool);
+    fn with_static_ids<T>(f: impl FnOnce(&[TypeId]) -> T) -> T;
     /// Construct `Self` by moving components out of pointers fetched by `f`
     #[doc(hidden)]
     unsafe fn get(
@@ -52,23 +44,6 @@ pub trait Bundle {
     ) -> Result<Self, MissingComponent>
     where
         Self: Sized;
-}
-
-impl<B: Bundle> DynamicBundle for B {
-    #[inline]
-    fn with_ids<T>(&self, f: impl FnOnce(&[TypeId]) -> T) -> T {
-        <B as Bundle>::with_ids(f)
-    }
-
-    #[inline]
-    fn type_info(&self) -> Vec<TypeInfo> {
-        <B as Bundle>::type_info()
-    }
-
-    #[inline]
-    unsafe fn put(self, f: impl FnMut(*mut u8, TypeId, usize) -> bool) {
-        <B as Bundle>::put(self, f)
-    }
 }
 
 /// Error indicating that an entity did not have a required component
@@ -92,19 +67,12 @@ impl std::error::Error for MissingComponent {}
 
 macro_rules! tuple_impl {
     ($($name: ident),*) => {
-        impl<$($name: Component),*> Bundle for ($($name,)*) {
-            fn with_ids<T>(f: impl FnOnce(&[TypeId]) -> T) -> T {
-                const N: usize = count!($($name),*);
-                let mut xs: [(usize, TypeId); N] = [$((std::mem::align_of::<$name>(), TypeId::of::<$name>())),*];
-                xs.sort_unstable_by(|x, y| x.0.cmp(&y.0).reverse().then(x.1.cmp(&y.1)));
-                let mut ids = [TypeId::of::<()>(); N];
-                for (slot, &(_, id)) in ids.iter_mut().zip(xs.iter()) {
-                    *slot = id;
-                }
-                f(&ids)
+        impl<$($name: Component),*> DynamicBundle for ($($name,)*) {
+            fn with_ids<T>(&self, f: impl FnOnce(&[TypeId]) -> T) -> T {
+                Self::with_static_ids(f)
             }
 
-            fn type_info() -> Vec<TypeInfo> {
+            fn type_info(&self) -> Vec<TypeInfo> {
                 let mut xs = vec![$(TypeInfo::of::<$name>()),*];
                 xs.sort_unstable();
                 xs
@@ -123,6 +91,19 @@ macro_rules! tuple_impl {
                         mem::forget($name)
                     }
                 )*
+            }
+        }
+
+        impl<$($name: Component),*> Bundle for ($($name,)*) {
+            fn with_static_ids<T>(f: impl FnOnce(&[TypeId]) -> T) -> T {
+                const N: usize = count!($($name),*);
+                let mut xs: [(usize, TypeId); N] = [$((std::mem::align_of::<$name>(), TypeId::of::<$name>())),*];
+                xs.sort_unstable_by(|x, y| x.0.cmp(&y.0).reverse().then(x.1.cmp(&y.1)));
+                let mut ids = [TypeId::of::<()>(); N];
+                for (slot, &(_, id)) in ids.iter_mut().zip(xs.iter()) {
+                    *slot = id;
+                }
+                f(&ids)
             }
 
             #[allow(unused_variables, unused_mut)]
