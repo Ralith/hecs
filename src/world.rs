@@ -48,8 +48,9 @@ impl World {
     ///
     /// Returns the ID of the newly created entity.
     ///
-    /// Arguments can be tuples or structs annotated with `#[derive(Bundle)]`. To spawn an entity
-    /// with only one component, use a one-element tuple like `(x,)`.
+    /// Arguments can be tuples, structs annotated with `#[derive(Bundle)]`, or `EntityBuilder`,
+    /// preferred if the set of components isn't statically known. To spawn an entity with only one
+    /// component, use a one-element tuple like `(x,)`.
     ///
     /// # Example
     /// ```
