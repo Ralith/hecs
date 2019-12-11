@@ -203,11 +203,7 @@ impl World {
     ) -> Result<(), NoSuchEntity> {
         use std::collections::hash_map::Entry;
 
-        let meta = &mut self.entities.meta[entity.id as usize];
-        if meta.generation != entity.generation {
-            return Err(NoSuchEntity);
-        }
-        let loc = &mut meta.location;
+        let loc = self.entities.get_mut(entity)?;
         unsafe {
             let arch = &mut self.archetypes[loc.archetype as usize];
             let mut info = arch.types().to_vec();
@@ -279,11 +275,7 @@ impl World {
     pub fn remove<T: Bundle>(&mut self, entity: Entity) -> Result<T, ComponentError> {
         use std::collections::hash_map::Entry;
 
-        let meta = &mut self.entities.meta[entity.id as usize];
-        if meta.generation != entity.generation {
-            return Err(ComponentError::NoSuchEntity);
-        }
-        let loc = &mut meta.location;
+        let loc = self.entities.get_mut(entity)?;
         unsafe {
             let removed = T::with_static_ids(|ids| ids.iter().copied().collect::<FxHashSet<_>>());
             let info = self.archetypes[loc.archetype as usize]
@@ -527,6 +519,14 @@ impl Entities {
         meta.generation += 1;
         self.free.push(entity.id);
         Ok(meta.location)
+    }
+
+    fn get_mut(&mut self, entity: Entity) -> Result<&mut Location, NoSuchEntity> {
+        let meta = &mut self.meta[entity.id as usize];
+        if meta.generation != entity.generation {
+            return Err(NoSuchEntity);
+        }
+        Ok(&mut meta.location)
     }
 }
 
