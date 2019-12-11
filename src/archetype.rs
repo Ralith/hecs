@@ -20,12 +20,11 @@ use std::ptr::{self, NonNull};
 
 use fxhash::FxHashMap;
 
-use crate::{Component, DynamicBundle};
+use crate::Component;
 
 /// A collection of entities having the same component types
 pub struct Archetype {
     types: Vec<TypeInfo>,
-    ids: Vec<TypeId>,
     offsets: FxHashMap<TypeId, usize>,
     len: u32,
     entities: Box<[u32]>,
@@ -41,7 +40,6 @@ impl Archetype {
             "type info not sorted"
         );
         Self {
-            ids: types.iter().map(|x| x.id()).collect(),
             types,
             offsets: FxHashMap::default(),
             entities: Box::new([]),
@@ -175,14 +173,7 @@ impl Archetype {
         }
     }
 
-    pub(crate) unsafe fn move_component_set(&mut self, index: u32) -> EntityBundle {
-        EntityBundle {
-            archetype: self,
-            index,
-        }
-    }
-
-    unsafe fn move_to(&mut self, index: u32, mut f: impl FnMut(*mut u8, TypeId, usize) -> bool) {
+    pub(crate) unsafe fn move_to(&mut self, index: u32, mut f: impl FnMut(*mut u8, TypeId, usize)) {
         let last = self.len - 1;
         for ty in &self.types {
             let moved = self
@@ -299,22 +290,3 @@ impl PartialEq for TypeInfo {
 }
 
 impl Eq for TypeInfo {}
-
-pub struct EntityBundle<'a> {
-    archetype: &'a mut Archetype,
-    index: u32,
-}
-
-impl<'a> DynamicBundle for EntityBundle<'a> {
-    fn with_ids<T>(&self, f: impl FnOnce(&[TypeId]) -> T) -> T {
-        f(&self.archetype.ids)
-    }
-
-    fn type_info(&self) -> Vec<TypeInfo> {
-        self.archetype.types.clone()
-    }
-
-    unsafe fn put(self, f: impl FnMut(*mut u8, TypeId, usize) -> bool) {
-        self.archetype.move_to(self.index, f);
-    }
-}

@@ -245,17 +245,16 @@ impl World {
                 loc.archetype as usize,
                 target as usize,
             );
-            let old_components = source_arch.move_component_set(loc.index);
-            loc.archetype = target;
-            loc.index = target_arch.allocate(entity.id);
-            old_components.put(|ptr, ty, size| {
-                target_arch.put_dynamic(ptr, ty, size, loc.index);
-                true
+            let target_index = target_arch.allocate(entity.id);
+            source_arch.move_to(loc.index, |ptr, ty, size| {
+                target_arch.put_dynamic(ptr, ty, size, target_index);
             });
             components.put(|ptr, ty, size| {
-                target_arch.put_dynamic(ptr, ty, size, loc.index);
+                target_arch.put_dynamic(ptr, ty, size, target_index);
                 true
             });
+            loc.archetype = target;
+            loc.index = target_index;
         }
         Ok(())
     }
@@ -308,19 +307,16 @@ impl World {
                 loc.archetype as usize,
                 target as usize,
             );
+            let target_index = target_arch.allocate(entity.id);
             let x = T::get(|ty, size| source_arch.get_dynamic(ty, size, loc.index))?;
-            let components = source_arch.move_component_set(loc.index);
-            loc.archetype = target;
-            loc.index = target_arch.allocate(entity.id);
-            components.put(|src, ty, size| {
+            source_arch.move_to(loc.index, |src, ty, size| {
                 // Only move the components present in the target archetype, i.e. the non-removed ones.
-                if let Some(dst) = target_arch.get_dynamic(ty, size, loc.index) {
+                if let Some(dst) = target_arch.get_dynamic(ty, size, target_index) {
                     ptr::copy_nonoverlapping(src, dst.as_ptr(), size);
-                    true
-                } else {
-                    false
                 }
             });
+            loc.archetype = target;
+            loc.index = target_index;
             Ok(x)
         }
     }
