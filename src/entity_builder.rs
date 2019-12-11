@@ -15,7 +15,6 @@
 use std::alloc::{alloc, Layout};
 use std::any::TypeId;
 use std::mem::{self, MaybeUninit};
-use std::ptr;
 
 use crate::archetype::TypeInfo;
 use crate::{Component, DynamicBundle};
@@ -44,9 +43,10 @@ pub struct EntityBuilder {
 impl EntityBuilder {
     /// Create a builder representing an entity with no components
     pub fn new() -> Self {
+        let mut storage: Box<[MaybeUninit<u8>]> = Box::new([]);
         Self {
-            storage: Box::new([]),
-            cursor: ptr::null_mut(),
+            cursor: storage.as_mut_ptr().cast::<u8>(), // Not null!
+            storage,
             info: Vec::new(),
             ids: Vec::new(),
         }
@@ -54,18 +54,19 @@ impl EntityBuilder {
 
     /// Add `component` to the entity
     pub fn add<T: Component>(&mut self, component: T) -> &mut Self {
-        if (self.cursor as usize) < mem::size_of::<T>() {
-            self.grow(mem::size_of::<T>());
-        }
         unsafe {
-            self.cursor = (self.cursor.sub(mem::size_of::<T>()) as usize
-                & !(mem::align_of::<T>() - 1)) as *mut u8;
-            if self.cursor.cast() < self.storage.as_mut_ptr() {
+            if let Some(cursor) = (self.cursor as usize)
+                .checked_sub(mem::size_of::<T>())
+                .map(|x| (x & !(mem::align_of::<T>() - 1)) as *mut u8)
+                .filter(|&x| x >= self.storage.as_mut_ptr().cast())
+            {
+                self.cursor = cursor;
+            } else {
                 self.grow(mem::size_of::<T>().max(mem::align_of::<T>()));
                 self.cursor = (self.cursor.sub(mem::size_of::<T>()) as usize
                     & !(mem::align_of::<T>() - 1)) as *mut u8;
             }
-            ptr::write(self.cursor.cast::<T>(), component);
+            self.cursor.cast::<T>().write(component);
         }
         self.info.push((TypeInfo::of::<T>(), self.cursor));
         self
@@ -83,7 +84,10 @@ impl EntityBuilder {
             new_storage[new_len - self.storage.len()..].copy_from_slice(&self.storage);
             self.cursor = new_storage
                 .as_mut_ptr()
-                .add(new_len - self.storage.len())
+                .add(
+                    new_len - self.storage.len()
+                        + (self.cursor as usize - self.storage.as_ptr() as usize),
+                )
                 .cast();
             self.storage = new_storage;
         }
