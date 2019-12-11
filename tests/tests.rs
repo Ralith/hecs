@@ -217,9 +217,11 @@ fn derived_query() {
 #[test]
 fn spawn_many() {
     let mut world = World::new();
-    for _ in 0..100_000 {
+    const N: usize = 100_000;
+    for _ in 0..N {
         world.spawn((42u128,));
     }
+    assert_eq!(world.iter().count(), N);
 }
 
 #[test]
