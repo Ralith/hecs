@@ -48,6 +48,21 @@ impl Archetype {
         }
     }
 
+    pub(crate) fn clear(&mut self) {
+        for ty in &self.types {
+            for index in 0..self.len {
+                unsafe {
+                    let removed = self
+                        .get_dynamic(ty.id, ty.layout.size(), index)
+                        .unwrap()
+                        .as_ptr();
+                    (ty.drop)(removed);
+                }
+            }
+        }
+        self.len = 0;
+    }
+
     pub(crate) fn data<T: Component>(&self) -> Option<NonNull<T>> {
         let offset = *self.offsets.get(&TypeId::of::<T>())?;
         Some(unsafe {
@@ -216,13 +231,7 @@ impl Archetype {
 
 impl Drop for Archetype {
     fn drop(&mut self) {
-        for i in (0..self.len).rev() {
-            if self.entities[i as usize] != !0 {
-                unsafe {
-                    self.remove(i);
-                }
-            }
-        }
+        self.clear();
     }
 }
 

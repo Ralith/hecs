@@ -93,6 +93,16 @@ impl World {
         Ok(())
     }
 
+    /// Despawn all entities
+    ///
+    /// Preserves allocated storage for reuse.
+    pub fn clear(&mut self) {
+        for x in &mut self.archetypes {
+            x.clear();
+        }
+        self.entities.clear();
+    }
+
     /// Whether `entity` still exists
     pub fn contains(&self, entity: Entity) -> bool {
         self.entities.meta[entity.id as usize].generation == entity.generation
@@ -179,7 +189,8 @@ impl World {
 
     /// Iterate over all entities in the world
     ///
-    /// Entities are yielded in arbitrary order. See also `World::query`.
+    /// Entities are yielded in arbitrary order. Prefer `World::query` for better performance when
+    /// components will be accessed in predictable patterns.
     ///
     /// ```
     /// # use hecs::*;
@@ -519,6 +530,11 @@ impl Entities {
         meta.generation += 1;
         self.free.push(entity.id);
         Ok(meta.location)
+    }
+
+    fn clear(&mut self) {
+        self.meta.clear();
+        self.free.clear();
     }
 
     fn get_mut(&mut self, entity: Entity) -> Result<&mut Location, NoSuchEntity> {

@@ -221,3 +221,12 @@ fn spawn_many() {
         world.spawn((42u128,));
     }
 }
+
+#[test]
+fn clear() {
+    let mut world = World::new();
+    world.spawn(("abc", 123));
+    world.spawn(("def", 456, true));
+    world.clear();
+    assert_eq!(world.iter().count(), 0);
+}
