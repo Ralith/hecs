@@ -207,19 +207,6 @@ impl Archetype {
         self.len -= 1;
     }
 
-    /// Write a component into the entity at `index`
-    ///
-    /// Leaks any existing component.
-    ///
-    /// # Safety
-    /// `index` must be in bounds.
-    pub unsafe fn put<T: Component>(&mut self, component: T, index: u32) {
-        self.get::<T>(index)
-            .expect("no such component")
-            .as_ptr()
-            .write(component);
-    }
-
     pub(crate) unsafe fn put_dynamic(
         &mut self,
         component: *mut u8,
