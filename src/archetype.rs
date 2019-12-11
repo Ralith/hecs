@@ -15,12 +15,12 @@
 use std::alloc::{alloc, Layout};
 use std::any::TypeId;
 use std::cell::UnsafeCell;
-use std::mem::MaybeUninit;
+use std::mem::{self, MaybeUninit};
 use std::ptr::{self, NonNull};
 
 use fxhash::FxHashMap;
 
-use crate::Component;
+use crate::{Component, ComponentSink, ComponentSource, MissingComponent};
 
 /// A collection of entities having the same component types
 pub struct Archetype {
@@ -113,14 +113,14 @@ impl Archetype {
         let mut data_size = 0;
         let mut offsets = FxHashMap::default();
         for ty in &self.types {
-            data_size = align(data_size, ty.layout.align());
+            data_size = align(data_size, ty.layout().align());
             offsets.insert(ty.id, data_size);
             data_size += ty.layout.size() * count;
         }
         let alloc = alloc(
             Layout::from_size_align(
                 data_size,
-                self.types.first().map_or(1, |x| x.layout.align()),
+                self.types.first().map_or(1, |x| x.layout().align()),
             )
             .unwrap(),
         )
@@ -211,6 +211,62 @@ impl Archetype {
             .as_ptr()
             .cast::<u8>();
         ptr::copy_nonoverlapping(component, ptr, size);
+    }
+
+    pub(crate) unsafe fn source(&mut self, index: u32) -> impl ComponentSource + '_ {
+        struct Source<'a> {
+            parent: &'a mut Archetype,
+            index: u32,
+        }
+
+        impl<'a> ComponentSource for Source<'a> {
+            unsafe fn get<T: Component>(&mut self) -> Result<T, MissingComponent> {
+                Ok(self
+                    .parent
+                    .get::<T>(self.index)
+                    .ok_or_else(MissingComponent::new::<T>)?
+                    .as_ptr()
+                    .read())
+            }
+        }
+
+        Source {
+            parent: self,
+            index,
+        }
+    }
+
+    pub(crate) unsafe fn sink(&mut self, index: u32) -> impl ComponentSink + '_ {
+        struct Sink<'a> {
+            parent: &'a mut Archetype,
+            index: u32,
+        }
+
+        impl<'a> ComponentSink for Sink<'a> {
+            fn put<T: Component>(&mut self, x: T) {
+                unsafe {
+                    self.parent
+                        .get::<T>(self.index)
+                        .expect("no such component")
+                        .as_ptr()
+                        .write(x)
+                }
+            }
+
+            unsafe fn put_dynamic(&mut self, component: &mut dyn Component) {
+                self.parent.put_dynamic(
+                    component as *mut dyn Component as *mut u8,
+                    (*component).type_id(),
+                    mem::size_of_val(component),
+                    self.index,
+                );
+            }
+        }
+
+        Sink {
+            parent: self,
+            index,
+        }
     }
 }
 

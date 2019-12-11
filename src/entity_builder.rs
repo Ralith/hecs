@@ -17,7 +17,7 @@ use std::any::TypeId;
 use std::mem::{self, MaybeUninit};
 
 use crate::archetype::TypeInfo;
-use crate::{Component, DynamicBundle};
+use crate::{Component, ComponentSink, DynamicBundle};
 
 /// Helper for incrementally constructing an entity with dynamic component types
 ///
@@ -36,7 +36,11 @@ pub struct EntityBuilder {
     storage: Box<[MaybeUninit<u8>]>,
     // Backwards from the end!
     cursor: *mut u8,
-    info: Vec<(TypeInfo, *mut u8)>,
+    info: Vec<(
+        TypeInfo,
+        *mut u8,
+        unsafe fn(*mut u8, &mut dyn ComponentSink),
+    )>,
     ids: Vec<TypeId>,
 }
 
@@ -68,7 +72,8 @@ impl EntityBuilder {
             }
             self.cursor.cast::<T>().write(component);
         }
-        self.info.push((TypeInfo::of::<T>(), self.cursor));
+        self.info
+            .push((TypeInfo::of::<T>(), self.cursor, put_helper::<T>));
         self
     }
 
@@ -107,7 +112,7 @@ impl EntityBuilder {
     pub fn clear(&mut self) {
         self.ids.clear();
         unsafe {
-            for (ty, component) in self.info.drain(..) {
+            for (ty, component, _) in self.info.drain(..) {
                 ty.drop(component);
             }
             self.cursor = self.storage.as_mut_ptr().add(self.storage.len()).cast();
@@ -130,6 +135,10 @@ pub struct BuiltEntity<'a> {
     builder: &'a mut EntityBuilder,
 }
 
+unsafe fn put_helper<T: Component>(ptr: *mut u8, sink: &mut dyn ComponentSink) {
+    sink.put_dynamic(&mut *ptr.cast::<T>());
+}
+
 impl DynamicBundle for BuiltEntity<'_> {
     fn with_ids<T>(&self, f: impl FnOnce(&[TypeId]) -> T) -> T {
         f(&self.builder.ids)
@@ -140,10 +149,10 @@ impl DynamicBundle for BuiltEntity<'_> {
         self.builder.info.iter().map(|x| x.0).collect()
     }
 
-    unsafe fn put(self, mut f: impl FnMut(*mut u8, TypeId, usize) -> bool) {
-        for (ty, component) in self.builder.info.drain(..) {
-            if !f(component, ty.id(), ty.layout().size()) {
-                ty.drop(component);
+    fn put(self, dst: &mut impl ComponentSink) {
+        for (_, component, put) in self.builder.info.drain(..) {
+            unsafe {
+                put(component, dst);
             }
         }
     }

@@ -13,8 +13,7 @@
 // limitations under the License.
 
 use std::any::{type_name, TypeId};
-use std::ptr::NonNull;
-use std::{fmt, mem};
+use std::fmt;
 
 use crate::archetype::TypeInfo;
 use crate::Component;
@@ -25,23 +24,16 @@ pub trait DynamicBundle {
     fn with_ids<T>(&self, f: impl FnOnce(&[TypeId]) -> T) -> T;
     #[doc(hidden)]
     fn type_info(&self) -> Vec<TypeInfo>;
-    /// Allow a callback to move all components out of the bundle
-    ///
-    /// Must invoke `f` only with a valid pointer, its type, and the pointee's size. A `false`
-    /// return value indicates that the value was not moved and should be dropped.
     #[doc(hidden)]
-    unsafe fn put(self, f: impl FnMut(*mut u8, TypeId, usize) -> bool);
+    fn put(self, dest: &mut impl ComponentSink);
 }
 
 /// A statically typed collection of components
 pub trait Bundle: DynamicBundle {
     #[doc(hidden)]
     fn with_static_ids<T>(f: impl FnOnce(&[TypeId]) -> T) -> T;
-    /// Construct `Self` by moving components out of pointers fetched by `f`
     #[doc(hidden)]
-    unsafe fn get(
-        f: impl FnMut(TypeId, usize) -> Option<NonNull<u8>>,
-    ) -> Result<Self, MissingComponent>
+    fn get(src: &mut impl ComponentSource) -> Result<Self, MissingComponent>
     where
         Self: Sized;
 }
@@ -65,6 +57,37 @@ impl fmt::Display for MissingComponent {
 
 impl std::error::Error for MissingComponent {}
 
+/// A receiver of component data to which a bundle may be written
+pub trait ComponentSink {
+    /// Write a `T` component
+    ///
+    /// Must be called at most once per distinct `T`.
+    fn put<T: Component>(&mut self, mut x: T)
+    where
+        Self: Sized,
+    {
+        unsafe {
+            self.put_dynamic(&mut x);
+        }
+        std::mem::forget(x);
+    }
+
+    /// Write an component of any type
+    ///
+    /// # Safety
+    /// `component` will be moved out of, and *must* be forgotten immediately after calling.
+    unsafe fn put_dynamic(&mut self, component: &mut dyn Component);
+}
+
+/// A source of component data from which a bundle may be aggregated
+pub trait ComponentSource {
+    /// Obtain a `T` component
+    ///
+    /// # Safety
+    /// Must be called at most once per distinct `T`
+    unsafe fn get<T: Component>(&mut self) -> Result<T, MissingComponent>;
+}
+
 macro_rules! tuple_impl {
     ($($name: ident),*) => {
         impl<$($name: Component),*> DynamicBundle for ($($name,)*) {
@@ -79,18 +102,10 @@ macro_rules! tuple_impl {
             }
 
             #[allow(unused_variables, unused_mut)]
-            unsafe fn put(self, mut f: impl FnMut(*mut u8, TypeId, usize) -> bool) {
+            fn put(self, dest: &mut impl ComponentSink) {
                 #[allow(non_snake_case)]
                 let ($(mut $name,)*) = self;
-                $(
-                    if f(
-                        (&mut $name as *mut $name).cast::<u8>(),
-                        TypeId::of::<$name>(),
-                        mem::size_of::<$name>()
-                    ) {
-                        mem::forget($name)
-                    }
-                )*
+                $(dest.put($name);)*
             }
         }
 
@@ -107,14 +122,11 @@ macro_rules! tuple_impl {
             }
 
             #[allow(unused_variables, unused_mut)]
-            unsafe fn get(mut f: impl FnMut(TypeId, usize) -> Option<NonNull<u8>>) -> Result<Self, MissingComponent> {
-                Ok(($(
-                    f(TypeId::of::<$name>(), mem::size_of::<$name>())
-                      .ok_or_else(MissingComponent::new::<$name>)?
-                      .as_ptr()
-                      .cast::<$name>()
-                      .read(),
-                )*))
+            fn get(src: &mut impl ComponentSource) -> Result<Self, MissingComponent> {
+                #[allow(unused_unsafe)]
+                unsafe {
+                    Ok(($(src.get::<$name>()?,)*))
+                }
             }
         }
     }
