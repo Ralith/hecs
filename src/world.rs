@@ -16,7 +16,6 @@ use std::any::TypeId;
 use std::error::Error;
 use std::{fmt, ptr};
 
-use downcast_rs::{impl_downcast, Downcast};
 use fxhash::{FxHashMap, FxHashSet};
 
 use crate::archetype::Archetype;
@@ -398,8 +397,7 @@ impl fmt::Display for NoSuchEntity {
 impl Error for NoSuchEntity {}
 
 /// Types that can be components (implemented automatically)
-pub trait Component: Downcast + Send + Sync + 'static {}
-impl_downcast!(Component);
+pub trait Component: Send + Sync + 'static {}
 impl<T: Send + Sync + 'static> Component for T {}
 
 /// Lightweight unique ID of an entity
