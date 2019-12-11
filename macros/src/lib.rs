@@ -23,22 +23,6 @@ use syn::{parse_macro_input, DeriveInput};
 ///
 /// Using derived `Bundle` impls improves spawn performance and can be convenient when combined with
 /// other derives like `serde::Deserialize`.
-///
-/// ```
-/// # use hecs::*;
-/// # struct MeshId(&'static str);
-/// # #[derive(Copy, Clone, PartialEq, Debug)]
-/// # struct Position([f32; 3]);
-/// #[derive(Bundle)]
-/// struct StaticMesh {
-///     mesh: MeshId,
-///     position: Position,
-/// }
-/// let mut world = World::new();
-/// let position = Position([1.0, 2.0, 3.0]);
-/// let e = world.spawn(StaticMesh { position, mesh: MeshId("example.gltf") });
-/// assert_eq!(*world.get::<Position>(e).unwrap(), position);
-/// ```
 #[proc_macro_derive(Bundle)]
 pub fn derive_bundle(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
@@ -127,17 +111,7 @@ pub fn derive_bundle(input: TokenStream) -> TokenStream {
 
 /// Implement `Query` for a struct whose fields are queries
 ///
-/// ```
-/// # use hecs::*;
-/// #[derive(Query, PartialEq, Debug)]
-/// struct MyQuery<'a> {
-///     foo: &'a i32,
-///     bar: Option<&'a mut bool>,
-/// }
-/// let mut world = World::new();
-/// let e = world.spawn((42,));
-/// assert_eq!(world.query::<MyQuery>().collect::<Vec<_>>(), &[(e, MyQuery { foo: &42, bar: None })]);
-/// ```
+/// The struct must have exactly one lifetime parameter, used for the queries.
 #[proc_macro_derive(Query)]
 pub fn derive_query(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
