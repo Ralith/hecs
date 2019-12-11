@@ -46,7 +46,7 @@ mod query;
 mod world;
 
 pub use borrow::{EntityRef, Ref, RefMut};
-pub use bundle::{Bundle, DynamicBundle, MissingComponent};
+pub use bundle::{Bundle, DynamicBundle, MissingComponent, ComponentSink, ComponentSource};
 pub use entity_builder::{BuiltEntity, EntityBuilder};
 pub use query::{Query, QueryIter};
 pub use world::{Component, ComponentError, Entity, Iter, NoSuchEntity, World};

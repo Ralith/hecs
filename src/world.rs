@@ -76,10 +76,7 @@ impl World {
         unsafe {
             let index = archetype.allocate(entity.id);
             self.entities.meta[entity.id as usize].location.index = index;
-            components.put(|ptr, ty, size| {
-                archetype.put_dynamic(ptr, ty, size, index);
-                true
-            });
+            components.put(&mut archetype.sink(index));
         }
         entity
     }
@@ -233,10 +230,7 @@ impl World {
             };
             if target == loc.archetype {
                 let arch = &mut self.archetypes[loc.archetype as usize];
-                components.put(|ptr, ty, size| {
-                    arch.put_dynamic(ptr, ty, size, loc.index);
-                    true
-                });
+                components.put(&mut arch.sink(loc.index));
                 return Ok(());
             }
 
@@ -249,10 +243,7 @@ impl World {
             source_arch.move_to(loc.index, |ptr, ty, size| {
                 target_arch.put_dynamic(ptr, ty, size, target_index);
             });
-            components.put(|ptr, ty, size| {
-                target_arch.put_dynamic(ptr, ty, size, target_index);
-                true
-            });
+            components.put(&mut target_arch.sink(target_index));
             loc.archetype = target;
             loc.index = target_index;
         }
@@ -308,7 +299,7 @@ impl World {
                 target as usize,
             );
             let target_index = target_arch.allocate(entity.id);
-            let x = T::get(|ty, size| source_arch.get_dynamic(ty, size, loc.index))?;
+            let x = T::get(&mut source_arch.source(loc.index))?;
             source_arch.move_to(loc.index, |src, ty, size| {
                 // Only move the components present in the target archetype, i.e. the non-removed ones.
                 if let Some(dst) = target_arch.get_dynamic(ty, size, target_index) {
@@ -393,7 +384,12 @@ impl fmt::Display for NoSuchEntity {
 impl Error for NoSuchEntity {}
 
 /// Types that can be components (implemented automatically)
-pub trait Component: Send + Sync + 'static {}
+pub trait Component: Send + Sync + 'static {
+    /// Look up the type of the component
+    fn type_id(&self) -> TypeId {
+        TypeId::of::<Self>()
+    }
+}
 impl<T: Send + Sync + 'static> Component for T {}
 
 /// Lightweight unique ID of an entity

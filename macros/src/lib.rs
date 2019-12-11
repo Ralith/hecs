@@ -71,12 +71,8 @@ pub fn derive_bundle(input: TokenStream) -> TokenStream {
                 info
             }
 
-            unsafe fn put(mut self, mut f: impl FnMut(*mut u8, std::any::TypeId, usize) -> bool) {
-                #(
-                    if f((&mut self.#fields as *mut #tys).cast::<u8>(), std::any::TypeId::of::<#tys>(), std::mem::size_of::<#tys>()) {
-                        std::mem::forget(self.#fields);
-                    }
-                )*
+            fn put(mut self, dest: &mut impl ::hecs::ComponentSink) {
+                #(dest.put(self.#fields);)*
             }
         }
 
@@ -107,18 +103,14 @@ pub fn derive_bundle(input: TokenStream) -> TokenStream {
                 f(&*ELEMENTS)
             }
 
-            unsafe fn get(
-                mut f: impl FnMut(std::any::TypeId, usize) -> Option<std::ptr::NonNull<u8>>,
+            fn get(
+                src: &mut impl ::hecs::ComponentSource
             ) -> Result<Self, MissingComponent> {
-                Ok(Self {
-                    #(
-                        #fields: f(std::any::TypeId::of::<#tys>(), std::mem::size_of::<#tys>())
-                            .ok_or_else(MissingComponent::new::<#tys>)?
-                            .cast::<#tys>()
-                            .as_ptr()
-                            .read(),
-                    )*
-                })
+                unsafe {
+                    Ok(Self {
+                        #(#fields: src.get()?,)*
+                    })
+                }
             }
         }
     };
