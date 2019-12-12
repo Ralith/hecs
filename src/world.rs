@@ -192,6 +192,7 @@ impl World {
     /// Entities are yielded in arbitrary order. Prefer `World::query` for better performance when
     /// components will be accessed in predictable patterns.
     ///
+    /// # Example
     /// ```
     /// # use hecs::*;
     /// let mut world = World::new();
@@ -207,6 +208,16 @@ impl World {
     ///
     /// Computational cost is proportional to the number of components `entity` has. If an entity
     /// already has a component of a certain type, it is dropped and replaced.
+    ///
+    /// # Example
+    /// ```
+    /// # use hecs::*;
+    /// let mut world = World::new();
+    /// let e = world.spawn((123, "abc"));
+    /// world.insert(e, (456, true));
+    /// assert_eq!(*world.get::<i32>(e).unwrap(), 456);
+    /// assert_eq!(*world.get::<bool>(e).unwrap(), true);
+    /// ```
     pub fn insert(
         &mut self,
         entity: Entity,
@@ -283,6 +294,17 @@ impl World {
     /// itself is not removed, even if no components remain; use `despawn` for that. If any
     /// component in `T` is not present in `entity`, no components are removed and an error is
     /// returned.
+    ///
+    /// # Example
+    /// ```
+    /// # use hecs::*;
+    /// let mut world = World::new();
+    /// let e = world.spawn((123, "abc", true));
+    /// assert_eq!(world.remove::<(i32, &str)>(e), Ok((123, "abc")));
+    /// assert!(world.get::<i32>(e).is_err());
+    /// assert!(world.get::<&str>(e).is_err());
+    /// assert_eq!(*world.get::<bool>(e).unwrap(), true);
+    /// ```
     pub fn remove<T: Bundle>(&mut self, entity: Entity) -> Result<T, ComponentError> {
         use std::collections::hash_map::Entry;
 

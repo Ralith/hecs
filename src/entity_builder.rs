@@ -19,7 +19,7 @@ use std::mem::{self, MaybeUninit};
 use crate::archetype::TypeInfo;
 use crate::{Component, DynamicBundle};
 
-/// Helper for incrementally constructing an entity with dynamic component types
+/// Helper for incrementally constructing a bundle of components with dynamic component types
 ///
 /// Prefer reusing the same builder over creating new ones repeatedly.
 ///
@@ -125,7 +125,7 @@ impl Drop for EntityBuilder {
     }
 }
 
-/// The output of an `EntityBuilder`, suitable for passing to `World::spawn`
+/// The output of an `EntityBuilder`, suitable for passing to `World::spawn` or `World::insert`
 pub struct BuiltEntity<'a> {
     builder: &'a mut EntityBuilder,
 }
