@@ -149,7 +149,7 @@ impl World {
                 &self.borrows,
                 self.archetypes[meta.location.archetype as usize]
                     .get(meta.location.index)
-                    .ok_or_else(|| MissingComponent::new::<T>())?,
+                    .ok_or_else(MissingComponent::new::<T>)?,
             ))
         }
     }
@@ -167,7 +167,7 @@ impl World {
                 &self.borrows,
                 self.archetypes[meta.location.archetype as usize]
                     .get(meta.location.index)
-                    .ok_or_else(|| MissingComponent::new::<T>())?,
+                    .ok_or_else(MissingComponent::new::<T>)?,
             ))
         }
     }

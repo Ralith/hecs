@@ -125,6 +125,12 @@ impl Drop for EntityBuilder {
     }
 }
 
+impl Default for EntityBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// The output of an `EntityBuilder`, suitable for passing to `World::spawn` or `World::insert`
 pub struct BuiltEntity<'a> {
     builder: &'a mut EntityBuilder,
