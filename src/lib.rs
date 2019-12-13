@@ -51,7 +51,7 @@ pub use entity_builder::{BuiltEntity, EntityBuilder};
 pub use query::{Query, QueryIter};
 pub use world::{Component, ComponentError, Entity, Iter, NoSuchEntity, World};
 
-// Detailed needed by the macros
+// Unstable implementation details needed by the macros
 #[doc(hidden)]
 pub use archetype::{Archetype, TypeInfo};
 #[doc(hidden)]
