@@ -28,7 +28,7 @@ use crate::{Component, DynamicBundle};
 /// let mut world = World::new();
 /// let mut builder = EntityBuilder::new();
 /// builder.add(123).add("abc");
-/// let e = world.spawn(builder.build());
+/// let e = world.spawn(builder.build()); // builder can now be reused
 /// assert_eq!(*world.get::<i32>(e).unwrap(), 123);
 /// assert_eq!(*world.get::<&str>(e).unwrap(), "abc");
 /// ```
