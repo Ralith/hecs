@@ -64,3 +64,9 @@ pub use query::Fetch;
 
 #[cfg(feature = "macros")]
 pub use hecs_macros::{Bundle, Query};
+
+#[inline]
+fn align(x: usize, alignment: usize) -> usize {
+    debug_assert!(alignment.is_power_of_two());
+    (x + alignment - 1) & (!alignment + 1)
+}

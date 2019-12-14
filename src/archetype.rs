@@ -20,7 +20,7 @@ use std::ptr::{self, NonNull};
 
 use fxhash::FxHashMap;
 
-use crate::Component;
+use crate::{align, Component};
 
 /// A collection of entities having the same component types
 pub struct Archetype {
@@ -238,11 +238,6 @@ impl Drop for Archetype {
     fn drop(&mut self) {
         self.clear();
     }
-}
-
-fn align(x: usize, alignment: usize) -> usize {
-    assert!(alignment.is_power_of_two());
-    (x + alignment - 1) & (!alignment + 1)
 }
 
 /// Metadata required to store a component

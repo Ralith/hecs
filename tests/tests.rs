@@ -102,8 +102,14 @@ fn build_entity() {
     let mut entity = EntityBuilder::new();
     entity.add("abc").add(123);
     let e = world.spawn(entity.build());
+    entity.add("def");
+    entity.add([0u8; 1024]);
+    entity.add(456);
+    let f = world.spawn(entity.build());
     assert_eq!(*world.get::<&str>(e).unwrap(), "abc");
     assert_eq!(*world.get::<i32>(e).unwrap(), 123);
+    assert_eq!(*world.get::<&str>(f).unwrap(), "def");
+    assert_eq!(*world.get::<i32>(f).unwrap(), 456);
 }
 
 #[test]

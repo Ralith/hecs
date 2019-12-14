@@ -17,7 +17,7 @@ use std::any::TypeId;
 use std::mem::{self, MaybeUninit};
 
 use crate::archetype::TypeInfo;
-use crate::{Component, DynamicBundle};
+use crate::{align, Component, DynamicBundle};
 
 /// Helper for incrementally constructing a bundle of components with dynamic component types
 ///
@@ -34,19 +34,17 @@ use crate::{Component, DynamicBundle};
 /// ```
 pub struct EntityBuilder {
     storage: Box<[MaybeUninit<u8>]>,
-    // Backwards from the end!
-    cursor: *mut u8,
-    info: Vec<(TypeInfo, *mut u8)>,
+    cursor: usize,
+    info: Vec<(TypeInfo, usize)>,
     ids: Vec<TypeId>,
 }
 
 impl EntityBuilder {
     /// Create a builder representing an entity with no components
     pub fn new() -> Self {
-        let mut storage: Box<[MaybeUninit<u8>]> = Box::new([]);
         Self {
-            cursor: storage.as_mut_ptr().cast::<u8>(), // Not null!
-            storage,
+            cursor: 0,
+            storage: Box::new([]),
             info: Vec::new(),
             ids: Vec::new(),
         }
@@ -54,44 +52,60 @@ impl EntityBuilder {
 
     /// Add `component` to the entity
     pub fn add<T: Component>(&mut self, component: T) -> &mut Self {
-        if let Some(cursor) = (self.cursor as usize)
-            .checked_sub(mem::size_of::<T>())
-            .map(|x| (x & !(mem::align_of::<T>() - 1)) as *mut u8)
-            .filter(|&x| x >= self.storage.as_mut_ptr().cast())
-        {
-            self.cursor = cursor;
+        let aligned = self.next_cursor(mem::align_of::<T>());
+        if aligned + mem::size_of::<T>() > self.storage.len() {
+            self.grow(mem::size_of::<T>(), mem::align_of::<T>());
+            self.cursor = self.next_cursor(mem::align_of::<T>());
         } else {
-            self.grow(mem::size_of::<T>().max(mem::align_of::<T>()));
+            self.cursor = aligned;
+        }
+        if mem::size_of::<T>() != 0 {
             unsafe {
-                self.cursor = (self.cursor.sub(mem::size_of::<T>()) as usize
-                    & !(mem::align_of::<T>() - 1)) as *mut u8;
+                self.storage[self.cursor]
+                    .as_mut_ptr()
+                    .cast::<T>()
+                    .write(component);
             }
         }
-        unsafe {
-            self.cursor.cast::<T>().write(component);
-        }
         self.info.push((TypeInfo::of::<T>(), self.cursor));
+        self.cursor += mem::size_of::<T>();
         self
     }
 
-    fn grow(&mut self, min_increment: usize) {
-        let new_len = (self.storage.len() + min_increment)
+    fn next_cursor(&self, alignment: usize) -> usize {
+        align(self.storage.as_ptr() as usize + self.cursor, alignment)
+            - self.storage.as_ptr() as usize
+    }
+
+    fn grow(&mut self, increment_size: usize, increment_align: usize) {
+        self.info.sort_unstable_by(|x, y| x.0.cmp(&y.0));
+        let new_len = (self.storage.len() + increment_size)
             .next_power_of_two()
-            .max(self.storage.len() * 2)
             .max(64);
-        unsafe {
-            let alloc =
-                alloc(Layout::from_size_align(new_len, 16).unwrap()).cast::<MaybeUninit<u8>>();
-            let mut new_storage = Box::from_raw(std::slice::from_raw_parts_mut(alloc, new_len));
-            new_storage[new_len - self.storage.len()..].copy_from_slice(&self.storage);
-            self.cursor = new_storage
-                .as_mut_ptr()
-                .add(
-                    new_len - self.storage.len()
-                        + (self.cursor as usize - self.storage.as_ptr() as usize),
+        let old_storage = mem::replace(&mut self.storage, unsafe {
+            Box::from_raw(std::slice::from_raw_parts_mut(
+                alloc(
+                    Layout::from_size_align(
+                        new_len,
+                        self.info.first().map_or(increment_align, |x| {
+                            x.0.layout().align().max(increment_align)
+                        }),
+                    )
+                    .unwrap(),
                 )
-                .cast();
-            self.storage = new_storage;
+                .cast(),
+                new_len,
+            ))
+        });
+        let components = self.info.len();
+        let old_info = mem::replace(&mut self.info, Vec::with_capacity(components));
+        self.cursor = 0;
+        for (info, offset) in old_info {
+            let new_offset = self.next_cursor(info.layout().align());
+            self.cursor = new_offset + info.layout().size();
+            self.storage[new_offset..self.cursor]
+                .copy_from_slice(&old_storage[offset..offset + info.layout().size()]);
+            self.info.push((info, new_offset));
         }
     }
 
@@ -108,11 +122,11 @@ impl EntityBuilder {
     /// be called.
     pub fn clear(&mut self) {
         self.ids.clear();
+        self.cursor = 0;
         unsafe {
             for (ty, component) in self.info.drain(..) {
-                ty.drop(component);
+                ty.drop(self.storage[component].as_mut_ptr().cast::<u8>());
             }
-            self.cursor = self.storage.as_mut_ptr().add(self.storage.len()).cast();
         }
     }
 }
@@ -150,8 +164,9 @@ impl DynamicBundle for BuiltEntity<'_> {
 
     unsafe fn put(self, mut f: impl FnMut(*mut u8, TypeId, usize) -> bool) {
         for (ty, component) in self.builder.info.drain(..) {
-            if !f(component, ty.id(), ty.layout().size()) {
-                ty.drop(component);
+            let ptr = self.builder.storage[component].as_mut_ptr().cast();
+            if !f(ptr, ty.id(), ty.layout().size()) {
+                ty.drop(ptr);
             }
         }
     }
