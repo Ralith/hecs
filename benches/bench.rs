@@ -38,10 +38,11 @@ fn iterate_100k(b: &mut Bencher) {
 }
 
 fn build(b: &mut Bencher) {
+    let mut world = World::new();
     let mut builder = EntityBuilder::new();
     b.iter(|| {
-        builder.add(Position(0.0));
-        builder.build();
+        builder.add(Position(0.0)).add(Velocity(0.0));
+        world.spawn(builder.build());
     });
 }
 
