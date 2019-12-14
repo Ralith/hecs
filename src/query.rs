@@ -217,7 +217,7 @@ macro_rules! tuple_impl {
 
         #[allow(unused_variables)]
         impl<'a, $($name: Query<'a>),*> Query<'a> for ($($name,)*) {
-            type Fetch = (($($name::Fetch,)*));
+            type Fetch = ($($name::Fetch,)*);
             fn borrow(state: &BorrowState) {
                 $($name::borrow(state);)*
             }
