@@ -132,15 +132,20 @@ impl Archetype {
             offsets.insert(ty.id, data_size);
             data_size += ty.layout.size() * count;
         }
-        let alloc = alloc(
-            Layout::from_size_align(
-                data_size,
-                self.types.first().map_or(1, |x| x.layout.align()),
+        let raw = if data_size == 0 {
+            Box::<[MaybeUninit<u8>]>::into_raw(Box::new([MaybeUninit::<u8>::uninit(); 0]))
+        } else {
+            let ptr = alloc(
+                Layout::from_size_align(
+                    data_size,
+                    self.types.first().map_or(1, |x| x.layout.align()),
+                )
+                .unwrap(),
             )
-            .unwrap(),
-        )
-        .cast::<MaybeUninit<u8>>();
-        let mut new_data = Box::from_raw(std::slice::from_raw_parts_mut(alloc, data_size));
+            .cast::<MaybeUninit<u8>>();
+            std::slice::from_raw_parts_mut(ptr, data_size)
+        };
+        let mut new_data = Box::from_raw(raw);
         if !(*self.data.get()).is_empty() {
             for ty in &self.types {
                 let old_off = *self.offsets.get(&ty.id).unwrap();
