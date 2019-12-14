@@ -101,11 +101,11 @@ impl EntityBuilder {
         let old_info = mem::replace(&mut self.info, Vec::with_capacity(components));
         self.cursor = 0;
         for (info, offset) in old_info {
-            let new_offset = self.next_cursor(info.layout().align());
-            self.cursor = new_offset + info.layout().size();
-            self.storage[new_offset..self.cursor]
+            let next = self.cursor + info.layout().size();
+            self.storage[self.cursor..next]
                 .copy_from_slice(&old_storage[offset..offset + info.layout().size()]);
-            self.info.push((info, new_offset));
+            self.info.push((info, self.cursor));
+            self.cursor = next;
         }
     }
 
