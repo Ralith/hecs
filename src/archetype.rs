@@ -20,7 +20,7 @@ use std::ptr::{self, NonNull};
 
 use fxhash::FxHashMap;
 
-use crate::{align, Component};
+use crate::Component;
 
 /// A collection of entities having the same component types
 pub struct Archetype {
@@ -299,3 +299,8 @@ impl PartialEq for TypeInfo {
 }
 
 impl Eq for TypeInfo {}
+
+fn align(x: usize, alignment: usize) -> usize {
+    debug_assert!(alignment.is_power_of_two());
+    (x + alignment - 1) & (!alignment + 1)
+}

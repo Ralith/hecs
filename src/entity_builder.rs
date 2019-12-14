@@ -17,7 +17,7 @@ use std::any::TypeId;
 use std::mem::{self, MaybeUninit};
 
 use crate::archetype::TypeInfo;
-use crate::{align, Component, DynamicBundle};
+use crate::{Component, DynamicBundle};
 
 /// Helper for incrementally constructing a bundle of components with dynamic component types
 ///
@@ -52,19 +52,16 @@ impl EntityBuilder {
 
     /// Add `component` to the entity
     pub fn add<T: Component>(&mut self, component: T) -> &mut Self {
-        let aligned = self.next_cursor(mem::align_of::<T>());
-        if aligned + mem::size_of::<T>() > self.storage.len() {
-            self.grow(mem::size_of::<T>(), mem::align_of::<T>());
-            self.cursor = self.next_cursor(mem::align_of::<T>());
-        } else {
-            self.cursor = aligned;
+        let end = self.cursor + mem::size_of::<T>();
+        if end > self.storage.len() {
+            self.grow(end);
         }
         if mem::size_of::<T>() != 0 {
             unsafe {
                 self.storage[self.cursor]
                     .as_mut_ptr()
                     .cast::<T>()
-                    .write(component);
+                    .write_unaligned(component);
             }
         }
         self.info.push((TypeInfo::of::<T>(), self.cursor));
@@ -72,41 +69,11 @@ impl EntityBuilder {
         self
     }
 
-    fn next_cursor(&self, alignment: usize) -> usize {
-        align(self.storage.as_ptr() as usize + self.cursor, alignment)
-            - self.storage.as_ptr() as usize
-    }
-
-    fn grow(&mut self, increment_size: usize, increment_align: usize) {
-        self.info.sort_unstable_by(|x, y| x.0.cmp(&y.0));
-        let new_len = (self.storage.len() + increment_size)
-            .next_power_of_two()
-            .max(64);
-        let old_storage = mem::replace(&mut self.storage, unsafe {
-            Box::from_raw(std::slice::from_raw_parts_mut(
-                alloc(
-                    Layout::from_size_align(
-                        new_len,
-                        self.info.first().map_or(increment_align, |x| {
-                            x.0.layout().align().max(increment_align)
-                        }),
-                    )
-                    .unwrap(),
-                )
-                .cast(),
-                new_len,
-            ))
-        });
-        let components = self.info.len();
-        let old_info = mem::replace(&mut self.info, Vec::with_capacity(components));
-        self.cursor = 0;
-        for (info, offset) in old_info {
-            let next = self.cursor + info.layout().size();
-            self.storage[self.cursor..next]
-                .copy_from_slice(&old_storage[offset..offset + info.layout().size()]);
-            self.info.push((info, self.cursor));
-            self.cursor = next;
-        }
+    fn grow(&mut self, min_size: usize) {
+        let new_len = min_size.next_power_of_two().max(64);
+        let mut new_storage = vec![MaybeUninit::uninit(); new_len].into_boxed_slice();
+        new_storage[..self.cursor].copy_from_slice(&self.storage[..self.cursor]);
+        self.storage = new_storage;
     }
 
     /// Construct a `Bundle` suitable for spawning
@@ -123,9 +90,32 @@ impl EntityBuilder {
     pub fn clear(&mut self) {
         self.ids.clear();
         self.cursor = 0;
+        let max_size = self
+            .info
+            .iter()
+            .map(|x| x.0.layout().size())
+            .max()
+            .unwrap_or(0);
+        let max_align = self
+            .info
+            .iter()
+            .map(|x| x.0.layout().align())
+            .max()
+            .unwrap_or(0);
         unsafe {
-            for (ty, component) in self.info.drain(..) {
-                ty.drop(self.storage[component].as_mut_ptr().cast::<u8>());
+            // Suitably aligned storage for drop
+            let mut tmp = if max_size > 0 {
+                Box::from_raw(std::slice::from_raw_parts_mut(
+                    alloc(Layout::from_size_align(max_size, max_align).unwrap()).cast(),
+                    max_size,
+                ))
+            } else {
+                Box::new([])
+            };
+            for (ty, offset) in self.info.drain(..) {
+                tmp[0..ty.layout().size()]
+                    .copy_from_slice(&self.storage[offset..offset + ty.layout().size()]);
+                ty.drop(tmp.as_mut_ptr().cast::<u8>());
             }
         }
     }
