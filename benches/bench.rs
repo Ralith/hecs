@@ -18,10 +18,26 @@ use hecs::*;
 struct Position(f32);
 struct Velocity(f32);
 
-fn spawn(b: &mut Bencher) {
+fn spawn_tuple(b: &mut Bencher) {
     let mut world = World::new();
     b.iter(|| {
         world.spawn((Position(0.0), Velocity(0.0)));
+    });
+}
+
+fn spawn_static(b: &mut Bencher) {
+    #[derive(Bundle)]
+    struct Bundle {
+        pos: Position,
+        vel: Velocity,
+    };
+
+    let mut world = World::new();
+    b.iter(|| {
+        world.spawn(Bundle {
+            pos: Position(0.0),
+            vel: Velocity(0.0),
+        });
     });
 }
 
@@ -46,5 +62,5 @@ fn build(b: &mut Bencher) {
     });
 }
 
-benchmark_group!(benches, spawn, iterate_100k, build);
+benchmark_group!(benches, spawn_tuple, spawn_static, iterate_100k, build);
 benchmark_main!(benches);
