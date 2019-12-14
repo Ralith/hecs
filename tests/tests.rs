@@ -81,7 +81,7 @@ fn query_sparse_component() {
     let mut world = World::new();
     world.spawn(("abc", 123));
     let f = world.spawn(("def", 456, true));
-    let ents = world.query::<(&bool)>().collect::<Vec<_>>();
+    let ents = world.query::<&bool>().collect::<Vec<_>>();
     assert_eq!(ents, &[(f, &true)]);
 }
 
