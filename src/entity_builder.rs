@@ -54,18 +54,20 @@ impl EntityBuilder {
 
     /// Add `component` to the entity
     pub fn add<T: Component>(&mut self, component: T) -> &mut Self {
-        unsafe {
-            if let Some(cursor) = (self.cursor as usize)
-                .checked_sub(mem::size_of::<T>())
-                .map(|x| (x & !(mem::align_of::<T>() - 1)) as *mut u8)
-                .filter(|&x| x >= self.storage.as_mut_ptr().cast())
-            {
-                self.cursor = cursor;
-            } else {
-                self.grow(mem::size_of::<T>().max(mem::align_of::<T>()));
+        if let Some(cursor) = (self.cursor as usize)
+            .checked_sub(mem::size_of::<T>())
+            .map(|x| (x & !(mem::align_of::<T>() - 1)) as *mut u8)
+            .filter(|&x| x >= self.storage.as_mut_ptr().cast())
+        {
+            self.cursor = cursor;
+        } else {
+            self.grow(mem::size_of::<T>().max(mem::align_of::<T>()));
+            unsafe {
                 self.cursor = (self.cursor.sub(mem::size_of::<T>()) as usize
                     & !(mem::align_of::<T>() - 1)) as *mut u8;
             }
+        }
+        unsafe {
             self.cursor.cast::<T>().write(component);
         }
         self.info.push((TypeInfo::of::<T>(), self.cursor));
