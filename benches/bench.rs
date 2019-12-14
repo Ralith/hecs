@@ -37,5 +37,13 @@ fn iterate_100k(b: &mut Bencher) {
     })
 }
 
-benchmark_group!(benches, spawn, iterate_100k);
+fn build(b: &mut Bencher) {
+    let mut builder = EntityBuilder::new();
+    b.iter(|| {
+        builder.add(Position(0.0));
+        builder.build();
+    });
+}
+
+benchmark_group!(benches, spawn, iterate_100k, build);
 benchmark_main!(benches);
