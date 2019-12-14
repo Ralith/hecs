@@ -126,7 +126,7 @@ impl Archetype {
         self.entities = new_entities;
 
         let mut data_size = 0;
-        let mut offsets = FxHashMap::default();
+        let mut offsets = FxHashMap::with_capacity_and_hasher(self.types.len(), Default::default());
         for ty in &self.types {
             data_size = align(data_size, ty.layout.align());
             offsets.insert(ty.id, data_size);
