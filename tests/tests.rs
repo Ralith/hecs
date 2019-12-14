@@ -100,7 +100,8 @@ fn query_optional_component() {
 fn build_entity() {
     let mut world = World::new();
     let mut entity = EntityBuilder::new();
-    entity.add("abc").add(123);
+    entity.add("abc");
+    entity.add(123);
     let e = world.spawn(entity.build());
     entity.add("def");
     entity.add([0u8; 1024]);
@@ -221,6 +222,7 @@ fn derived_query() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore)]
 fn spawn_many() {
     let mut world = World::new();
     const N: usize = 100_000;
