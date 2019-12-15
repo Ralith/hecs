@@ -125,37 +125,13 @@ macro_rules! count {
     ($x: ident $(, $rest: ident)*) => { 1 + count!($($rest),*) };
 }
 
-tuple_impl!();
-tuple_impl!(A);
-tuple_impl!(A, B);
-tuple_impl!(A, B, C);
-tuple_impl!(A, B, C, D);
-tuple_impl!(A, B, C, D, E);
-tuple_impl!(A, B, C, D, E, F);
-tuple_impl!(A, B, C, D, E, F, G);
-tuple_impl!(A, B, C, D, E, F, G, H);
-tuple_impl!(A, B, C, D, E, F, G, H, I);
-tuple_impl!(A, B, C, D, E, F, G, H, I, J);
-tuple_impl!(A, B, C, D, E, F, G, H, I, J, K);
-tuple_impl!(A, B, C, D, E, F, G, H, I, J, K, L);
-tuple_impl!(A, B, C, D, E, F, G, H, I, J, K, L, M);
-tuple_impl!(A, B, C, D, E, F, G, H, I, J, K, L, M, N);
-tuple_impl!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O);
-// tuple_impl!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P);
-// tuple_impl!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q);
-// tuple_impl!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R);
-// tuple_impl!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S);
-// tuple_impl!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T);
-// tuple_impl!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U);
-// tuple_impl!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V);
-// tuple_impl!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W);
-// tuple_impl!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X);
-// tuple_impl!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y);
-// tuple_impl!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z);
-// tuple_impl!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z, AA);
-// tuple_impl!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z, AA, AB);
-// tuple_impl!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z, AA, AB, AC);
-// tuple_impl!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z, AA, AB, AC, AD);
-// tuple_impl!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z, AA, AB, AC, AD, AE);
-// tuple_impl!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z, AA, AB, AC, AD, AE, AF);
-// tuple_impl!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z, AA, AB, AC, AD, AE, AF, AG);
+/// Fills in (A, B), and (B) impls for i.e. (A, B, C)
+macro_rules! expand_tuple_impl {
+    ( $name:ident ) => { tuple_impl!($name); };
+    ( $name:ident, $( $tail:tt )* ) => {
+        tuple_impl!($name, $( $tail )*);
+        expand_tuple_impl!($( $tail )*);
+    }
+}
+
+expand_tuple_impl!(O, N, M, L, K, J, I, H, G, F, E, D, C, B, A);
