@@ -12,9 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::alloc::{alloc, Layout};
+use std::alloc::{alloc, dealloc, Layout};
 use std::any::TypeId;
 use std::mem::{self, MaybeUninit};
+use std::ptr;
 
 use crate::archetype::TypeInfo;
 use crate::{Component, DynamicBundle};
@@ -105,18 +106,23 @@ impl EntityBuilder {
             .unwrap_or(0);
         unsafe {
             // Suitably aligned storage for drop
-            let mut tmp = if max_size > 0 {
-                Box::from_raw(std::slice::from_raw_parts_mut(
-                    alloc(Layout::from_size_align(max_size, max_align).unwrap()).cast(),
-                    max_size,
-                ))
+            let tmp = if max_size > 0 {
+                alloc(Layout::from_size_align(max_size, max_align).unwrap()).cast()
             } else {
-                Box::new([])
+                max_align as *mut _
             };
             for (ty, offset) in self.info.drain(..) {
-                tmp[0..ty.layout().size()]
-                    .copy_from_slice(&self.storage[offset..offset + ty.layout().size()]);
-                ty.drop(tmp.as_mut_ptr().cast::<u8>());
+                ptr::copy_nonoverlapping(
+                    self.storage[offset..offset + ty.layout().size()]
+                        .as_ptr()
+                        .cast(),
+                    tmp,
+                    ty.layout().size(),
+                );
+                ty.drop(tmp);
+            }
+            if max_size > 0 {
+                dealloc(tmp, Layout::from_size_align(max_size, max_align).unwrap())
             }
         }
     }

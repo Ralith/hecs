@@ -12,10 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::alloc::{alloc, Layout};
+use std::alloc::{alloc, dealloc, Layout};
 use std::any::TypeId;
 use std::cell::UnsafeCell;
-use std::mem::MaybeUninit;
+use std::mem;
 use std::ptr::{self, NonNull};
 
 use fxhash::FxHashMap;
@@ -30,7 +30,8 @@ pub struct Archetype {
     entities: Box<[u32]>,
     // UnsafeCell allows unique references into `data` to be constructed while shared references
     // containing the `Archetype` exist
-    data: UnsafeCell<Box<[MaybeUninit<u8>]>>,
+    data: UnsafeCell<NonNull<u8>>,
+    data_size: usize,
 }
 
 impl Archetype {
@@ -44,7 +45,8 @@ impl Archetype {
             offsets: FxHashMap::default(),
             entities: Box::new([]),
             len: 0,
-            data: UnsafeCell::new(Box::new([])),
+            data: UnsafeCell::new(NonNull::dangling()),
+            data_size: 0,
         }
     }
 
@@ -104,7 +106,7 @@ impl Archetype {
         debug_assert!(index < self.len);
         Some(NonNull::new_unchecked(
             (*self.data.get())
-                .as_mut_ptr()
+                .as_ptr()
                 .add(*self.offsets.get(&ty)? + size * index as usize)
                 .cast::<u8>(),
         ))
@@ -125,34 +127,32 @@ impl Archetype {
         new_entities[0..old_count].copy_from_slice(&self.entities);
         self.entities = new_entities;
 
-        let mut data_size = 0;
+        let old_data_size = mem::replace(&mut self.data_size, 0);
         let mut offsets = FxHashMap::with_capacity_and_hasher(self.types.len(), Default::default());
         for ty in &self.types {
-            data_size = align(data_size, ty.layout.align());
-            offsets.insert(ty.id, data_size);
-            data_size += ty.layout.size() * count;
+            self.data_size = align(self.data_size, ty.layout.align());
+            offsets.insert(ty.id, self.data_size);
+            self.data_size += ty.layout.size() * count;
         }
-        let raw = if data_size == 0 {
-            Box::<[MaybeUninit<u8>]>::into_raw(Box::new([MaybeUninit::<u8>::uninit(); 0]))
+        let new_data = if self.data_size == 0 {
+            NonNull::dangling()
         } else {
-            let ptr = alloc(
+            NonNull::new(alloc(
                 Layout::from_size_align(
-                    data_size,
+                    self.data_size,
                     self.types.first().map_or(1, |x| x.layout.align()),
                 )
                 .unwrap(),
-            )
-            .cast::<MaybeUninit<u8>>();
-            std::slice::from_raw_parts_mut(ptr, data_size)
+            ))
+            .unwrap()
         };
-        let mut new_data = Box::from_raw(raw);
-        if !(*self.data.get()).is_empty() {
+        if old_data_size != 0 {
             for ty in &self.types {
                 let old_off = *self.offsets.get(&ty.id).unwrap();
                 let new_off = *offsets.get(&ty.id).unwrap();
                 ptr::copy_nonoverlapping(
                     (*self.data.get()).as_ptr().add(old_off),
-                    new_data.as_mut_ptr().add(new_off),
+                    new_data.as_ptr().add(new_off),
                     ty.layout.size() * old_count,
                 );
             }
@@ -237,6 +237,17 @@ impl Archetype {
 impl Drop for Archetype {
     fn drop(&mut self) {
         self.clear();
+        if self.data_size != 0 {
+            unsafe {
+                dealloc(
+                    (*self.data.get()).as_ptr().cast(),
+                    Layout::from_size_align_unchecked(
+                        self.data_size,
+                        self.types.first().map_or(1, |x| x.layout.align()),
+                    ),
+                );
+            }
+        }
     }
 }
 
