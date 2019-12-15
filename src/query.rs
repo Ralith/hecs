@@ -29,8 +29,10 @@ pub trait Query<'a>: Sized {
 pub trait Fetch<'a>: Sized {
     /// Type of value to be fetched
     type Item;
-    /// Whether `get` would succeed
+    /// Whether `get` will borrow from `archetype`
     fn wants(archetype: &Archetype) -> bool;
+    /// Whether `get` will uniquely borrow from `archetype`. Implies `wants`.
+    fn wants_mut(archetype: &Archetype) -> bool;
     /// Construct a `Fetch` for `archetype` if it should be traversed
     fn get(archetype: &'a Archetype) -> Option<Self>;
     /// Release dynamic borrows acquired by `get`
@@ -50,6 +52,9 @@ impl<'a, T: Component> Fetch<'a> for FetchRead<T> {
     type Item = &'a T;
     fn wants(archetype: &Archetype) -> bool {
         archetype.has::<T>()
+    }
+    fn wants_mut(_: &Archetype) -> bool {
+        false
     }
     fn get(archetype: &'a Archetype) -> Option<Self> {
         archetype.borrow::<T>().map(Self)
@@ -76,6 +81,9 @@ impl<'a, T: Component> Fetch<'a> for FetchWrite<T> {
     fn wants(archetype: &Archetype) -> bool {
         archetype.has::<T>()
     }
+    fn wants_mut(archetype: &Archetype) -> bool {
+        archetype.has::<T>()
+    }
     fn get(archetype: &'a Archetype) -> Option<Self> {
         archetype.borrow_mut::<T>().map(Self)
     }
@@ -98,8 +106,11 @@ pub struct TryFetch<T>(Option<T>);
 
 impl<'a, T: Fetch<'a>> Fetch<'a> for TryFetch<T> {
     type Item = Option<T::Item>;
-    fn wants(_: &Archetype) -> bool {
-        true
+    fn wants(archetype: &Archetype) -> bool {
+        T::wants(archetype)
+    }
+    fn wants_mut(archetype: &Archetype) -> bool {
+        T::wants_mut(archetype)
     }
     fn get(archetype: &'a Archetype) -> Option<Self> {
         Some(Self(T::get(archetype)))
@@ -200,6 +211,10 @@ macro_rules! tuple_impl {
             #[allow(unused_variables)]
             fn wants(archetype: &Archetype) -> bool {
                 $($name::wants(archetype) &&)* true
+            }
+            #[allow(unused_variables)]
+            fn wants_mut(archetype: &Archetype) -> bool {
+                $($name::wants_mut(archetype) &&)* true
             }
             #[allow(unused_variables)]
             fn get(archetype: &'a Archetype) -> Option<Self> {
