@@ -127,7 +127,10 @@ macro_rules! count {
 
 /// Fills in (A, B), and (B) impls for i.e. (A, B, C)
 macro_rules! expand_tuple_impl {
-    ( $name:ident ) => { tuple_impl!($name); };
+    ( $name:ident ) => {
+        tuple_impl!($name);
+        tuple_impl!();
+    };
     ( $name:ident, $( $tail:tt )* ) => {
         tuple_impl!($name, $( $tail )*);
         expand_tuple_impl!($( $tail )*);
