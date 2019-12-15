@@ -18,7 +18,7 @@ use core::{fmt, ptr};
 #[cfg(feature = "std")]
 use std::error::Error;
 
-use fxhash::{FxHashMap, FxHashSet};
+use hashbrown::{HashMap, HashSet};
 
 use crate::archetype::Archetype;
 use crate::borrow::BorrowState;
@@ -34,7 +34,7 @@ use crate::{Bundle, DynamicBundle, EntityRef, MissingComponent, Query, QueryIter
 #[derive(Default)]
 pub struct World {
     entities: Entities,
-    index: FxHashMap<Vec<TypeId>, u32>,
+    index: HashMap<Vec<TypeId>, u32>,
     archetypes: Vec<Archetype>,
     borrows: BorrowState,
 }
@@ -312,7 +312,7 @@ impl World {
 
         let loc = self.entities.get_mut(entity)?;
         unsafe {
-            let removed = T::with_static_ids(|ids| ids.iter().copied().collect::<FxHashSet<_>>());
+            let removed = T::with_static_ids(|ids| ids.iter().copied().collect::<HashSet<_>>());
             let info = self.archetypes[loc.archetype as usize]
                 .types()
                 .iter()

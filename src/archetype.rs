@@ -18,14 +18,14 @@ use core::cell::UnsafeCell;
 use core::mem;
 use core::ptr::{self, NonNull};
 
-use fxhash::FxHashMap;
+use hashbrown::HashMap;
 
 use crate::Component;
 
 /// A collection of entities having the same component types
 pub struct Archetype {
     types: Vec<TypeInfo>,
-    offsets: FxHashMap<TypeId, usize>,
+    offsets: HashMap<TypeId, usize>,
     len: u32,
     entities: Box<[u32]>,
     // UnsafeCell allows unique references into `data` to be constructed while shared references
@@ -42,7 +42,7 @@ impl Archetype {
         );
         Self {
             types,
-            offsets: FxHashMap::default(),
+            offsets: HashMap::default(),
             entities: Box::new([]),
             len: 0,
             data: UnsafeCell::new(NonNull::dangling()),
@@ -128,7 +128,7 @@ impl Archetype {
         self.entities = new_entities;
 
         let old_data_size = mem::replace(&mut self.data_size, 0);
-        let mut offsets = FxHashMap::with_capacity_and_hasher(self.types.len(), Default::default());
+        let mut offsets = HashMap::with_capacity_and_hasher(self.types.len(), Default::default());
         for ty in &self.types {
             self.data_size = align(self.data_size, ty.layout.align());
             offsets.insert(ty.id, self.data_size);
