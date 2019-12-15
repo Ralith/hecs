@@ -58,8 +58,9 @@ impl EntityBuilder {
         }
         if mem::size_of::<T>() != 0 {
             unsafe {
-                self.storage[self.cursor]
+                self.storage
                     .as_mut_ptr()
+                    .add(self.cursor)
                     .cast::<T>()
                     .write_unaligned(component);
             }
@@ -153,8 +154,8 @@ impl DynamicBundle for BuiltEntity<'_> {
     }
 
     unsafe fn put(self, mut f: impl FnMut(*mut u8, TypeId, usize) -> bool) {
-        for (ty, component) in self.builder.info.drain(..) {
-            let ptr = self.builder.storage[component].as_mut_ptr().cast();
+        for (ty, offset) in self.builder.info.drain(..) {
+            let ptr = self.builder.storage.as_mut_ptr().add(offset).cast();
             if !f(ptr, ty.id(), ty.layout().size()) {
                 ty.drop(ptr);
             }
