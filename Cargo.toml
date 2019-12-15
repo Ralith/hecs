@@ -19,6 +19,7 @@ all-features = true
 [features]
 # Enables derive(Bundle) and derive(Query)
 macros = ["hecs-macros", "once_cell"]
+std = []
 
 [dependencies]
 fxhash = "0.2.1"

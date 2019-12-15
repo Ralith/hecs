@@ -12,10 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::alloc::{alloc, dealloc, Layout};
-use std::any::TypeId;
-use std::mem::{self, MaybeUninit};
-use std::ptr;
+use core::alloc::{alloc, dealloc, Layout};
+use core::any::TypeId;
+use core::mem::{self, MaybeUninit};
+use core::ptr;
 
 use crate::archetype::TypeInfo;
 use crate::{Component, DynamicBundle};

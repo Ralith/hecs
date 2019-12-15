@@ -12,9 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::any::TypeId;
+use core::any::TypeId;
+use core::{fmt, ptr};
+
+#[cfg(feature = "std")]
 use std::error::Error;
-use std::{fmt, ptr};
 
 use fxhash::{FxHashMap, FxHashSet};
 
@@ -223,7 +225,7 @@ impl World {
         entity: Entity,
         components: impl DynamicBundle,
     ) -> Result<(), NoSuchEntity> {
-        use std::collections::hash_map::Entry;
+        use hashbrown::hash_map::Entry;
 
         let loc = self.entities.get_mut(entity)?;
         unsafe {
@@ -306,7 +308,7 @@ impl World {
     /// assert_eq!(*world.get::<bool>(e).unwrap(), true);
     /// ```
     pub fn remove<T: Bundle>(&mut self, entity: Entity) -> Result<T, ComponentError> {
-        use std::collections::hash_map::Entry;
+        use hashbrown::hash_map::Entry;
 
         let loc = self.entities.get_mut(entity)?;
         unsafe {
@@ -381,6 +383,7 @@ pub enum ComponentError {
     MissingComponent(MissingComponent),
 }
 
+#[cfg(feature = "std")]
 impl std::error::Error for ComponentError {}
 
 impl fmt::Display for ComponentError {
@@ -439,7 +442,7 @@ impl fmt::Debug for Entity {
 /// Iterator over all of a world's entities
 pub struct Iter<'a> {
     borrows: &'a BorrowState,
-    archetypes: std::slice::Iter<'a, Archetype>,
+    archetypes: core::slice::Iter<'a, Archetype>,
     entities: &'a [EntityMeta],
     current: Option<&'a Archetype>,
     index: u32,
@@ -506,7 +509,7 @@ impl<A: DynamicBundle> Extend<A> for World {
     }
 }
 
-impl<A: DynamicBundle> std::iter::FromIterator<A> for World {
+impl<A: DynamicBundle> core::iter::FromIterator<A> for World {
     fn from_iter<I: IntoIterator<Item = A>>(iter: I) -> Self {
         let mut world = World::new();
         world.extend(iter);

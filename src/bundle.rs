@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::any::{type_name, TypeId};
-use std::ptr::NonNull;
-use std::{fmt, mem};
+use core::any::{type_name, TypeId};
+use core::ptr::NonNull;
+use core::{fmt, mem};
 
 use crate::archetype::TypeInfo;
 use crate::Component;
@@ -63,7 +63,7 @@ impl fmt::Display for MissingComponent {
     }
 }
 
-impl std::error::Error for MissingComponent {}
+impl core::error::Error for MissingComponent {}
 
 macro_rules! tuple_impl {
     ($($name: ident),*) => {
@@ -97,7 +97,7 @@ macro_rules! tuple_impl {
         impl<$($name: Component),*> Bundle for ($($name,)*) {
             fn with_static_ids<T>(f: impl FnOnce(&[TypeId]) -> T) -> T {
                 const N: usize = count!($($name),*);
-                let mut xs: [(usize, TypeId); N] = [$((std::mem::align_of::<$name>(), TypeId::of::<$name>())),*];
+                let mut xs: [(usize, TypeId); N] = [$((mem::align_of::<$name>(), TypeId::of::<$name>())),*];
                 xs.sort_unstable_by(|x, y| x.0.cmp(&y.0).reverse().then(x.1.cmp(&y.1)));
                 let mut ids = [TypeId::of::<()>(); N];
                 for (slot, &(_, id)) in ids.iter_mut().zip(xs.iter()) {

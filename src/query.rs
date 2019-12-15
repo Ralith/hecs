@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::any::{type_name, TypeId};
-use std::marker::PhantomData;
-use std::ptr::NonNull;
+use core::any::{type_name, TypeId};
+use core::marker::PhantomData;
+use core::ptr::NonNull;
 
 use crate::archetype::Archetype;
 use crate::borrow::BorrowState;
@@ -118,7 +118,7 @@ impl<'a, T: Fetch<'a>> Fetch<'a> for TryFetch<T> {
 pub struct QueryIter<'a, Q: Query<'a>> {
     borrows: &'a BorrowState,
     meta: &'a [EntityMeta],
-    archetypes: std::slice::Iter<'a, Archetype>,
+    archetypes: core::slice::Iter<'a, Archetype>,
     iter: Option<ChunkIter<'a, Q::Fetch>>,
 }
 
