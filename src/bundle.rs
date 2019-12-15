@@ -125,5 +125,4 @@ macro_rules! count {
     ($x: ident $(, $rest: ident)*) => { 1 + count!($($rest),*) };
 }
 
-
 crate::smaller_tuples_too!(tuple_impl, O, N, M, L, K, J, I, H, G, F, E, D, C, B, A);
