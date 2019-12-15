@@ -16,7 +16,7 @@ use std::any::TypeId;
 use std::error::Error;
 use std::{fmt, ptr};
 
-use fxhash::{FxHashMap, FxHashSet};
+use hashbrown::{HashMap, HashSet};
 
 use crate::archetype::Archetype;
 use crate::borrow::BorrowState;
@@ -32,7 +32,7 @@ use crate::{Bundle, DynamicBundle, EntityRef, MissingComponent, Query, QueryIter
 #[derive(Default)]
 pub struct World {
     entities: Entities,
-    index: FxHashMap<Vec<TypeId>, u32>,
+    index: HashMap<Vec<TypeId>, u32>,
     archetypes: Vec<Archetype>,
     borrows: BorrowState,
 }
@@ -223,7 +223,7 @@ impl World {
         entity: Entity,
         components: impl DynamicBundle,
     ) -> Result<(), NoSuchEntity> {
-        use std::collections::hash_map::Entry;
+        use hashbrown::hash_map::Entry;
 
         let loc = self.entities.get_mut(entity)?;
         unsafe {
@@ -306,11 +306,11 @@ impl World {
     /// assert_eq!(*world.get::<bool>(e).unwrap(), true);
     /// ```
     pub fn remove<T: Bundle>(&mut self, entity: Entity) -> Result<T, ComponentError> {
-        use std::collections::hash_map::Entry;
+        use hashbrown::hash_map::Entry;
 
         let loc = self.entities.get_mut(entity)?;
         unsafe {
-            let removed = T::with_static_ids(|ids| ids.iter().copied().collect::<FxHashSet<_>>());
+            let removed = T::with_static_ids(|ids| ids.iter().copied().collect::<HashSet<_>>());
             let info = self.archetypes[loc.archetype as usize]
                 .types()
                 .iter()
