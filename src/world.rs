@@ -22,7 +22,6 @@ use std::error::Error;
 use hashbrown::{HashMap, HashSet};
 
 use crate::archetype::Archetype;
-use crate::borrow::BorrowState;
 use crate::{Bundle, DynamicBundle, EntityRef, MissingComponent, Query, QueryIter, Ref, RefMut};
 
 /// An unordered collection of entities, each having any number of distinctly typed components
@@ -37,7 +36,6 @@ pub struct World {
     entities: Entities,
     index: HashMap<Vec<TypeId>, u32>,
     archetypes: Vec<Archetype>,
-    borrows: BorrowState,
 }
 
 impl World {
@@ -65,9 +63,6 @@ impl World {
         let entity = self.entities.alloc();
         let archetype = components.with_ids(|ids| {
             self.index.get(ids).copied().unwrap_or_else(|| {
-                for &id in ids {
-                    self.borrows.ensure(id);
-                }
                 let x = self.archetypes.len() as u32;
                 self.archetypes.push(Archetype::new(components.type_info()));
                 self.index.insert(ids.to_vec(), x);
@@ -123,6 +118,12 @@ impl World {
     /// Query types can also be constructed with `#[derive(Query)]` on a struct whose fields all
     /// have query types.
     ///
+    /// Iterating a query will panic if it would violate an existing unique reference or construct
+    /// an invalid unique reference. This occurs when two simultaneously-active queries could expose
+    /// the same entity. Simultaneous queries can access the same component type if and only if the
+    /// world contains no entities that have all components required by both queries, assuming no
+    /// other component borrows are outstanding.
+    ///
     /// # Example
     /// ```
     /// # use hecs::*;
@@ -136,43 +137,40 @@ impl World {
     /// assert!(entities.contains(&(b, (&456, &false))));
     /// ```
     pub fn query<'a, Q: Query<'a>>(&'a self) -> QueryIter<'a, Q> {
-        QueryIter::new(&self.borrows, &self.entities.meta, &self.archetypes)
+        QueryIter::new(&self.entities.meta, &self.archetypes)
     }
 
     /// Borrow the `T` component of `entity`
     ///
-    /// Panics if the component is already uniquely borrowed.
+    /// Panics if the component is already uniquely borrowed from another entity with the same
+    /// components.
     pub fn get<T: Component>(&self, entity: Entity) -> Result<Ref<'_, T>, ComponentError> {
         let meta = &self.entities.meta[entity.id as usize];
         if meta.generation != entity.generation {
             return Err(ComponentError::NoSuchEntity);
         }
-        unsafe {
-            Ok(Ref::new(
-                &self.borrows,
-                self.archetypes[meta.location.archetype as usize]
-                    .get(meta.location.index)
-                    .ok_or_else(MissingComponent::new::<T>)?,
-            ))
-        }
+        Ok(unsafe {
+            Ref::new(
+                &self.archetypes[meta.location.archetype as usize],
+                meta.location.index,
+            )?
+        })
     }
 
     /// Uniquely borrow the `T` component of `entity`
     ///
-    /// Panics if the component is already borrowed.
+    /// Panics if the component is already borrowed from another entity with the same components.
     pub fn get_mut<T: Component>(&self, entity: Entity) -> Result<RefMut<'_, T>, ComponentError> {
         let meta = &self.entities.meta[entity.id as usize];
         if meta.generation != entity.generation {
             return Err(ComponentError::NoSuchEntity);
         }
-        unsafe {
-            Ok(RefMut::new(
-                &self.borrows,
-                self.archetypes[meta.location.archetype as usize]
-                    .get(meta.location.index)
-                    .ok_or_else(MissingComponent::new::<T>)?,
-            ))
-        }
+        Ok(unsafe {
+            RefMut::new(
+                &self.archetypes[meta.location.archetype as usize],
+                meta.location.index,
+            )?
+        })
     }
 
     /// Access an entity regardless of its component types
@@ -183,11 +181,12 @@ impl World {
         if meta.generation != entity.generation {
             return Err(NoSuchEntity);
         }
-        Ok(EntityRef::new(
-            &self.borrows,
-            &self.archetypes[meta.location.archetype as usize],
-            meta.location.index,
-        ))
+        Ok(unsafe {
+            EntityRef::new(
+                &self.archetypes[meta.location.archetype as usize],
+                meta.location.index,
+            )
+        })
     }
 
     /// Iterate over all entities in the world
@@ -204,7 +203,7 @@ impl World {
     /// assert_eq!(world.iter().map(|(id, _)| id).collect::<Vec<_>>(), &[a, b]);
     /// ```
     pub fn iter(&self) -> Iter<'_> {
-        Iter::new(&self.borrows, &self.archetypes, &self.entities.meta)
+        Iter::new(&self.archetypes, &self.entities.meta)
     }
 
     /// Add `components` to `entity`
@@ -236,7 +235,6 @@ impl World {
                 if let Some(ptr) = arch.get_dynamic(ty.id(), ty.layout().size(), loc.index) {
                     ty.drop(ptr.as_ptr());
                 } else {
-                    self.borrows.ensure(ty.id());
                     info.push(ty);
                 }
             }
@@ -443,7 +441,6 @@ impl fmt::Debug for Entity {
 
 /// Iterator over all of a world's entities
 pub struct Iter<'a> {
-    borrows: &'a BorrowState,
     archetypes: core::slice::Iter<'a, Archetype>,
     entities: &'a [EntityMeta],
     current: Option<&'a Archetype>,
@@ -451,13 +448,8 @@ pub struct Iter<'a> {
 }
 
 impl<'a> Iter<'a> {
-    fn new(
-        borrows: &'a BorrowState,
-        archetypes: &'a [Archetype],
-        entities: &'a [EntityMeta],
-    ) -> Self {
+    fn new(archetypes: &'a [Archetype], entities: &'a [EntityMeta]) -> Self {
         Self {
-            borrows,
             archetypes: archetypes.iter(),
             entities,
             current: None,
@@ -488,7 +480,7 @@ impl<'a> Iterator for Iter<'a> {
                             id,
                             generation: self.entities[id as usize].generation,
                         },
-                        EntityRef::new(self.borrows, current, index),
+                        unsafe { EntityRef::new(current, index) },
                     ));
                 }
             }

@@ -75,8 +75,6 @@ pub use world::{Component, ComponentError, Entity, Iter, NoSuchEntity, World};
 // Unstable implementation details needed by the macros
 #[doc(hidden)]
 pub use archetype::{Archetype, TypeInfo};
-#[doc(hidden)]
-pub use borrow::BorrowState;
 #[cfg(feature = "macros")]
 #[doc(hidden)]
 pub use lazy_static;

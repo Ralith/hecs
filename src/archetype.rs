@@ -15,19 +15,20 @@
 use crate::alloc::alloc::{alloc, dealloc, Layout};
 use crate::alloc::boxed::Box;
 use crate::alloc::{vec, vec::Vec};
-use core::any::TypeId;
+use core::any::{TypeId, type_name};
 use core::cell::UnsafeCell;
 use core::mem;
 use core::ptr::{self, NonNull};
 
 use hashbrown::HashMap;
 
+use crate::borrow::AtomicBorrow;
 use crate::Component;
 
 /// A collection of entities having the same component types
 pub struct Archetype {
     types: Vec<TypeInfo>,
-    offsets: HashMap<TypeId, usize>,
+    state: HashMap<TypeId, TypeState>,
     len: u32,
     entities: Box<[u32]>,
     // UnsafeCell allows unique references into `data` to be constructed while shared references
@@ -44,7 +45,7 @@ impl Archetype {
         );
         Self {
             types,
-            offsets: HashMap::default(),
+            state: HashMap::default(),
             entities: Box::new([]),
             len: 0,
             data: UnsafeCell::new(NonNull::dangling()),
@@ -67,11 +68,44 @@ impl Archetype {
         self.len = 0;
     }
 
-    pub(crate) fn data<T: Component>(&self) -> Option<NonNull<T>> {
-        let offset = *self.offsets.get(&TypeId::of::<T>())?;
+    pub(crate) fn has<T: Component>(&self) -> bool {
+        self.state.contains_key(&TypeId::of::<T>())
+    }
+
+    pub(crate) fn borrow<T: Component>(&self) -> Option<NonNull<T>> {
+        let state = self.state.get(&TypeId::of::<T>())?;
+        if !state.borrow.borrow() {
+            panic!("{} already borrowed uniquely", type_name::<T>());
+        }
         Some(unsafe {
-            NonNull::new_unchecked((*self.data.get()).as_ptr().add(offset).cast::<T>() as *mut T)
+            NonNull::new_unchecked(
+                (*self.data.get()).as_ptr().add(state.offset).cast::<T>() as *mut T
+            )
         })
+    }
+
+    pub(crate) fn borrow_mut<T: Component>(&self) -> Option<NonNull<T>> {
+        let state = self.state.get(&TypeId::of::<T>())?;
+        if !state.borrow.borrow_mut() {
+            panic!("{} already borrowed", type_name::<T>());
+        }
+        Some(unsafe {
+            NonNull::new_unchecked(
+                (*self.data.get()).as_ptr().add(state.offset).cast::<T>() as *mut T
+            )
+        })
+    }
+
+    pub(crate) fn release<T: Component>(&self) {
+        if let Some(x) = self.state.get(&TypeId::of::<T>()) {
+            x.borrow.release();
+        }
+    }
+
+    pub(crate) fn release_mut<T: Component>(&self) {
+        if let Some(x) = self.state.get(&TypeId::of::<T>()) {
+            x.borrow.release_mut();
+        }
     }
 
     pub(crate) fn len(&self) -> usize {
@@ -91,14 +125,6 @@ impl Archetype {
     }
 
     /// `index` must be in-bounds
-    pub(crate) unsafe fn get<T: Component>(&self, index: u32) -> Option<NonNull<T>> {
-        debug_assert!(index < self.len);
-        Some(NonNull::new_unchecked(
-            self.data::<T>()?.as_ptr().add(index as usize),
-        ))
-    }
-
-    /// `index` must be in-bounds
     pub(crate) unsafe fn get_dynamic(
         &self,
         ty: TypeId,
@@ -109,7 +135,7 @@ impl Archetype {
         Some(NonNull::new_unchecked(
             (*self.data.get())
                 .as_ptr()
-                .add(*self.offsets.get(&ty)? + size * index as usize)
+                .add(self.state.get(&ty)?.offset + size * index as usize)
                 .cast::<u8>(),
         ))
     }
@@ -130,10 +156,10 @@ impl Archetype {
         self.entities = new_entities;
 
         let old_data_size = mem::replace(&mut self.data_size, 0);
-        let mut offsets = HashMap::with_capacity_and_hasher(self.types.len(), Default::default());
+        let mut state = HashMap::with_capacity(self.types.len());
         for ty in &self.types {
             self.data_size = align(self.data_size, ty.layout.align());
-            offsets.insert(ty.id, self.data_size);
+            state.insert(ty.id, TypeState::new(self.data_size));
             self.data_size += ty.layout.size() * count;
         }
         let new_data = if self.data_size == 0 {
@@ -150,8 +176,8 @@ impl Archetype {
         };
         if old_data_size != 0 {
             for ty in &self.types {
-                let old_off = *self.offsets.get(&ty.id).unwrap();
-                let new_off = *offsets.get(&ty.id).unwrap();
+                let old_off = self.state.get(&ty.id).unwrap().offset;
+                let new_off = state.get(&ty.id).unwrap().offset;
                 ptr::copy_nonoverlapping(
                     (*self.data.get()).as_ptr().add(old_off),
                     new_data.as_ptr().add(new_off),
@@ -161,7 +187,7 @@ impl Archetype {
         }
 
         self.data = UnsafeCell::new(new_data);
-        self.offsets = offsets;
+        self.state = state;
         self.entities[self.len as usize] = id;
         self.len += 1;
         self.len - 1
@@ -249,6 +275,20 @@ impl Drop for Archetype {
                     ),
                 );
             }
+        }
+    }
+}
+
+struct TypeState {
+    offset: usize,
+    borrow: AtomicBorrow,
+}
+
+impl TypeState {
+    fn new(offset: usize) -> Self {
+        Self {
+            offset,
+            borrow: AtomicBorrow::new(),
         }
     }
 }
