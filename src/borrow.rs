@@ -12,13 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use core::sync::atomic::{AtomicUsize, Ordering};
 use std::any::{type_name, TypeId};
 use std::ops::{Deref, DerefMut};
 use std::ptr::NonNull;
 
 use fxhash::FxHashMap;
-use lock_api::RawRwLock as _;
-use parking_lot::RawRwLock;
 
 use crate::archetype::Archetype;
 use crate::world::Component;
@@ -26,28 +25,24 @@ use crate::world::Component;
 /// Tracks which components of a world are borrowed in what ways
 #[derive(Default)]
 pub struct BorrowState {
-    states: FxHashMap<TypeId, RawRwLock>,
+    states: FxHashMap<TypeId, AtomicBorrow>,
 }
 
 impl BorrowState {
     pub(crate) fn ensure(&mut self, ty: TypeId) {
-        self.states.entry(ty).or_insert(RawRwLock::INIT);
+        self.states.entry(ty).or_insert_with(AtomicBorrow::new);
     }
 
     /// Acquire a shared borrow
     pub fn borrow(&self, ty: TypeId, name: &str) {
-        if self.states.get(&ty).map_or(false, |x| !x.try_lock_shared()) {
+        if self.states.get(&ty).map_or(false, |x| !x.borrow()) {
             panic!("{} already borrowed uniquely", name);
         }
     }
 
     /// Acquire a unique borrow
     pub fn borrow_mut(&self, ty: TypeId, name: &str) {
-        if self
-            .states
-            .get(&ty)
-            .map_or(false, |x| !x.try_lock_exclusive())
-        {
+        if self.states.get(&ty).map_or(false, |x| !x.borrow_mut()) {
             panic!("{} already borrowed", name);
         }
     }
@@ -55,17 +50,56 @@ impl BorrowState {
     /// Release a shared borrow
     pub fn release(&self, ty: TypeId) {
         if let Some(x) = self.states.get(&ty) {
-            x.unlock_shared();
+            x.release();
         }
     }
 
     /// Release a unique borrow
     pub fn release_mut(&self, ty: TypeId) {
         if let Some(x) = self.states.get(&ty) {
-            x.unlock_exclusive();
+            x.release_mut();
         }
     }
 }
+
+struct AtomicBorrow(AtomicUsize);
+
+impl AtomicBorrow {
+    const fn new() -> Self {
+        Self(AtomicUsize::new(0))
+    }
+
+    fn borrow(&self) -> bool {
+        let value = self.0.fetch_add(1, Ordering::Acquire).wrapping_add(1);
+        if value == 0 {
+            // Wrapped, this borrow is invalid!
+            std::process::abort();
+        }
+        if value & UNIQUE_BIT != 0 {
+            self.0.fetch_sub(1, Ordering::Release);
+            false
+        } else {
+            true
+        }
+    }
+
+    fn borrow_mut(&self) -> bool {
+        self.0
+            .compare_exchange(0, UNIQUE_BIT, Ordering::Acquire, Ordering::Relaxed)
+            .is_ok()
+    }
+
+    fn release(&self) {
+        let value = self.0.fetch_sub(1, Ordering::Release);
+        debug_assert!(value & UNIQUE_BIT == 0);
+    }
+
+    fn release_mut(&self) {
+        self.0.store(0, Ordering::Release);
+    }
+}
+
+const UNIQUE_BIT: usize = !(usize::max_value() >> 1);
 
 /// Shared borrow of an entity's component
 #[derive(Clone)]
