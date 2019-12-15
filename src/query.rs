@@ -228,4 +228,4 @@ macro_rules! tuple_impl {
     }
 }
 
-crate::smaller_tuples_too!(tuple_impl, O, N, M, L, K, J, I, H, G, F, E, D, C, B, A);
+smaller_tuples_too!(tuple_impl, O, N, M, L, K, J, I, H, G, F, E, D, C, B, A);

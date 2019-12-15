@@ -38,8 +38,6 @@
 
 #![warn(missing_docs)]
 
-#[doc(hidden)]
-#[macro_export]
 /// Imagine macro parameters, but more like those Russian dolls.
 ///
 /// Calls m!(A, B, C), m!(A, B), m!(B), and m!() for i.e. (m, A, B, C)
