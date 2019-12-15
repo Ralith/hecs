@@ -178,6 +178,12 @@ pub fn derive_query(input: TokenStream) -> TokenStream {
                 )* true
             }
 
+            fn wants_mut(archetype: &Archetype) -> bool {
+                #(
+                    <#tys as Query<#lifetime>>::Fetch::wants_mut(archetype) &&
+                )* true
+            }
+
             fn get(archetype: & #lifetime Archetype) -> Option<Self> {
                 Some(Self {
                     #(
