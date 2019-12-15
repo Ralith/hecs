@@ -172,12 +172,24 @@ pub fn derive_query(input: TokenStream) -> TokenStream {
         impl #impl_generics ::hecs::Fetch<#lifetime> for #fetch #ty_generics #where_clause {
             type Item = #ident #ty_generics;
 
+            fn wants(archetype: &Archetype) -> bool {
+                #(
+                    <#tys as Query<#lifetime>>::Fetch::wants(archetype) &&
+                )* true
+            }
+
             fn get(archetype: & #lifetime Archetype) -> Option<Self> {
                 Some(Self {
                     #(
                         #fields: <#tys as Query<#lifetime>>::Fetch::get(archetype)?,
                     )*
                 })
+            }
+
+            fn release(archetype: &Archetype) {
+                #(
+                    <#tys as Query<#lifetime>>::Fetch::release(archetype);
+                )*
             }
 
             unsafe fn next(&mut self) -> Self::Item {
@@ -191,18 +203,6 @@ pub fn derive_query(input: TokenStream) -> TokenStream {
 
         impl #impl_generics ::hecs::Query<#lifetime> for #ident #ty_generics #where_clause {
             type Fetch = #fetch #ty_generics;
-
-            fn borrow(state: &BorrowState) {
-                #(
-                    <#tys as Query>::borrow(state);
-                )*
-            }
-
-            fn release(state: &BorrowState) {
-                #(
-                    <#tys as Query>::release(state);
-                )*
-            }
         }
     };
     TokenStream::from(code)
