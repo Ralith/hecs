@@ -37,6 +37,12 @@
 //! ```
 
 #![warn(missing_docs)]
+#![no_std]
+
+#[cfg(feature = "std")]
+extern crate std;
+
+extern crate alloc;
 
 /// Imagine macro parameters, but more like those Russian dolls.
 ///

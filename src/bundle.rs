@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::alloc::{vec::Vec, vec};
 use core::any::{type_name, TypeId};
 use core::ptr::NonNull;
 use core::{fmt, mem};
@@ -63,7 +64,8 @@ impl fmt::Display for MissingComponent {
     }
 }
 
-impl core::error::Error for MissingComponent {}
+#[cfg(feature = "std")]
+impl std::error::Error for MissingComponent {}
 
 macro_rules! tuple_impl {
     ($($name: ident),*) => {

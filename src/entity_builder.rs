@@ -12,7 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use core::alloc::{alloc, dealloc, Layout};
+use crate::alloc::{vec::Vec, vec};
+use crate::alloc::boxed::Box;
+use crate::alloc::alloc::{Layout, alloc, dealloc};
 use core::any::TypeId;
 use core::mem::{self, MaybeUninit};
 use core::ptr;

@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::alloc::vec::Vec;
 use core::any::TypeId;
 use core::{fmt, ptr};
 
@@ -384,7 +385,7 @@ pub enum ComponentError {
 }
 
 #[cfg(feature = "std")]
-impl std::error::Error for ComponentError {}
+impl Error for ComponentError {}
 
 impl fmt::Display for ComponentError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -418,6 +419,7 @@ impl fmt::Display for NoSuchEntity {
     }
 }
 
+#[cfg(feature = "std")]
 impl Error for NoSuchEntity {}
 
 /// Types that can be components (implemented automatically)

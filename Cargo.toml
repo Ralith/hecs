@@ -17,9 +17,10 @@ all-features = true
 maintenance = { status = "actively-developed" }
 
 [features]
+default = ["std"]
+std = []
 # Enables derive(Bundle) and derive(Query)
 macros = ["hecs-macros", "once_cell"]
-std = []
 
 [dependencies]
 hecs-macros = { path = "macros", version = "0.1.0", optional = true }
