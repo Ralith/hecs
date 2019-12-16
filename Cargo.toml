@@ -19,7 +19,7 @@ maintenance = { status = "actively-developed" }
 [features]
 default = ["std"]
 std = []
-# Enables derive(Bundle) and derive(Query)
+# Enables derive(Bundle)
 macros = ["hecs-macros", "lazy_static"]
 
 [dependencies]
