@@ -22,9 +22,7 @@ use std::error::Error;
 use hashbrown::{HashMap, HashSet};
 
 use crate::archetype::Archetype;
-use crate::{
-    Bundle, DynamicBundle, EntityRef, Fetch, MissingComponent, Query, QueryIter, Ref, RefMut,
-};
+use crate::{Bundle, DynamicBundle, EntityRef, MissingComponent, Query, QueryBorrow, Ref, RefMut};
 
 /// An unordered collection of entities, each having any number of distinctly typed components
 ///
@@ -117,14 +115,11 @@ impl World {
     ///
     /// Entities are yielded in arbitrary order.
     ///
-    /// Query types can also be constructed with `#[derive(Query)]` on a struct whose fields all
-    /// have query types.
-    ///
-    /// Iterating a query will panic if it would violate an existing unique reference or construct
-    /// an invalid unique reference. This occurs when two simultaneously-active queries could expose
-    /// the same entity. Simultaneous queries can access the same component type if and only if the
-    /// world contains no entities that have all components required by both queries, assuming no
-    /// other component borrows are outstanding.
+    /// Constructing a query will panic if it would violate an existing unique reference or
+    /// construct an invalid unique reference. This occurs when two simultaneously-active queries
+    /// could expose the same entity. Simultaneous queries can access the same component type if and
+    /// only if the world contains no entities that have all components required by both queries,
+    /// assuming no other component borrows are outstanding.
     ///
     /// # Example
     /// ```
@@ -133,13 +128,16 @@ impl World {
     /// let a = world.spawn((123, true, "abc"));
     /// let b = world.spawn((456, false));
     /// let c = world.spawn((42, "def"));
-    /// let entities = world.query::<(&i32, &bool)>().collect::<Vec<_>>();
+    /// let entities = world.query::<(&i32, &bool)>()
+    ///     .iter()
+    ///     .map(|(e, (&i, &b))| (e, i, b)) // Copy out of the world
+    ///     .collect::<Vec<_>>();
     /// assert_eq!(entities.len(), 2);
-    /// assert!(entities.contains(&(a, (&123, &true))));
-    /// assert!(entities.contains(&(b, (&456, &false))));
+    /// assert!(entities.contains(&(a, 123, true)));
+    /// assert!(entities.contains(&(b, 456, false)));
     /// ```
-    pub fn query<'a, Q: Query<'a>>(&'a self) -> QueryIter<'a, Q> {
-        QueryIter::new(&self.entities.meta, &self.archetypes)
+    pub fn query<Q: Query>(&self) -> QueryBorrow<'_, Q> {
+        QueryBorrow::new(&self.entities.meta, &self.archetypes)
     }
 
     /// Borrow the `T` component of `entity`
@@ -356,23 +354,23 @@ impl World {
         self.remove::<(T,)>(entity).map(|(x,)| x)
     }
 
-    /// Determine which collections of entities will be borrowed by `Q`
-    ///
-    /// The identifiers returned by this are invalidated when any entity or component is added or
-    /// removed.
-    pub fn query_scope<'a, Q: Query<'a>>(&self) -> impl Iterator<Item = u32> + '_ {
-        (0..self.archetypes.len() as u32)
-            .filter(move |&i| Q::Fetch::wants(&self.archetypes[i as usize]))
-    }
+    // /// Determine which collections of entities will be borrowed by `Q`
+    // ///
+    // /// The identifiers returned by this are invalidated when any entity or component is added or
+    // /// removed.
+    // pub fn query_scope<'a, Q: Query<'a>>(&self) -> impl Iterator<Item = u32> + '_ {
+    //     (0..self.archetypes.len() as u32)
+    //         .filter(move |&i| Q::Fetch::wants(&self.archetypes[i as usize]))
+    // }
 
-    /// Determine which collections of entities will be uniquely borrowed by `Q`
-    ///
-    /// The identifiers returned by this are invalidated when any entity or component is added or
-    /// removed.
-    pub fn query_scope_mut<'a, Q: Query<'a>>(&self) -> impl Iterator<Item = u32> + '_ {
-        (0..self.archetypes.len() as u32)
-            .filter(move |&i| Q::Fetch::wants_mut(&self.archetypes[i as usize]))
-    }
+    // /// Determine which collections of entities will be uniquely borrowed by `Q`
+    // ///
+    // /// The identifiers returned by this are invalidated when any entity or component is added or
+    // /// removed.
+    // pub fn query_scope_mut<'a, Q: Query<'a>>(&self) -> impl Iterator<Item = u32> + '_ {
+    //     (0..self.archetypes.len() as u32)
+    //         .filter(move |&i| Q::Fetch::wants_mut(&self.archetypes[i as usize]))
+    // }
 }
 
 unsafe impl Sync for World {}

@@ -29,7 +29,7 @@
 //! let mut world = World::new();
 //! let a = world.spawn((123, true, "abc"));
 //! let b = world.spawn((42, false));
-//! for (id, (number, &flag)) in world.query::<(&mut i32, &bool)>() {
+//! for (id, (number, &flag)) in &mut world.query::<(&mut i32, &bool)>() {
 //!   if flag { *number *= 2; }
 //! }
 //! assert_eq!(*world.get::<i32>(a).unwrap(), 246);
@@ -69,7 +69,7 @@ mod world;
 pub use borrow::{EntityRef, Ref, RefMut};
 pub use bundle::{Bundle, DynamicBundle, MissingComponent};
 pub use entity_builder::{BuiltEntity, EntityBuilder};
-pub use query::{Query, QueryIter};
+pub use query::{Query, QueryBorrow, QueryIter};
 pub use world::{Component, ComponentError, Entity, Iter, NoSuchEntity, World};
 
 // Unstable implementation details needed by the macros
@@ -82,4 +82,4 @@ pub use lazy_static;
 pub use query::Fetch;
 
 #[cfg(feature = "macros")]
-pub use hecs_macros::{Bundle, Query};
+pub use hecs_macros::Bundle;

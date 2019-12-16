@@ -48,7 +48,8 @@ impl AtomicBorrow {
 
     pub fn release(&self) {
         let value = self.0.fetch_sub(1, Ordering::Release);
-        debug_assert!(value & UNIQUE_BIT == 0);
+        debug_assert!(value != 0, "unbalanced release");
+        debug_assert!(value & UNIQUE_BIT == 0, "shared release of unique borrow");
     }
 
     pub fn release_mut(&self) {
@@ -70,16 +71,15 @@ impl<'a, T: Component> Ref<'a, T> {
         archetype: &'a Archetype,
         index: u32,
     ) -> Result<Self, MissingComponent> {
-        Ok(Self {
-            archetype,
-            target: NonNull::new_unchecked(
-                archetype
-                    .borrow::<T>()
-                    .ok_or_else(MissingComponent::new::<T>)?
-                    .as_ptr()
-                    .add(index as usize),
-            ),
-        })
+        let target = NonNull::new_unchecked(
+            archetype
+                .get::<T>()
+                .ok_or_else(MissingComponent::new::<T>)?
+                .as_ptr()
+                .add(index as usize),
+        );
+        archetype.borrow::<T>();
+        Ok(Self { archetype, target })
     }
 }
 
@@ -107,16 +107,15 @@ impl<'a, T: Component> RefMut<'a, T> {
         archetype: &'a Archetype,
         index: u32,
     ) -> Result<Self, MissingComponent> {
-        Ok(Self {
-            archetype,
-            target: NonNull::new_unchecked(
-                archetype
-                    .borrow_mut::<T>()
-                    .ok_or_else(MissingComponent::new::<T>)?
-                    .as_ptr()
-                    .add(index as usize),
-            ),
-        })
+        let target = NonNull::new_unchecked(
+            archetype
+                .get::<T>()
+                .ok_or_else(MissingComponent::new::<T>)?
+                .as_ptr()
+                .add(index as usize),
+        );
+        archetype.borrow_mut::<T>();
+        Ok(Self { archetype, target })
     }
 }
 

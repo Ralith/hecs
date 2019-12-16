@@ -15,7 +15,7 @@
 use crate::alloc::alloc::{alloc, dealloc, Layout};
 use crate::alloc::boxed::Box;
 use crate::alloc::{vec, vec::Vec};
-use core::any::{TypeId, type_name};
+use core::any::{type_name, TypeId};
 use core::cell::UnsafeCell;
 use core::mem;
 use core::ptr::{self, NonNull};
@@ -72,11 +72,8 @@ impl Archetype {
         self.state.contains_key(&TypeId::of::<T>())
     }
 
-    pub(crate) fn borrow<T: Component>(&self) -> Option<NonNull<T>> {
+    pub(crate) fn get<T: Component>(&self) -> Option<NonNull<T>> {
         let state = self.state.get(&TypeId::of::<T>())?;
-        if !state.borrow.borrow() {
-            panic!("{} already borrowed uniquely", type_name::<T>());
-        }
         Some(unsafe {
             NonNull::new_unchecked(
                 (*self.data.get()).as_ptr().add(state.offset).cast::<T>() as *mut T
@@ -84,16 +81,24 @@ impl Archetype {
         })
     }
 
-    pub(crate) fn borrow_mut<T: Component>(&self) -> Option<NonNull<T>> {
-        let state = self.state.get(&TypeId::of::<T>())?;
-        if !state.borrow.borrow_mut() {
+    pub(crate) fn borrow<T: Component>(&self) {
+        if self
+            .state
+            .get(&TypeId::of::<T>())
+            .map_or(false, |x| !x.borrow.borrow())
+        {
+            panic!("{} already borrowed uniquely", type_name::<T>());
+        }
+    }
+
+    pub(crate) fn borrow_mut<T: Component>(&self) {
+        if self
+            .state
+            .get(&TypeId::of::<T>())
+            .map_or(false, |x| !x.borrow.borrow_mut())
+        {
             panic!("{} already borrowed", type_name::<T>());
         }
-        Some(unsafe {
-            NonNull::new_unchecked(
-                (*self.data.get()).as_ptr().add(state.offset).cast::<T>() as *mut T
-            )
-        })
     }
 
     pub(crate) fn release<T: Component>(&self) {

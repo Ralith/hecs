@@ -20,9 +20,9 @@ use crate::world::EntityMeta;
 use crate::{Component, Entity};
 
 /// A collection of component types to fetch from a `World`
-pub trait Query<'a>: Sized {
-    /// Helper used to process the query
-    type Fetch: Fetch<'a, Item = Self>;
+pub trait Query {
+    #[doc(hidden)]
+    type Fetch: for<'a> Fetch<'a>;
 }
 
 /// Streaming iterators over contiguous homogeneous ranges of components
@@ -33,15 +33,17 @@ pub trait Fetch<'a>: Sized {
     fn wants(archetype: &Archetype) -> bool;
     /// Whether `get` will uniquely borrow from `archetype`. Implies `wants`.
     fn wants_mut(archetype: &Archetype) -> bool;
+    /// Acquire dynamic borrows from `archetype`
+    fn borrow(archetype: &Archetype);
     /// Construct a `Fetch` for `archetype` if it should be traversed
     fn get(archetype: &'a Archetype) -> Option<Self>;
-    /// Release dynamic borrows acquired by `get`
+    /// Release dynamic borrows acquired by `borrow`
     fn release(archetype: &Archetype);
     /// Access the next item in this archetype without bounds checking
     unsafe fn next(&mut self) -> Self::Item;
 }
 
-impl<'a, T: Component> Query<'a> for &'a T {
+impl<'a, T: Component> Query for &'a T {
     type Fetch = FetchRead<T>;
 }
 
@@ -56,8 +58,11 @@ impl<'a, T: Component> Fetch<'a> for FetchRead<T> {
     fn wants_mut(_: &Archetype) -> bool {
         false
     }
+    fn borrow(archetype: &Archetype) {
+        archetype.borrow::<T>();
+    }
     fn get(archetype: &'a Archetype) -> Option<Self> {
-        archetype.borrow::<T>().map(Self)
+        archetype.get::<T>().map(Self)
     }
     fn release(archetype: &Archetype) {
         archetype.release::<T>();
@@ -69,7 +74,7 @@ impl<'a, T: Component> Fetch<'a> for FetchRead<T> {
     }
 }
 
-impl<'a, T: Component> Query<'a> for &'a mut T {
+impl<'a, T: Component> Query for &'a mut T {
     type Fetch = FetchWrite<T>;
 }
 
@@ -84,8 +89,11 @@ impl<'a, T: Component> Fetch<'a> for FetchWrite<T> {
     fn wants_mut(archetype: &Archetype) -> bool {
         archetype.has::<T>()
     }
+    fn borrow(archetype: &Archetype) {
+        archetype.borrow_mut::<T>();
+    }
     fn get(archetype: &'a Archetype) -> Option<Self> {
-        archetype.borrow_mut::<T>().map(Self)
+        archetype.get::<T>().map(Self)
     }
     fn release(archetype: &Archetype) {
         archetype.release_mut::<T>();
@@ -97,7 +105,7 @@ impl<'a, T: Component> Fetch<'a> for FetchWrite<T> {
     }
 }
 
-impl<'a, T: Query<'a>> Query<'a> for Option<T> {
+impl<T: Query> Query for Option<T> {
     type Fetch = TryFetch<T::Fetch>;
 }
 
@@ -112,6 +120,9 @@ impl<'a, T: Fetch<'a>> Fetch<'a> for TryFetch<T> {
     fn wants_mut(archetype: &Archetype) -> bool {
         T::wants_mut(archetype)
     }
+    fn borrow(archetype: &Archetype) {
+        T::borrow(archetype)
+    }
     fn get(archetype: &'a Archetype) -> Option<Self> {
         Some(Self(T::get(archetype)))
     }
@@ -123,84 +134,100 @@ impl<'a, T: Fetch<'a>> Fetch<'a> for TryFetch<T> {
     }
 }
 
-/// Iterator over the set of entities with the components in `Q`
-pub struct QueryIter<'a, Q: Query<'a>> {
-    meta: &'a [EntityMeta],
-    archetypes: core::slice::Iter<'a, Archetype>,
-    iter: Option<ChunkIter<'a, Q::Fetch>>,
+/// A borrow of a `World` sufficient to execute the query `Q`
+pub struct QueryBorrow<'w, Q: Query> {
+    meta: &'w [EntityMeta],
+    archetypes: &'w [Archetype],
+    _marker: PhantomData<Q>,
 }
 
-impl<'a, Q: Query<'a>> QueryIter<'a, Q> {
-    pub(crate) fn new(meta: &'a [EntityMeta], archetypes: &'a [Archetype]) -> Self {
+impl<'w, Q: Query> QueryBorrow<'w, Q> {
+    pub(crate) fn new(meta: &'w [EntityMeta], archetypes: &'w [Archetype]) -> Self {
+        for x in archetypes {
+            // TODO: Release prior borrows on failure?
+            Q::Fetch::borrow(x);
+        }
         Self {
             meta,
-            archetypes: archetypes.iter(),
+            archetypes,
+            _marker: PhantomData,
+        }
+    }
+
+    /// Execute the query
+    pub fn iter<'q>(&'q mut self) -> QueryIter<'q, 'w, Q> {
+        QueryIter {
+            borrow: self,
+            archetype_index: 0,
             iter: None,
         }
     }
 }
 
-impl<'a, Q: Query<'a>> Iterator for QueryIter<'a, Q> {
-    type Item = (Entity, Q);
-    #[inline]
+impl<'w, Q: Query> Drop for QueryBorrow<'w, Q> {
+    fn drop(&mut self) {
+        for x in self.archetypes {
+            Q::Fetch::release(x);
+        }
+    }
+}
+
+impl<'q, 'w, Q: Query> IntoIterator for &'q mut QueryBorrow<'w, Q> {
+    type Item = (Entity, <Q::Fetch as Fetch<'q>>::Item);
+    type IntoIter = QueryIter<'q, 'w, Q>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
+struct ChunkIter<Q: Query> {
+    entities: NonNull<u32>,
+    fetch: Q::Fetch,
+    len: usize,
+}
+
+/// Iterator over the set of entities with the components in `Q`
+pub struct QueryIter<'q, 'w, Q: Query> {
+    borrow: &'q mut QueryBorrow<'w, Q>,
+    archetype_index: u32,
+    iter: Option<ChunkIter<Q>>,
+}
+
+impl<'q, 'w, Q: Query> Iterator for QueryIter<'q, 'w, Q> {
+    type Item = (Entity, <Q::Fetch as Fetch<'q>>::Item);
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             match self.iter {
                 None => {
-                    let archetype = self.archetypes.next()?;
+                    let archetype = self.borrow.archetypes.get(self.archetype_index as usize)?;
+                    self.archetype_index += 1;
                     self.iter = Q::Fetch::get(archetype).map(|fetch| ChunkIter {
-                        archetype,
                         entities: archetype.entities(),
                         fetch,
                         len: archetype.len(),
-                        _marker: PhantomData,
                     });
                 }
-                Some(ref mut iter) => match iter.next() {
-                    None => {
+                Some(ref mut iter) => {
+                    if iter.len == 0 {
                         self.iter = None;
+                        continue;
                     }
-                    Some((id, item)) => {
+                    iter.len -= 1;
+                    let entity = iter.entities.as_ptr();
+                    unsafe {
+                        iter.entities = NonNull::new_unchecked(entity.add(1));
                         return Some((
                             Entity {
-                                id,
-                                generation: self.meta[id as usize].generation,
+                                id: *entity,
+                                generation: self.borrow.meta[*entity as usize].generation,
                             },
-                            item,
+                            iter.fetch.next(),
                         ));
                     }
-                },
+                }
             }
         }
-    }
-}
-
-struct ChunkIter<'a, T: Fetch<'a>> {
-    archetype: &'a Archetype,
-    entities: NonNull<u32>,
-    fetch: T,
-    len: usize,
-    _marker: PhantomData<&'a ()>,
-}
-
-impl<'a, T: Fetch<'a>> Iterator for ChunkIter<'a, T> {
-    type Item = (u32, T::Item);
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.len == 0 {
-            return None;
-        }
-        self.len -= 1;
-        let entity = self.entities.as_ptr();
-        unsafe {
-            self.entities = NonNull::new_unchecked(entity.add(1));
-            Some((*entity, self.fetch.next()))
-        }
-    }
-}
-
-impl<'a, T: Fetch<'a>> Drop for ChunkIter<'a, T> {
-    fn drop(&mut self) {
-        T::release(self.archetype);
     }
 }
 
@@ -217,6 +244,10 @@ macro_rules! tuple_impl {
                 $($name::wants_mut(archetype) &&)* true
             }
             #[allow(unused_variables)]
+            fn borrow(archetype: &Archetype) {
+                $($name::borrow(archetype);)*
+            }
+            #[allow(unused_variables)]
             fn get(archetype: &'a Archetype) -> Option<Self> {
                 Some(($($name::get(archetype)?,)*))
             }
@@ -231,11 +262,11 @@ macro_rules! tuple_impl {
             }
         }
 
-        #[allow(unused_variables)]
-        impl<'a, $($name: Query<'a>),*> Query<'a> for ($($name,)*) {
+        impl<$($name: Query),*> Query for ($($name,)*) {
             type Fetch = ($($name::Fetch,)*);
         }
-    }
+    };
 }
 
+//smaller_tuples_too!(tuple_impl, B, A);
 smaller_tuples_too!(tuple_impl, O, N, M, L, K, J, I, H, G, F, E, D, C, B, A);
