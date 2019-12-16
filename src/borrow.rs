@@ -17,7 +17,7 @@ use std::any::{type_name, TypeId};
 use std::ops::{Deref, DerefMut};
 use std::ptr::NonNull;
 
-use fxhash::FxHashMap;
+use hashbrown::HashMap;
 
 use crate::archetype::Archetype;
 use crate::world::Component;
@@ -25,7 +25,7 @@ use crate::world::Component;
 /// Tracks which components of a world are borrowed in what ways
 #[derive(Default)]
 pub struct BorrowState {
-    states: FxHashMap<TypeId, AtomicBorrow>,
+    states: HashMap<TypeId, AtomicBorrow>,
 }
 
 impl BorrowState {
