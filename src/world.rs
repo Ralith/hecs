@@ -22,7 +22,9 @@ use std::error::Error;
 use hashbrown::{HashMap, HashSet};
 
 use crate::archetype::Archetype;
-use crate::{Bundle, DynamicBundle, EntityRef, MissingComponent, Query, QueryBorrow, Ref, RefMut};
+use crate::{
+    Bundle, DynamicBundle, EntityRef, Fetch, MissingComponent, Query, QueryBorrow, Ref, RefMut,
+};
 
 /// An unordered collection of entities, each having any number of distinctly typed components
 ///
@@ -367,6 +369,14 @@ impl World {
     /// See `remove`.
     pub fn remove_one<T: Component>(&mut self, entity: Entity) -> Result<T, ComponentError> {
         self.remove::<(T,)>(entity).map(|(x,)| x)
+    }
+
+    /// Determine which collections of entities will be borrowed by `Q`
+    ///
+    /// The returned identifiers are invalidated when any entity or component is added or removed.
+    pub fn query_scope<Q: Query>(&self) -> impl Iterator<Item = u32> + '_ {
+        (0..self.archetypes.len() as u32)
+            .filter(move |&i| Q::Fetch::wants(&self.archetypes[i as usize]))
     }
 }
 

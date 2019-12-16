@@ -30,7 +30,7 @@ pub trait Fetch<'a>: Sized {
     /// Type of value to be fetched
     type Item;
 
-    /// Whether `get` will borrow from `archetype`
+    /// Whether `get` will succeed on `archetype`
     fn wants(archetype: &Archetype) -> bool;
 
     /// Acquire dynamic borrows from `archetype`
