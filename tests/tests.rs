@@ -181,6 +181,16 @@ fn illegal_borrow_2() {
 }
 
 #[test]
+fn disjoint_queries() {
+    let mut world = World::new();
+    world.spawn(("abc", true));
+    world.spawn(("def", 456));
+
+    let _a = world.query::<(&mut &str, &bool)>();
+    let _b = world.query::<(&mut &str, &i32)>();
+}
+
+#[test]
 fn shared_borrow() {
     let mut world = World::new();
     world.spawn(("abc", 123));
