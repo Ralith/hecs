@@ -25,7 +25,7 @@ macros = ["hecs-macros", "lazy_static"]
 [dependencies]
 hecs-macros = { path = "macros", version = "0.1.0", optional = true }
 hashbrown = "0.6.3"
-lazy_static = { version = "1.4.0", optional = true, features = ["spin-no-std"] }
+lazy_static = { version = "1.4.0", optional = true, features = ["spin_no_std"] }
 
 [dev-dependencies]
 bencher = "0.1.5"
