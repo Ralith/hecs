@@ -12,11 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::alloc::{alloc, dealloc, Layout};
-use std::any::TypeId;
-use std::cell::UnsafeCell;
-use std::mem;
-use std::ptr::{self, NonNull};
+use crate::alloc::alloc::{alloc, dealloc, Layout};
+use crate::alloc::boxed::Box;
+use crate::alloc::{vec, vec::Vec};
+use core::any::TypeId;
+use core::cell::UnsafeCell;
+use core::mem;
+use core::ptr::{self, NonNull};
 
 use hashbrown::HashMap;
 
@@ -287,14 +289,14 @@ impl TypeInfo {
 }
 
 impl PartialOrd for TypeInfo {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
         Some(self.cmp(other))
     }
 }
 
 impl Ord for TypeInfo {
     /// Order by alignment, descending. Ties broken with TypeId.
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
         self.layout
             .align()
             .cmp(&other.layout.align())

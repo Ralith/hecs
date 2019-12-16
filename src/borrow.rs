@@ -12,10 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use core::any::{type_name, TypeId};
+use core::ops::{Deref, DerefMut};
+use core::ptr::NonNull;
 use core::sync::atomic::{AtomicUsize, Ordering};
-use std::any::{type_name, TypeId};
-use std::ops::{Deref, DerefMut};
-use std::ptr::NonNull;
 
 use hashbrown::HashMap;
 
@@ -73,7 +73,7 @@ impl AtomicBorrow {
         let value = self.0.fetch_add(1, Ordering::Acquire).wrapping_add(1);
         if value == 0 {
             // Wrapped, this borrow is invalid!
-            std::process::abort();
+            core::panic!()
         }
         if value & UNIQUE_BIT != 0 {
             self.0.fetch_sub(1, Ordering::Release);

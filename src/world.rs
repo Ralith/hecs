@@ -12,9 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::any::TypeId;
+use crate::alloc::vec::Vec;
+use core::any::TypeId;
+use core::{fmt, ptr};
+
+#[cfg(feature = "std")]
 use std::error::Error;
-use std::{fmt, ptr};
 
 use hashbrown::{HashMap, HashSet};
 
@@ -381,7 +384,8 @@ pub enum ComponentError {
     MissingComponent(MissingComponent),
 }
 
-impl std::error::Error for ComponentError {}
+#[cfg(feature = "std")]
+impl Error for ComponentError {}
 
 impl fmt::Display for ComponentError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -415,6 +419,7 @@ impl fmt::Display for NoSuchEntity {
     }
 }
 
+#[cfg(feature = "std")]
 impl Error for NoSuchEntity {}
 
 /// Types that can be components (implemented automatically)
@@ -439,7 +444,7 @@ impl fmt::Debug for Entity {
 /// Iterator over all of a world's entities
 pub struct Iter<'a> {
     borrows: &'a BorrowState,
-    archetypes: std::slice::Iter<'a, Archetype>,
+    archetypes: core::slice::Iter<'a, Archetype>,
     entities: &'a [EntityMeta],
     current: Option<&'a Archetype>,
     index: u32,
@@ -506,7 +511,7 @@ impl<A: DynamicBundle> Extend<A> for World {
     }
 }
 
-impl<A: DynamicBundle> std::iter::FromIterator<A> for World {
+impl<A: DynamicBundle> core::iter::FromIterator<A> for World {
     fn from_iter<I: IntoIterator<Item = A>>(iter: I) -> Self {
         let mut world = World::new();
         world.extend(iter);

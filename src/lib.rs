@@ -37,6 +37,12 @@
 //! ```
 
 #![warn(missing_docs)]
+#![no_std]
+
+#[cfg(feature = "std")]
+extern crate std;
+
+extern crate alloc;
 
 /// Imagine macro parameters, but more like those Russian dolls.
 ///
@@ -73,7 +79,7 @@ pub use archetype::{Archetype, TypeInfo};
 pub use borrow::BorrowState;
 #[cfg(feature = "macros")]
 #[doc(hidden)]
-pub use once_cell;
+pub use lazy_static;
 #[doc(hidden)]
 pub use query::Fetch;
 

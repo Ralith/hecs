@@ -69,24 +69,24 @@ pub fn derive_bundle(input: TokenStream) -> TokenStream {
                 use std::any::TypeId;
                 use std::mem;
 
-                use ::hecs::once_cell::sync::Lazy;
-
-                static ELEMENTS: Lazy<[TypeId; #n]> = Lazy::new(|| {
-                    let mut dedup = std::collections::HashSet::new();
-                    for &(ty, name) in [#((std::any::TypeId::of::<#tys>(), std::any::type_name::<#tys>())),*].iter() {
-                        if !dedup.insert(ty) {
-                            panic!("{} has multiple {} fields; each type must occur at most once!", stringify!(#ident), name);
+                ::hecs::lazy_static::lazy_static! {
+                    static ref ELEMENTS: [TypeId; #n] = {
+                        let mut dedup = std::collections::HashSet::new();
+                        for &(ty, name) in [#((std::any::TypeId::of::<#tys>(), std::any::type_name::<#tys>())),*].iter() {
+                            if !dedup.insert(ty) {
+                                panic!("{} has multiple {} fields; each type must occur at most once!", stringify!(#ident), name);
+                            }
                         }
-                    }
 
-                    let mut tys = [#((mem::align_of::<#tys>(), TypeId::of::<#tys>())),*];
-                    tys.sort_unstable_by(|x, y| x.0.cmp(&y.0).reverse().then(x.1.cmp(&y.1)));
-                    let mut ids = [TypeId::of::<()>(); #n];
-                    for (id, info) in ids.iter_mut().zip(tys.iter()) {
-                        *id = info.1;
-                    }
-                    ids
-                });
+                        let mut tys = [#((mem::align_of::<#tys>(), TypeId::of::<#tys>())),*];
+                        tys.sort_unstable_by(|x, y| x.0.cmp(&y.0).reverse().then(x.1.cmp(&y.1)));
+                        let mut ids = [TypeId::of::<()>(); #n];
+                        for (id, info) in ids.iter_mut().zip(tys.iter()) {
+                            *id = info.1;
+                        }
+                        ids
+                    };
+                }
 
                 f(&*ELEMENTS)
             }
