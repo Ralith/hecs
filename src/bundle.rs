@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::alloc::{vec::Vec, vec};
+use crate::alloc::{vec, vec::Vec};
 use core::any::{type_name, TypeId};
 use core::ptr::NonNull;
 use core::{fmt, mem};
