@@ -29,16 +29,17 @@ pub trait Query {
 pub trait Fetch<'a>: Sized {
     /// Type of value to be fetched
     type Item;
+
     /// Whether `get` will borrow from `archetype`
     fn wants(archetype: &Archetype) -> bool;
-    /// Whether `get` will uniquely borrow from `archetype`. Implies `wants`.
-    fn wants_mut(archetype: &Archetype) -> bool;
+
     /// Acquire dynamic borrows from `archetype`
     fn borrow(archetype: &Archetype);
     /// Construct a `Fetch` for `archetype` if it should be traversed
     fn get(archetype: &'a Archetype) -> Option<Self>;
     /// Release dynamic borrows acquired by `borrow`
     fn release(archetype: &Archetype);
+
     /// Access the next item in this archetype without bounds checking
     unsafe fn next(&mut self) -> Self::Item;
 }
@@ -55,9 +56,7 @@ impl<'a, T: Component> Fetch<'a> for FetchRead<T> {
     fn wants(archetype: &Archetype) -> bool {
         archetype.has::<T>()
     }
-    fn wants_mut(_: &Archetype) -> bool {
-        false
-    }
+
     fn borrow(archetype: &Archetype) {
         archetype.borrow::<T>();
     }
@@ -67,6 +66,7 @@ impl<'a, T: Component> Fetch<'a> for FetchRead<T> {
     fn release(archetype: &Archetype) {
         archetype.release::<T>();
     }
+
     unsafe fn next(&mut self) -> &'a T {
         let x = self.0.as_ptr();
         self.0 = NonNull::new_unchecked(x.add(1));
@@ -86,9 +86,7 @@ impl<'a, T: Component> Fetch<'a> for FetchWrite<T> {
     fn wants(archetype: &Archetype) -> bool {
         archetype.has::<T>()
     }
-    fn wants_mut(archetype: &Archetype) -> bool {
-        archetype.has::<T>()
-    }
+
     fn borrow(archetype: &Archetype) {
         archetype.borrow_mut::<T>();
     }
@@ -98,6 +96,7 @@ impl<'a, T: Component> Fetch<'a> for FetchWrite<T> {
     fn release(archetype: &Archetype) {
         archetype.release_mut::<T>();
     }
+
     unsafe fn next(&mut self) -> &'a mut T {
         let x = self.0.as_ptr();
         self.0 = NonNull::new_unchecked(x.add(1));
@@ -114,12 +113,10 @@ pub struct TryFetch<T>(Option<T>);
 
 impl<'a, T: Fetch<'a>> Fetch<'a> for TryFetch<T> {
     type Item = Option<T::Item>;
-    fn wants(archetype: &Archetype) -> bool {
-        T::wants(archetype)
+    fn wants(_: &Archetype) -> bool {
+        true
     }
-    fn wants_mut(archetype: &Archetype) -> bool {
-        T::wants_mut(archetype)
-    }
+
     fn borrow(archetype: &Archetype) {
         T::borrow(archetype)
     }
@@ -129,6 +126,7 @@ impl<'a, T: Fetch<'a>> Fetch<'a> for TryFetch<T> {
     fn release(archetype: &Archetype) {
         T::release(archetype)
     }
+
     unsafe fn next(&mut self) -> Option<T::Item> {
         Some(self.0.as_mut()?.next())
     }
@@ -145,7 +143,9 @@ impl<'w, Q: Query> QueryBorrow<'w, Q> {
     pub(crate) fn new(meta: &'w [EntityMeta], archetypes: &'w [Archetype]) -> Self {
         for x in archetypes {
             // TODO: Release prior borrows on failure?
-            Q::Fetch::borrow(x);
+            if Q::Fetch::wants(x) {
+                Q::Fetch::borrow(x);
+            }
         }
         Self {
             meta,
@@ -167,7 +167,9 @@ impl<'w, Q: Query> QueryBorrow<'w, Q> {
 impl<'w, Q: Query> Drop for QueryBorrow<'w, Q> {
     fn drop(&mut self) {
         for x in self.archetypes {
-            Q::Fetch::release(x);
+            if Q::Fetch::wants(x) {
+                Q::Fetch::release(x);
+            }
         }
     }
 }
@@ -239,10 +241,7 @@ macro_rules! tuple_impl {
             fn wants(archetype: &Archetype) -> bool {
                 $($name::wants(archetype) &&)* true
             }
-            #[allow(unused_variables)]
-            fn wants_mut(archetype: &Archetype) -> bool {
-                $($name::wants_mut(archetype) &&)* true
-            }
+
             #[allow(unused_variables)]
             fn borrow(archetype: &Archetype) {
                 $($name::borrow(archetype);)*
@@ -255,6 +254,7 @@ macro_rules! tuple_impl {
             fn release(archetype: &Archetype) {
                 $($name::release(archetype);)*
             }
+
             unsafe fn next(&mut self) -> Self::Item {
                 #[allow(non_snake_case)]
                 let ($($name,)*) = self;

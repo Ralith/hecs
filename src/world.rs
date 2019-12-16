@@ -353,24 +353,6 @@ impl World {
     pub fn remove_one<T: Component>(&mut self, entity: Entity) -> Result<T, ComponentError> {
         self.remove::<(T,)>(entity).map(|(x,)| x)
     }
-
-    // /// Determine which collections of entities will be borrowed by `Q`
-    // ///
-    // /// The identifiers returned by this are invalidated when any entity or component is added or
-    // /// removed.
-    // pub fn query_scope<'a, Q: Query<'a>>(&self) -> impl Iterator<Item = u32> + '_ {
-    //     (0..self.archetypes.len() as u32)
-    //         .filter(move |&i| Q::Fetch::wants(&self.archetypes[i as usize]))
-    // }
-
-    // /// Determine which collections of entities will be uniquely borrowed by `Q`
-    // ///
-    // /// The identifiers returned by this are invalidated when any entity or component is added or
-    // /// removed.
-    // pub fn query_scope_mut<'a, Q: Query<'a>>(&self) -> impl Iterator<Item = u32> + '_ {
-    //     (0..self.archetypes.len() as u32)
-    //         .filter(move |&i| Q::Fetch::wants_mut(&self.archetypes[i as usize]))
-    // }
 }
 
 unsafe impl Sync for World {}
