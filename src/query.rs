@@ -164,6 +164,9 @@ impl<'w, Q: Query> QueryBorrow<'w, Q> {
     }
 }
 
+unsafe impl<'w, Q: Query> Send for QueryBorrow<'w, Q> {}
+unsafe impl<'w, Q: Query> Sync for QueryBorrow<'w, Q> {}
+
 impl<'w, Q: Query> Drop for QueryBorrow<'w, Q> {
     fn drop(&mut self) {
         for x in self.archetypes {
@@ -195,6 +198,9 @@ pub struct QueryIter<'q, 'w, Q: Query> {
     archetype_index: u32,
     iter: Option<ChunkIter<Q>>,
 }
+
+unsafe impl<'q, 'w, Q: Query> Send for QueryIter<'q, 'w, Q> {}
+unsafe impl<'q, 'w, Q: Query> Sync for QueryIter<'q, 'w, Q> {}
 
 impl<'q, 'w, Q: Query> Iterator for QueryIter<'q, 'w, Q> {
     type Item = (Entity, <Q::Fetch as Fetch<'q>>::Item);

@@ -83,6 +83,9 @@ impl<'a, T: Component> Ref<'a, T> {
     }
 }
 
+unsafe impl<T: Component> Send for Ref<'_, T> {}
+unsafe impl<T: Component> Sync for Ref<'_, T> {}
+
 impl<'a, T: Component> Drop for Ref<'a, T> {
     fn drop(&mut self) {
         self.archetype.release::<T>();
@@ -118,6 +121,9 @@ impl<'a, T: Component> RefMut<'a, T> {
         Ok(Self { archetype, target })
     }
 }
+
+unsafe impl<T: Component> Send for RefMut<'_, T> {}
+unsafe impl<T: Component> Sync for RefMut<'_, T> {}
 
 impl<'a, T: Component> Drop for RefMut<'a, T> {
     fn drop(&mut self) {
@@ -165,3 +171,6 @@ impl<'a> EntityRef<'a> {
         Some(unsafe { RefMut::new(self.archetype, self.index).ok()? })
     }
 }
+
+unsafe impl<'a> Send for EntityRef<'a> {}
+unsafe impl<'a> Sync for EntityRef<'a> {}

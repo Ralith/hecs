@@ -355,6 +355,7 @@ impl World {
     }
 }
 
+unsafe impl Send for World {}
 unsafe impl Sync for World {}
 
 impl<'a> IntoIterator for &'a World {
@@ -457,6 +458,9 @@ impl<'a> Iter<'a> {
         }
     }
 }
+
+unsafe impl Send for Iter<'_> {}
+unsafe impl Sync for Iter<'_> {}
 
 impl<'a> Iterator for Iter<'a> {
     type Item = (Entity, EntityRef<'a>);
