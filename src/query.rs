@@ -198,6 +198,7 @@ pub struct QueryIter<'q, 'w, Q: Query> {
 
 impl<'q, 'w, Q: Query> Iterator for QueryIter<'q, 'w, Q> {
     type Item = (Entity, <Q::Fetch as Fetch<'q>>::Item);
+
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             match self.iter {
@@ -230,6 +231,22 @@ impl<'q, 'w, Q: Query> Iterator for QueryIter<'q, 'w, Q> {
                 }
             }
         }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let n = self.len();
+        (n, Some(n))
+    }
+}
+
+impl<'q, 'w, Q: Query> ExactSizeIterator for QueryIter<'q, 'w, Q> {
+    fn len(&self) -> usize {
+        self.borrow
+            .archetypes
+            .iter()
+            .filter(|&x| Q::Fetch::wants(x))
+            .map(|x| x.len())
+            .sum()
     }
 }
 
