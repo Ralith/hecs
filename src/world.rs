@@ -434,6 +434,28 @@ pub struct Entity {
     pub(crate) id: u32,
 }
 
+impl Entity {
+    /// Convert to a form convenient for passing outside of rust
+    ///
+    /// Only useful for identifying entities within the same instance of an application. Do not use
+    /// for serialization between runs.
+    ///
+    /// No particular structure is guaranteed for the returned bits.
+    pub fn to_bits(self) -> u64 {
+        u64::from(self.generation) << 32 | u64::from(self.id)
+    }
+
+    /// Reconstruct an `Entity` previously destructured with `to_bits`
+    ///
+    /// Only useful when applied to results from `to_bits` in the same instance of an application.
+    pub fn from_bits(bits: u64) -> Self {
+        Self {
+            generation: (bits >> 32) as u32,
+            id: bits as u32,
+        }
+    }
+}
+
 impl fmt::Debug for Entity {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}v{}", self.id, self.generation)
@@ -593,5 +615,14 @@ mod tests {
         let b = world.spawn(());
         assert_eq!(a.id, b.id);
         assert_ne!(a.generation, b.generation);
+    }
+
+    #[test]
+    fn entity_bits_roundtrip() {
+        let e = Entity {
+            generation: 0xDEADBEEF,
+            id: 0xBAADF00D,
+        };
+        assert_eq!(Entity::from_bits(e.to_bits()), e);
     }
 }
