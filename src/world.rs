@@ -108,10 +108,11 @@ impl World {
 
     /// Efficiently iterate over all entities that have certain components
     ///
-    /// Yields `(Entity, Q)` tuples, where `Q` is some query type. A query type is `&T`, `&mut T`, a
-    /// tuple of query types, or an `Option` wrapping a query type, where `T` is any component
-    /// type. Components queried with `&mut` must only appear once. Entities which do not have a
-    /// component type referenced outside of an `Option` will be skipped.
+    /// Calling `iter` on the returned value yields `(Entity, Q)` tuples, where `Q` is some query
+    /// type. A query type is `&T`, `&mut T`, a tuple of query types, or an `Option` wrapping a
+    /// query type, where `T` is any component type. Components queried with `&mut` must only appear
+    /// once. Entities which do not have a component type referenced outside of an `Option` will be
+    /// skipped.
     ///
     /// Entities are yielded in arbitrary order.
     ///
@@ -120,6 +121,10 @@ impl World {
     /// could expose the same entity. Simultaneous queries can access the same component type if and
     /// only if the world contains no entities that have all components required by both queries,
     /// assuming no other component borrows are outstanding.
+    ///
+    /// Iterating a query yields references with lifetimes bound to the object returned here. To
+    /// ensure those are invalidated, the return value of this method must be dropped for its
+    /// borrows to be released.
     ///
     /// # Example
     /// ```
