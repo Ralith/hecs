@@ -41,6 +41,11 @@ pub trait Fetch<'a>: Sized {
     fn release(archetype: &Archetype);
 
     /// Access the next item in this archetype without bounds checking
+    ///
+    /// # Safety
+    /// - Must only be called after `borrow`
+    /// - `release` must not be called while `'a` is still live
+    /// - bounds-checking must be performed externally
     unsafe fn next(&mut self) -> Self::Item;
 }
 
