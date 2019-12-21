@@ -167,7 +167,7 @@ fn illegal_borrow() {
     world.spawn(("abc", 123));
     world.spawn(("def", 456));
 
-    world.query::<(&mut i32, &i32)>();
+    world.query::<(&mut i32, &i32)>().iter();
 }
 
 #[test]
@@ -177,7 +177,7 @@ fn illegal_borrow_2() {
     world.spawn(("abc", 123));
     world.spawn(("def", 456));
 
-    world.query::<(&mut i32, &mut i32)>();
+    world.query::<(&mut i32, &mut i32)>().iter();
 }
 
 #[test]

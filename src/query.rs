@@ -176,22 +176,16 @@ impl<'a, F: Fetch<'a>, T: Component> Fetch<'a> for FetchWithout<F, T> {
 pub struct QueryBorrow<'w, Q: Query> {
     meta: &'w [EntityMeta],
     archetypes: &'w [Archetype],
-    executed: bool,
+    borrowed: bool,
     _marker: PhantomData<Q>,
 }
 
 impl<'w, Q: Query> QueryBorrow<'w, Q> {
     pub(crate) fn new(meta: &'w [EntityMeta], archetypes: &'w [Archetype]) -> Self {
-        for x in archetypes {
-            // TODO: Release prior borrows on failure?
-            if Q::Fetch::wants(x) {
-                Q::Fetch::borrow(x);
-            }
-        }
         Self {
             meta,
             archetypes,
-            executed: false,
+            borrowed: false,
             _marker: PhantomData,
         }
     }
@@ -200,12 +194,18 @@ impl<'w, Q: Query> QueryBorrow<'w, Q> {
     ///
     /// Must be called only once per query.
     pub fn iter<'q>(&'q mut self) -> QueryIter<'q, 'w, Q> {
-        if self.executed {
+        if self.borrowed {
             panic!(
                 "called QueryBorrow::iter twice on the same borrow; construct a new query instead"
             );
         }
-        self.executed = true;
+        for x in self.archetypes {
+            // TODO: Release prior borrows on failure?
+            if Q::Fetch::wants(x) {
+                Q::Fetch::borrow(x);
+            }
+        }
+        self.borrowed = true;
         QueryIter {
             borrow: self,
             archetype_index: 0,
@@ -233,7 +233,7 @@ impl<'w, Q: Query> QueryBorrow<'w, Q> {
         let x = QueryBorrow {
             meta: self.meta,
             archetypes: self.archetypes,
-            executed: self.executed,
+            borrowed: self.borrowed,
             _marker: PhantomData,
         };
         // Disarm `Drop`
@@ -247,9 +247,11 @@ unsafe impl<'w, Q: Query> Sync for QueryBorrow<'w, Q> {}
 
 impl<'w, Q: Query> Drop for QueryBorrow<'w, Q> {
     fn drop(&mut self) {
-        for x in self.archetypes {
-            if Q::Fetch::wants(x) {
-                Q::Fetch::release(x);
+        if self.borrowed {
+            for x in self.archetypes {
+                if Q::Fetch::wants(x) {
+                    Q::Fetch::release(x);
+                }
             }
         }
     }
