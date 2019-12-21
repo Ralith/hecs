@@ -170,6 +170,39 @@ impl<'a, F: Fetch<'a>, T: Component> Fetch<'a> for FetchWithout<F, T> {
     }
 }
 
+pub struct With<Q, T>(PhantomData<(Q, fn(T))>);
+
+impl<Q: Query, T: Component> Query for With<Q, T> {
+    type Fetch = FetchWith<Q::Fetch, T>;
+}
+
+#[doc(hidden)]
+pub struct FetchWith<F, T>(F, PhantomData<fn(T)>);
+
+impl<'a, F: Fetch<'a>, T: Component> Fetch<'a> for FetchWith<F, T> {
+    type Item = F::Item;
+    fn wants(archetype: &Archetype) -> bool {
+        archetype.has::<T>()
+    }
+
+    fn borrow(archetype: &Archetype) {
+        F::borrow(archetype)
+    }
+    fn get(archetype: &'a Archetype) -> Option<Self> {
+        if !archetype.has::<T>() {
+            return None;
+        }
+        Some(Self(F::get(archetype)?, PhantomData))
+    }
+    fn release(archetype: &Archetype) {
+        F::release(archetype)
+    }
+
+    unsafe fn next(&mut self) -> F::Item {
+        self.0.next()
+    }
+}
+
 /// A borrow of a `World` sufficient to execute the query `Q`
 ///
 /// Note that borrows are not released until this object is dropped.
@@ -213,6 +246,38 @@ impl<'w, Q: Query> QueryBorrow<'w, Q> {
         }
     }
 
+    /// Transform the query into one that requires a certain component without borrowing it
+    ///
+    /// This can be useful when the component needs to be borrowed elsewhere and it isn't necessary
+    /// for the iterator to expose its data directly.
+    ///
+    /// # Example
+    /// ```
+    /// # use hecs::*;
+    /// let mut world = World::new();
+    /// let a = world.spawn((123, true, "abc"));
+    /// let b = world.spawn((456, false));
+    /// let c = world.spawn((42, "def"));
+    /// let entities = world.query::<&i32>()
+    ///     .with::<bool>()
+    ///     .iter()
+    ///     .map(|(e, &i)| (e, i)) // Copy out of the world
+    ///     .collect::<Vec<_>>();
+    /// assert!(entities.contains(&(a, 123)));
+    /// assert!(entities.contains(&(b, 456)));
+    /// ```
+    pub fn with<T: Component>(mut self) -> QueryBorrow<'w, With<Q, T>> {
+        let x = QueryBorrow {
+            meta: self.meta,
+            archetypes: self.archetypes,
+            borrowed: self.borrowed,
+            _marker: PhantomData,
+        };
+        // Ensure `Drop` won't fire redundantly
+        self.borrowed = false;
+        x
+    }
+
     /// Transform the query into one that skips entities having a certain component
     ///
     /// # Example
@@ -236,8 +301,8 @@ impl<'w, Q: Query> QueryBorrow<'w, Q> {
             borrowed: self.borrowed,
             _marker: PhantomData,
         };
-        // Disarm `Drop`
-        self.archetypes = &[];
+        // Ensure `Drop` won't fire redundantly
+        self.borrowed = false;
         x
     }
 }
