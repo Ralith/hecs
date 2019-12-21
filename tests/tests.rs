@@ -264,6 +264,6 @@ fn alias() {
     world.spawn(("abc", 123));
     world.spawn(("def", 456, true));
     let mut q = world.query::<&mut i32>();
-    let a = q.iter().collect::<Vec<_>>();
-    let b = q.iter().collect::<Vec<_>>();
+    let _a = q.iter().collect::<Vec<_>>();
+    let _b = q.iter().collect::<Vec<_>>();
 }
