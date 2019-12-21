@@ -116,11 +116,11 @@ impl World {
     ///
     /// Entities are yielded in arbitrary order.
     ///
-    /// Constructing a query will panic if it would violate an existing unique reference or
-    /// construct an invalid unique reference. This occurs when two simultaneously-active queries
-    /// could expose the same entity. Simultaneous queries can access the same component type if and
-    /// only if the world contains no entities that have all components required by both queries,
-    /// assuming no other component borrows are outstanding.
+    /// Iterating a query will panic if it would violate an existing unique reference or construct
+    /// an invalid unique reference. This occurs when two simultaneously-active queries could expose
+    /// the same entity. Simultaneous queries can access the same component type if and only if the
+    /// world contains no entities that have all components required by both queries, assuming no
+    /// other component borrows are outstanding.
     ///
     /// Iterating a query yields references with lifetimes bound to the object returned here. To
     /// ensure those are invalidated, the return value of this method must be dropped for its
