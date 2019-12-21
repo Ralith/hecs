@@ -256,3 +256,14 @@ fn clear() {
     world.clear();
     assert_eq!(world.iter().count(), 0);
 }
+
+#[test]
+#[should_panic(expected = "twice on the same borrow")]
+fn alias() {
+    let mut world = World::new();
+    world.spawn(("abc", 123));
+    world.spawn(("def", 456, true));
+    let mut q = world.query::<&mut i32>();
+    let a = q.iter().collect::<Vec<_>>();
+    let b = q.iter().collect::<Vec<_>>();
+}

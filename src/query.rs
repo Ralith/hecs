@@ -133,9 +133,12 @@ impl<'a, T: Fetch<'a>> Fetch<'a> for TryFetch<T> {
 }
 
 /// A borrow of a `World` sufficient to execute the query `Q`
+///
+/// Note that borrows are not released until this object is dropped.
 pub struct QueryBorrow<'w, Q: Query> {
     meta: &'w [EntityMeta],
     archetypes: &'w [Archetype],
+    executed: bool,
     _marker: PhantomData<Q>,
 }
 
@@ -150,12 +153,21 @@ impl<'w, Q: Query> QueryBorrow<'w, Q> {
         Self {
             meta,
             archetypes,
+            executed: false,
             _marker: PhantomData,
         }
     }
 
     /// Execute the query
+    ///
+    /// Must be called only once per query.
     pub fn iter<'q>(&'q mut self) -> QueryIter<'q, 'w, Q> {
+        if self.executed {
+            panic!(
+                "called QueryBorrow::iter twice on the same borrow; construct a new query instead"
+            );
+        }
+        self.executed = true;
         QueryIter {
             borrow: self,
             archetype_index: 0,
