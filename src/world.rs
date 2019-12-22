@@ -22,7 +22,9 @@ use std::error::Error;
 use hashbrown::{HashMap, HashSet};
 
 use crate::archetype::Archetype;
-use crate::{Bundle, DynamicBundle, EntityRef, MissingComponent, Query, QueryBorrow, Ref, RefMut};
+use crate::{
+    Bundle, DynamicBundle, EntityRef, Fetch, MissingComponent, Query, QueryBorrow, Ref, RefMut,
+};
 
 /// An unordered collection of entities, each having any number of distinctly typed components
 ///
@@ -361,6 +363,41 @@ impl World {
     /// See `remove`.
     pub fn remove_one<T: Component>(&mut self, entity: Entity) -> Result<T, ComponentError> {
         self.remove::<(T,)>(entity).map(|(x,)| x)
+    }
+
+    /// Execute a query, modifying the world after processing each entity
+    ///
+    /// For each entity matching `Q`, `process` is invoked to provide access to the queried
+    /// components, then `apply` is invoked with the same `Entity` and the return value of `process`
+    /// to allow components and entire entities to be added.
+    ///
+    /// # Example
+    /// ```rust
+    /// # use hecs::*;
+    /// let mut world = World::new();
+    /// let a = world.spawn(("abc", 123));
+    /// let b = world.spawn(("def", 456, true));
+    /// let c = world.spawn(("ghi", 789, false));
+    /// world.modify::<&bool, _, _, _>(
+    ///     |_entity, &flag| flag,
+    ///     |world, entity, flag| if flag { world.despawn(entity); },
+    /// );
+    /// assert!(world.contains(a));
+    /// assert!(!world.contains(b));
+    /// assert!(world.contains(c));
+    /// ```
+    pub fn modify<Q: Query, Process, Apply, T>(&mut self, mut process: Process, mut apply: Apply)
+    where
+        Process: for<'a> FnMut(Entity, <Q::Fetch as Fetch<'a>>::Item) -> T,
+        Apply: FnMut(&mut World, Entity, T),
+    {
+        let mut tmp = Vec::new();
+        for (e, q) in &mut self.query::<Q>() {
+            tmp.push((e, process(e, q)));
+        }
+        for (e, x) in tmp {
+            apply(self, e, x);
+        }
     }
 }
 
