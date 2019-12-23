@@ -14,7 +14,7 @@
 
 use crate::alloc::vec::Vec;
 use core::any::TypeId;
-use core::{fmt, ptr};
+use core::{fmt, mem, ptr};
 
 #[cfg(feature = "std")]
 use std::error::Error;
@@ -272,15 +272,17 @@ impl World {
                 target as usize,
             );
             let target_index = target_arch.allocate(entity.id);
-            source_arch.move_to(loc.index, |ptr, ty, size| {
+            loc.archetype = target;
+            let old_index = mem::replace(&mut loc.index, target_index);
+            if let Some(moved) = source_arch.move_to(old_index, |ptr, ty, size| {
                 target_arch.put_dynamic(ptr, ty, size, target_index);
-            });
+            }) {
+                self.entities.meta[moved as usize].location.index = old_index;
+            }
             components.put(|ptr, ty, size| {
                 target_arch.put_dynamic(ptr, ty, size, target_index);
                 true
             });
-            loc.archetype = target;
-            loc.index = target_index;
         }
         Ok(())
     }
@@ -343,15 +345,17 @@ impl World {
                 target as usize,
             );
             let target_index = target_arch.allocate(entity.id);
-            let x = T::get(|ty, size| source_arch.get_dynamic(ty, size, loc.index))?;
-            source_arch.move_to(loc.index, |src, ty, size| {
+            loc.archetype = target;
+            let old_index = mem::replace(&mut loc.index, target_index);
+            let x = T::get(|ty, size| source_arch.get_dynamic(ty, size, old_index))?;
+            if let Some(moved) = source_arch.move_to(old_index, |src, ty, size| {
                 // Only move the components present in the target archetype, i.e. the non-removed ones.
                 if let Some(dst) = target_arch.get_dynamic(ty, size, target_index) {
                     ptr::copy_nonoverlapping(src, dst.as_ptr(), size);
                 }
-            });
-            loc.archetype = target;
-            loc.index = target_index;
+            }) {
+                self.entities.meta[moved as usize].location.index = old_index;
+            }
             Ok(x)
         }
     }
