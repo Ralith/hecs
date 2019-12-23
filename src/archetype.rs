@@ -226,14 +226,18 @@ impl Archetype {
         }
     }
 
-    pub(crate) unsafe fn move_to(&mut self, index: u32, mut f: impl FnMut(*mut u8, TypeId, usize)) {
+    /// Returns the ID of the entity moved into `index`, if any
+    pub(crate) unsafe fn move_to(
+        &mut self,
+        index: u32,
+        mut f: impl FnMut(*mut u8, TypeId, usize),
+    ) -> Option<u32> {
         let last = self.len - 1;
         for ty in &self.types {
             let moved = self
                 .get_dynamic(ty.id, ty.layout.size(), index)
                 .unwrap()
                 .as_ptr();
-            // Unused fields were already moved out of
             f(moved, ty.id(), ty.layout().size());
             if index != last {
                 ptr::copy_nonoverlapping(
@@ -245,10 +249,13 @@ impl Archetype {
                 );
             }
         }
+        self.len -= 1;
         if index != last {
             self.entities[index as usize] = self.entities[last as usize];
+            Some(last)
+        } else {
+            None
         }
-        self.len -= 1;
     }
 
     pub(crate) unsafe fn put_dynamic(
