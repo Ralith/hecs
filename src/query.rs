@@ -137,6 +137,23 @@ impl<'a, T: Fetch<'a>> Fetch<'a> for TryFetch<T> {
     }
 }
 
+/// Query transformer skipping entities that have a `T` component
+///
+/// See also `QueryBorrow::without`.
+///
+/// # Example
+/// ```
+/// # use hecs::*;
+/// let mut world = World::new();
+/// let a = world.spawn((123, true, "abc"));
+/// let b = world.spawn((456, false));
+/// let c = world.spawn((42, "def"));
+/// let entities = world.query::<Without<&i32, bool>>()
+///     .iter()
+///     .map(|(e, &i)| (e, i))
+///     .collect::<Vec<_>>();
+/// assert_eq!(entities, &[(c, 42)]);
+/// ```
 pub struct Without<Q, T>(PhantomData<(Q, fn(T))>);
 
 impl<Q: Query, T: Component> Query for Without<Q, T> {
@@ -170,6 +187,25 @@ impl<'a, F: Fetch<'a>, T: Component> Fetch<'a> for FetchWithout<F, T> {
     }
 }
 
+/// Query transformer skipping entities that do not have a `T` component
+///
+/// See also `QueryBorrow::with`.
+///
+/// # Example
+/// ```
+/// # use hecs::*;
+/// let mut world = World::new();
+/// let a = world.spawn((123, true, "abc"));
+/// let b = world.spawn((456, false));
+/// let c = world.spawn((42, "def"));
+/// let entities = world.query::<With<&i32, bool>>()
+///     .iter()
+///     .map(|(e, &i)| (e, i))
+///     .collect::<Vec<_>>();
+/// assert_eq!(entities.len(), 2);
+/// assert!(entities.contains(&(a, 123)));
+/// assert!(entities.contains(&(b, 456)));
+/// ```
 pub struct With<Q, T>(PhantomData<(Q, fn(T))>);
 
 impl<Q: Query, T: Component> Query for With<Q, T> {
@@ -251,6 +287,8 @@ impl<'w, Q: Query> QueryBorrow<'w, Q> {
     /// This can be useful when the component needs to be borrowed elsewhere and it isn't necessary
     /// for the iterator to expose its data directly.
     ///
+    /// Equivalent to using a query type wrapped in `With`.
+    ///
     /// # Example
     /// ```
     /// # use hecs::*;
@@ -279,6 +317,8 @@ impl<'w, Q: Query> QueryBorrow<'w, Q> {
     }
 
     /// Transform the query into one that skips entities having a certain component
+    ///
+    /// Equivalent to using a query type wrapped in `Without`.
     ///
     /// # Example
     /// ```
