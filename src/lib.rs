@@ -69,7 +69,7 @@ mod world;
 pub use borrow::{EntityRef, Ref, RefMut};
 pub use bundle::{Bundle, DynamicBundle, MissingComponent};
 pub use entity_builder::{BuiltEntity, EntityBuilder};
-pub use query::{Query, QueryBorrow, QueryIter};
+pub use query::{Query, QueryBorrow, QueryIter, With, Without};
 pub use world::{Component, ComponentError, Entity, Iter, NoSuchEntity, World};
 
 // Unstable implementation details needed by the macros
