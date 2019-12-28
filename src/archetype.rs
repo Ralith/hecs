@@ -252,7 +252,7 @@ impl Archetype {
         self.len -= 1;
         if index != last {
             self.entities[index as usize] = self.entities[last as usize];
-            Some(last)
+            Some(self.entities[last as usize])
         } else {
             None
         }
