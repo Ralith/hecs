@@ -148,22 +148,22 @@ impl<'a, T: Fetch<'a>> Fetch<'a> for TryFetch<T> {
 /// let a = world.spawn((123, true, "abc"));
 /// let b = world.spawn((456, false));
 /// let c = world.spawn((42, "def"));
-/// let entities = world.query::<Without<&i32, bool>>()
+/// let entities = world.query::<Without<bool, &i32>>()
 ///     .iter()
 ///     .map(|(e, &i)| (e, i))
 ///     .collect::<Vec<_>>();
 /// assert_eq!(entities, &[(c, 42)]);
 /// ```
-pub struct Without<Q, T>(PhantomData<(Q, fn(T))>);
+pub struct Without<T, Q>(PhantomData<(Q, fn(T))>);
 
-impl<Q: Query, T: Component> Query for Without<Q, T> {
-    type Fetch = FetchWithout<Q::Fetch, T>;
+impl<T: Component, Q: Query> Query for Without<T, Q> {
+    type Fetch = FetchWithout<T, Q::Fetch>;
 }
 
 #[doc(hidden)]
-pub struct FetchWithout<F, T>(F, PhantomData<fn(T)>);
+pub struct FetchWithout<T, F>(F, PhantomData<fn(T)>);
 
-impl<'a, F: Fetch<'a>, T: Component> Fetch<'a> for FetchWithout<F, T> {
+impl<'a, T: Component, F: Fetch<'a>> Fetch<'a> for FetchWithout<T, F> {
     type Item = F::Item;
     fn wants(archetype: &Archetype) -> bool {
         !archetype.has::<T>()
@@ -198,7 +198,7 @@ impl<'a, F: Fetch<'a>, T: Component> Fetch<'a> for FetchWithout<F, T> {
 /// let a = world.spawn((123, true, "abc"));
 /// let b = world.spawn((456, false));
 /// let c = world.spawn((42, "def"));
-/// let entities = world.query::<With<&i32, bool>>()
+/// let entities = world.query::<With<bool, &i32>>()
 ///     .iter()
 ///     .map(|(e, &i)| (e, i))
 ///     .collect::<Vec<_>>();
@@ -206,16 +206,16 @@ impl<'a, F: Fetch<'a>, T: Component> Fetch<'a> for FetchWithout<F, T> {
 /// assert!(entities.contains(&(a, 123)));
 /// assert!(entities.contains(&(b, 456)));
 /// ```
-pub struct With<Q, T>(PhantomData<(Q, fn(T))>);
+pub struct With<T, Q>(PhantomData<(Q, fn(T))>);
 
-impl<Q: Query, T: Component> Query for With<Q, T> {
-    type Fetch = FetchWith<Q::Fetch, T>;
+impl<T: Component, Q: Query> Query for With<T, Q> {
+    type Fetch = FetchWith<T, Q::Fetch>;
 }
 
 #[doc(hidden)]
-pub struct FetchWith<F, T>(F, PhantomData<fn(T)>);
+pub struct FetchWith<T, F>(F, PhantomData<fn(T)>);
 
-impl<'a, F: Fetch<'a>, T: Component> Fetch<'a> for FetchWith<F, T> {
+impl<'a, T: Component, F: Fetch<'a>> Fetch<'a> for FetchWith<T, F> {
     type Item = F::Item;
     fn wants(archetype: &Archetype) -> bool {
         archetype.has::<T>()
@@ -304,7 +304,7 @@ impl<'w, Q: Query> QueryBorrow<'w, Q> {
     /// assert!(entities.contains(&(a, 123)));
     /// assert!(entities.contains(&(b, 456)));
     /// ```
-    pub fn with<T: Component>(mut self) -> QueryBorrow<'w, With<Q, T>> {
+    pub fn with<T: Component>(mut self) -> QueryBorrow<'w, With<T, Q>> {
         let x = QueryBorrow {
             meta: self.meta,
             archetypes: self.archetypes,
@@ -334,7 +334,7 @@ impl<'w, Q: Query> QueryBorrow<'w, Q> {
     ///     .collect::<Vec<_>>();
     /// assert_eq!(entities, &[(c, 42)]);
     /// ```
-    pub fn without<T: Component>(mut self) -> QueryBorrow<'w, Without<Q, T>> {
+    pub fn without<T: Component>(mut self) -> QueryBorrow<'w, Without<T, Q>> {
         let x = QueryBorrow {
             meta: self.meta,
             archetypes: self.archetypes,
