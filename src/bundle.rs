@@ -39,6 +39,11 @@ pub trait Bundle: DynamicBundle {
     #[doc(hidden)]
     fn with_static_ids<T>(f: impl FnOnce(&[TypeId]) -> T) -> T;
     /// Construct `Self` by moving components out of pointers fetched by `f`
+    ///
+    /// # Safety
+    ///
+    /// `f` must produce pointers to the expected fields. The implementation must not read from any
+    /// pointers if any call to `f` returns `None`.
     #[doc(hidden)]
     unsafe fn get(
         f: impl FnMut(TypeId, usize) -> Option<NonNull<u8>>,
@@ -110,13 +115,13 @@ macro_rules! tuple_impl {
 
             #[allow(unused_variables, unused_mut)]
             unsafe fn get(mut f: impl FnMut(TypeId, usize) -> Option<NonNull<u8>>) -> Result<Self, MissingComponent> {
-                Ok(($(
-                    f(TypeId::of::<$name>(), mem::size_of::<$name>())
-                      .ok_or_else(MissingComponent::new::<$name>)?
-                      .as_ptr()
-                      .cast::<$name>()
-                      .read(),
-                )*))
+                #[allow(non_snake_case)]
+                let ($(mut $name,)*) = ($(
+                    f(TypeId::of::<$name>(), mem::size_of::<$name>()).ok_or_else(MissingComponent::new::<$name>)?
+                        .as_ptr()
+                        .cast::<$name>(),)*
+                );
+                Ok(($($name.read(),)*))
             }
         }
     }

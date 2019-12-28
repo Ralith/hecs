@@ -94,15 +94,13 @@ pub fn derive_bundle(input: TokenStream) -> TokenStream {
             unsafe fn get(
                 mut f: impl FnMut(std::any::TypeId, usize) -> Option<std::ptr::NonNull<u8>>,
             ) -> Result<Self, MissingComponent> {
-                Ok(Self {
-                    #(
-                        #fields: f(std::any::TypeId::of::<#tys>(), std::mem::size_of::<#tys>())
+                #(
+                    let #fields = f(std::any::TypeId::of::<#tys>(), std::mem::size_of::<#tys>())
                             .ok_or_else(MissingComponent::new::<#tys>)?
                             .cast::<#tys>()
-                            .as_ptr()
-                            .read(),
-                    )*
-                })
+                        .as_ptr();
+                )*
+                Ok(Self { #( #fields: #fields.read(), )* })
             }
         }
     };

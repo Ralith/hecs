@@ -69,7 +69,11 @@ impl Archetype {
     }
 
     pub(crate) fn has<T: Component>(&self) -> bool {
-        self.state.contains_key(&TypeId::of::<T>())
+        self.has_dynamic(TypeId::of::<T>())
+    }
+
+    pub(crate) fn has_dynamic(&self, id: TypeId) -> bool {
+        self.state.contains_key(&id)
     }
 
     pub(crate) fn get<T: Component>(&self) -> Option<NonNull<T>> {
