@@ -339,6 +339,9 @@ impl World {
                     index
                 }
             };
+            let old_index = loc.index;
+            let source_arch = &self.archetypes[loc.archetype as usize];
+            let bundle = T::get(|ty, size| source_arch.get_dynamic(ty, size, old_index))?;
             let (source_arch, target_arch) = index2(
                 &mut self.archetypes,
                 loc.archetype as usize,
@@ -346,8 +349,7 @@ impl World {
             );
             let target_index = target_arch.allocate(entity.id);
             loc.archetype = target;
-            let old_index = mem::replace(&mut loc.index, target_index);
-            let x = T::get(|ty, size| source_arch.get_dynamic(ty, size, old_index))?;
+            loc.index = target_index;
             if let Some(moved) = source_arch.move_to(old_index, |src, ty, size| {
                 // Only move the components present in the target archetype, i.e. the non-removed ones.
                 if let Some(dst) = target_arch.get_dynamic(ty, size, target_index) {
@@ -356,7 +358,7 @@ impl World {
             }) {
                 self.entities.meta[moved as usize].location.index = old_index;
             }
-            Ok(x)
+            Ok(bundle)
         }
     }
 
