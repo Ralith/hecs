@@ -9,6 +9,42 @@ world. It is a library, not a framework. In place of an explicit "System"
 abstraction, a `World`'s entities are easily queried from regular code. Organize
 your application however you like!
 
+### Why ECS?
+
+Entity-component-system architecture makes it easy to compose loosely-coupled
+state and behavior. An ECS world consists of:
+
+- any number of **entities**, which represent distinct objects
+- a collection of **component** data associated with each entity, where each
+  entity has at most one component of any type, and two entities may have
+  different components
+
+That world is then manipulated by **systems**, each of which accesses all
+entities having a particular set of component types. Systems implement
+self-contained behavior like physics (e.g. by accessing "position", "velocity",
+and "collision" components) or rendering (e.g. by accessing "position" and
+"sprite" components).
+
+New components and systems can be added to a complex application without
+interfering with existing logic, making the ECS paradigm well suited to
+applications where many layers of overlapping behavior will be defined on the
+same set of objects, particularly if new behaviors will be added in the
+future. This flexibility sets it apart from traditional approaches based on
+heterogeneous collections of explicitly defined object types, where implementing
+new combinations of behaviors (e.g. a vehicle which is also a questgiver) can
+require far-reaching changes.
+
+#### Performance
+
+In addition to having excellent composability, the ECS paradigm can also provide
+exceptional speed and cache locality. `hecs` internally tracks groups of
+entities which all have the same components. Each group has a dense, contiguous
+array for each type of components. When a system accesses all entities with a
+certain set of components, a fast linear traversal can be made through each
+group having a superset of those components. This is effectively a columnar
+database, and has the same benefits: the CPU can accurately predict memory
+accesses, bypassing unneeded data, maximizing cache use and minimizing latency.
+
 ### Other Libraries
 
 hecs would not exist if not for the great work done by others to introduce and
