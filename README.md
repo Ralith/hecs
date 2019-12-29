@@ -39,7 +39,7 @@ require far-reaching changes.
 In addition to having excellent composability, the ECS paradigm can also provide
 exceptional speed and cache locality. `hecs` internally tracks groups of
 entities which all have the same components. Each group has a dense, contiguous
-array for each type of components. When a system accesses all entities with a
+array for each type of component. When a system accesses all entities with a
 certain set of components, a fast linear traversal can be made through each
 group having a superset of those components. This is effectively a columnar
 database, and has the same benefits: the CPU can accurately predict memory
