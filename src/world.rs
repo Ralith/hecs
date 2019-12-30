@@ -150,48 +150,24 @@ impl World {
     /// Panics if the component is already uniquely borrowed from another entity with the same
     /// components.
     pub fn get<T: Component>(&self, entity: Entity) -> Result<Ref<'_, T>, ComponentError> {
-        let meta = &self.entities.meta[entity.id as usize];
-        if meta.generation != entity.generation {
-            return Err(ComponentError::NoSuchEntity);
-        }
-        Ok(unsafe {
-            Ref::new(
-                &self.archetypes[meta.location.archetype as usize],
-                meta.location.index,
-            )?
-        })
+        let loc = self.entities.get(entity)?;
+        Ok(unsafe { Ref::new(&self.archetypes[loc.archetype as usize], loc.index)? })
     }
 
     /// Uniquely borrow the `T` component of `entity`
     ///
     /// Panics if the component is already borrowed from another entity with the same components.
     pub fn get_mut<T: Component>(&self, entity: Entity) -> Result<RefMut<'_, T>, ComponentError> {
-        let meta = &self.entities.meta[entity.id as usize];
-        if meta.generation != entity.generation {
-            return Err(ComponentError::NoSuchEntity);
-        }
-        Ok(unsafe {
-            RefMut::new(
-                &self.archetypes[meta.location.archetype as usize],
-                meta.location.index,
-            )?
-        })
+        let loc = self.entities.get(entity)?;
+        Ok(unsafe { RefMut::new(&self.archetypes[loc.archetype as usize], loc.index)? })
     }
 
     /// Access an entity regardless of its component types
     ///
     /// Does not immediately borrow any component.
     pub fn entity(&self, entity: Entity) -> Result<EntityRef<'_>, NoSuchEntity> {
-        let meta = &self.entities.meta[entity.id as usize];
-        if meta.generation != entity.generation {
-            return Err(NoSuchEntity);
-        }
-        Ok(unsafe {
-            EntityRef::new(
-                &self.archetypes[meta.location.archetype as usize],
-                meta.location.index,
-            )
-        })
+        let loc = self.entities.get(entity)?;
+        Ok(unsafe { EntityRef::new(&self.archetypes[loc.archetype as usize], loc.index) })
     }
 
     /// Iterate over all entities in the world
