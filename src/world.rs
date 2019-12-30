@@ -368,6 +368,43 @@ impl World {
     pub fn remove_one<T: Component>(&mut self, entity: Entity) -> Result<T, ComponentError> {
         self.remove::<(T,)>(entity).map(|(x,)| x)
     }
+
+    /// Borrow the `T` component of `entity` without safety checks
+    ///
+    /// Should only be used as a building block for safe abstractions.
+    ///
+    /// # Safety
+    ///
+    /// `entity` must have been previously obtained from this `World`, and no unique borrow of the
+    /// same component of `entity` may be live simultaneous to the returned reference.
+    pub unsafe fn get_unchecked<T: Component>(&self, entity: Entity) -> Result<&T, ComponentError> {
+        let loc = self.entities.get(entity)?;
+        Ok(&*self.archetypes[loc.archetype as usize]
+            .get::<T>()
+            .ok_or_else(MissingComponent::new::<T>)?
+            .as_ptr()
+            .add(loc.index as usize))
+    }
+
+    /// Uniquely borrow the `T` component of `entity` without safety checks
+    ///
+    /// Should only be used as a building block for safe abstractions.
+    ///
+    /// # Safety
+    ///
+    /// `entity` must have been previously obtained from this `World`, and no borrow of the same
+    /// component of `entity` may be live simultaneous to the returned reference.
+    pub unsafe fn get_unchecked_mut<T: Component>(
+        &self,
+        entity: Entity,
+    ) -> Result<&mut T, ComponentError> {
+        let loc = self.entities.get(entity)?;
+        Ok(&mut *self.archetypes[loc.archetype as usize]
+            .get::<T>()
+            .ok_or_else(MissingComponent::new::<T>)?
+            .as_ptr()
+            .add(loc.index as usize))
+    }
 }
 
 unsafe impl Send for World {}
@@ -603,6 +640,14 @@ impl Entities {
             return Err(NoSuchEntity);
         }
         Ok(&mut meta.location)
+    }
+
+    fn get(&self, entity: Entity) -> Result<Location, NoSuchEntity> {
+        let meta = &self.meta[entity.id as usize];
+        if meta.generation != entity.generation {
+            return Err(NoSuchEntity);
+        }
+        Ok(meta.location)
     }
 }
 
