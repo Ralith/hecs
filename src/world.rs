@@ -482,6 +482,15 @@ impl Entity {
             id: bits as u32,
         }
     }
+
+    /// Extract a transiently unique identifier
+    ///
+    /// No two simultaneously-live entities share the same ID, but dead entities' IDs may collide
+    /// with both live and dead entities. Useful for compactly representing entities within a
+    /// specific snapshot of the world, such as when serializing.
+    pub fn id(self) -> u32 {
+        self.id
+    }
 }
 
 impl fmt::Debug for Entity {
