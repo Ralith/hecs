@@ -32,7 +32,7 @@ jobs:
       - uses: actions-rs/cargo@v1
         with:
           command: build
-          args: ${{ matrix.features }}
+          args: --all-targets ${{ matrix.features }}
 
       - uses: actions-rs/cargo@v1
         with:
