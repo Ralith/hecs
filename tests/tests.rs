@@ -32,7 +32,9 @@ fn despawn() {
     let mut world = World::new();
     let e = world.spawn(("abc", 123));
     let f = world.spawn(("def", 456));
+    assert_eq!(world.query::<()>().iter().count(), 2);
     world.despawn(e).unwrap();
+    assert_eq!(world.query::<()>().iter().count(), 1);
     assert!(world.get::<&str>(e).is_err());
     assert!(world.get::<i32>(e).is_err());
     assert_eq!(*world.get::<&str>(f).unwrap(), "def");
