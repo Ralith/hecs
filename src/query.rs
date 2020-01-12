@@ -16,7 +16,7 @@ use core::marker::PhantomData;
 use core::ptr::NonNull;
 
 use crate::archetype::Archetype;
-use crate::world::EntityMeta;
+use crate::entities::EntityMeta;
 use crate::{Component, Entity};
 
 /// A collection of component types to fetch from a `World`
