@@ -22,7 +22,7 @@ use std::error::Error;
 use hashbrown::{HashMap, HashSet};
 
 use crate::archetype::Archetype;
-use crate::entities::{Entities, EntityMeta};
+use crate::entities::{Entities, Location};
 use crate::{
     Bundle, DynamicBundle, Entity, EntityRef, MissingComponent, NoSuchEntity, Query, QueryBorrow,
     Ref, RefMut,
@@ -35,7 +35,6 @@ use crate::{
 ///
 /// The components of entities who have the same set of component types are stored in contiguous
 /// runs, allowing for extremely fast, cache-friendly iteration.
-#[derive(Default)]
 pub struct World {
     entities: Entities,
     index: HashMap<Vec<TypeId>, u32>,
@@ -45,7 +44,14 @@ pub struct World {
 impl World {
     /// Create an empty world
     pub fn new() -> Self {
-        Self::default()
+        // `flush` assumes archetype 0 always exists, representing entities with no components.
+        let mut archetypes = Vec::new();
+        archetypes.push(Archetype::new(Vec::new()));
+        Self {
+            entities: Entities::default(),
+            index: HashMap::default(),
+            archetypes,
+        }
     }
 
     /// Create an entity with certain components
@@ -66,8 +72,12 @@ impl World {
     /// let b = world.spawn((456, true));
     /// ```
     pub fn spawn(&mut self, components: impl DynamicBundle) -> Entity {
+        // Ensure all entity allocations are accounted for so `self.entities` can realloc if
+        // necessary
+        self.flush();
+
         let entity = self.entities.alloc();
-        let archetype = components.with_ids(|ids| {
+        let archetype_id = components.with_ids(|ids| {
             self.index.get(ids).copied().unwrap_or_else(|| {
                 let x = self.archetypes.len() as u32;
                 self.archetypes.push(Archetype::new(components.type_info()));
@@ -75,21 +85,39 @@ impl World {
                 x
             })
         });
-        self.entities.meta[entity.id as usize].location.archetype = archetype;
-        let archetype = &mut self.archetypes[archetype as usize];
+
+        let archetype = &mut self.archetypes[archetype_id as usize];
         unsafe {
             let index = archetype.allocate(entity.id);
-            self.entities.meta[entity.id as usize].location.index = index;
             components.put(|ptr, ty, size| {
                 archetype.put_dynamic(ptr, ty, size, index);
                 true
             });
+            self.entities.meta[entity.id as usize].location = Location {
+                archetype: archetype_id,
+                index,
+            };
         }
         entity
     }
 
+    /// Allocate an entity ID concurrently
+    ///
+    /// Unlike `spawn`, this can be called simultaneously to other operations on the `World` such as
+    /// queries, but does not immediately create an entity. Reserved entities are not visible to
+    /// queries or world iteration, but can be otherwise operated on freely. Operations that
+    /// uniquely borrow the world, such as `insert` or `despawn`, will cause all outstanding
+    /// reserved entities to become real entities before proceeding. This can also be done
+    /// explicitly by calling `flush`.
+    ///
+    /// Useful for reserving an ID that will later have components attached to it with `insert`.
+    pub fn reserve(&self) -> Entity {
+        self.entities.reserve()
+    }
+
     /// Destroy an entity and all its components
     pub fn despawn(&mut self, entity: Entity) -> Result<(), NoSuchEntity> {
+        self.flush();
         let loc = self.entities.free(entity)?;
         if let Some(moved) = unsafe { self.archetypes[loc.archetype as usize].remove(loc.index) } {
             self.entities.meta[moved as usize].location.index = loc.index;
@@ -109,7 +137,7 @@ impl World {
 
     /// Whether `entity` still exists
     pub fn contains(&self, entity: Entity) -> bool {
-        self.entities.meta[entity.id as usize].generation == entity.generation
+        self.entities.contains(entity)
     }
 
     /// Efficiently iterate over all entities that have certain components
@@ -160,6 +188,9 @@ impl World {
     /// components.
     pub fn get<T: Component>(&self, entity: Entity) -> Result<Ref<'_, T>, ComponentError> {
         let loc = self.entities.get(entity)?;
+        if loc.archetype == 0 {
+            return Err(MissingComponent::new::<T>().into());
+        }
         Ok(unsafe { Ref::new(&self.archetypes[loc.archetype as usize], loc.index)? })
     }
 
@@ -168,6 +199,9 @@ impl World {
     /// Panics if the component is already borrowed from another entity with the same components.
     pub fn get_mut<T: Component>(&self, entity: Entity) -> Result<RefMut<'_, T>, ComponentError> {
         let loc = self.entities.get(entity)?;
+        if loc.archetype == 0 {
+            return Err(MissingComponent::new::<T>().into());
+        }
         Ok(unsafe { RefMut::new(&self.archetypes[loc.archetype as usize], loc.index)? })
     }
 
@@ -175,8 +209,10 @@ impl World {
     ///
     /// Does not immediately borrow any component.
     pub fn entity(&self, entity: Entity) -> Result<EntityRef<'_>, NoSuchEntity> {
-        let loc = self.entities.get(entity)?;
-        Ok(unsafe { EntityRef::new(&self.archetypes[loc.archetype as usize], loc.index) })
+        Ok(match self.entities.get(entity)? {
+            Location { archetype: 0, .. } => EntityRef::empty(),
+            loc => unsafe { EntityRef::new(&self.archetypes[loc.archetype as usize], loc.index) },
+        })
     }
 
     /// Iterate over all entities in the world
@@ -190,10 +226,13 @@ impl World {
     /// let mut world = World::new();
     /// let a = world.spawn(());
     /// let b = world.spawn(());
-    /// assert_eq!(world.iter().map(|(id, _)| id).collect::<Vec<_>>(), &[a, b]);
+    /// let ids = world.iter().map(|(id, _)| id).collect::<Vec<_>>();
+    /// assert_eq!(ids.len(), 2);
+    /// assert!(ids.contains(&a));
+    /// assert!(ids.contains(&b));
     /// ```
     pub fn iter(&self) -> Iter<'_> {
-        Iter::new(&self.archetypes, &self.entities.meta)
+        Iter::new(&self.archetypes, &self.entities)
     }
 
     /// Add `components` to `entity`
@@ -219,8 +258,10 @@ impl World {
     ) -> Result<(), NoSuchEntity> {
         use hashbrown::hash_map::Entry;
 
+        self.flush();
         let loc = self.entities.get_mut(entity)?;
         unsafe {
+            // Assemble Vec<TypeInfo> for the final entity
             let arch = &mut self.archetypes[loc.archetype as usize];
             let mut info = arch.types().to_vec();
             for ty in components.type_info() {
@@ -232,6 +273,7 @@ impl World {
             }
             info.sort();
 
+            // Find the archetype it'll live in
             let elements = info.iter().map(|x| x.id()).collect::<Vec<_>>();
             let target = match self.index.entry(elements) {
                 Entry::Occupied(x) => *x.get(),
@@ -242,7 +284,9 @@ impl World {
                     index
                 }
             };
+
             if target == loc.archetype {
+                // Update components in the current archetype
                 let arch = &mut self.archetypes[loc.archetype as usize];
                 components.put(|ptr, ty, size| {
                     arch.put_dynamic(ptr, ty, size, loc.index);
@@ -251,6 +295,7 @@ impl World {
                 return Ok(());
             }
 
+            // Move into a new archetype
             let (source_arch, target_arch) = index2(
                 &mut self.archetypes,
                 loc.archetype as usize,
@@ -305,6 +350,7 @@ impl World {
     pub fn remove<T: Bundle>(&mut self, entity: Entity) -> Result<T, ComponentError> {
         use hashbrown::hash_map::Entry;
 
+        self.flush();
         let loc = self.entities.get_mut(entity)?;
         unsafe {
             let removed = T::with_static_ids(|ids| ids.iter().copied().collect::<HashSet<_>>());
@@ -364,6 +410,9 @@ impl World {
     /// same component of `entity` may be live simultaneous to the returned reference.
     pub unsafe fn get_unchecked<T: Component>(&self, entity: Entity) -> Result<&T, ComponentError> {
         let loc = self.entities.get(entity)?;
+        if loc.archetype == 0 {
+            return Err(MissingComponent::new::<T>().into());
+        }
         Ok(&*self.archetypes[loc.archetype as usize]
             .get::<T>()
             .ok_or_else(MissingComponent::new::<T>)?
@@ -384,16 +433,40 @@ impl World {
         entity: Entity,
     ) -> Result<&mut T, ComponentError> {
         let loc = self.entities.get(entity)?;
+        if loc.archetype == 0 {
+            return Err(MissingComponent::new::<T>().into());
+        }
         Ok(&mut *self.archetypes[loc.archetype as usize]
             .get::<T>()
             .ok_or_else(MissingComponent::new::<T>)?
             .as_ptr()
             .add(loc.index as usize))
     }
+
+    /// Convert all reserved entities into empty entities that can be iterated and accessed
+    ///
+    /// Invoked implicitly by `spawn`, `despawn`, `insert`, and `remove`.
+    pub fn flush(&mut self) {
+        let arch = &mut self.archetypes[0];
+        for id in self.entities.flush() {
+            self.entities.meta[id as usize].location.index = unsafe { arch.allocate(id) };
+        }
+        for i in 0..self.entities.reserved_len() {
+            let id = self.entities.reserved(i);
+            self.entities.meta[id as usize].location.index = unsafe { arch.allocate(id) };
+        }
+        self.entities.clear_reserved();
+    }
 }
 
 unsafe impl Send for World {}
 unsafe impl Sync for World {}
+
+impl Default for World {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl<'a> IntoIterator for &'a World {
     type IntoIter = Iter<'a>;
@@ -455,13 +528,13 @@ impl<T: Send + Sync + 'static> Component for T {}
 /// Iterator over all of a world's entities
 pub struct Iter<'a> {
     archetypes: core::slice::Iter<'a, Archetype>,
-    entities: &'a [EntityMeta],
+    entities: &'a Entities,
     current: Option<&'a Archetype>,
     index: u32,
 }
 
 impl<'a> Iter<'a> {
-    fn new(archetypes: &'a [Archetype], entities: &'a [EntityMeta]) -> Self {
+    fn new(archetypes: &'a [Archetype], entities: &'a Entities) -> Self {
         Self {
             archetypes: archetypes.iter(),
             entities,
@@ -494,7 +567,7 @@ impl<'a> Iterator for Iter<'a> {
                     return Some((
                         Entity {
                             id,
-                            generation: self.entities[id as usize].generation,
+                            generation: self.entities.meta[id as usize].generation,
                         },
                         unsafe { EntityRef::new(current, index) },
                     ));
@@ -504,7 +577,7 @@ impl<'a> Iterator for Iter<'a> {
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        (0, Some(self.entities.len()))
+        (0, Some(self.entities.meta.len()))
     }
 }
 
@@ -532,12 +605,25 @@ mod tests {
     use super::*;
 
     #[test]
-    fn id_reuse() {
+    fn reuse_empty() {
         let mut world = World::new();
         let a = world.spawn(());
         world.despawn(a).unwrap();
         let b = world.spawn(());
         assert_eq!(a.id, b.id);
         assert_ne!(a.generation, b.generation);
+    }
+
+    #[test]
+    fn reuse_populated() {
+        let mut world = World::new();
+        let a = world.spawn((42,));
+        assert_eq!(*world.get::<i32>(a).unwrap(), 42);
+        world.despawn(a).unwrap();
+        let b = world.spawn((true,));
+        assert_eq!(a.id, b.id);
+        assert_ne!(a.generation, b.generation);
+        assert!(world.get::<i32>(b).is_err());
+        assert!(*world.get::<bool>(b).unwrap());
     }
 }

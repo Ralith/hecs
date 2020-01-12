@@ -276,3 +276,24 @@ fn remove_missing() {
     let e = world.spawn(("abc", 123));
     assert!(world.remove_one::<bool>(e).is_err());
 }
+
+#[test]
+fn reserve() {
+    let mut world = World::new();
+    let a = world.reserve();
+    let b = world.reserve();
+
+    assert_eq!(world.query::<()>().iter().count(), 0);
+
+    world.flush();
+
+    let entities = world
+        .query::<()>()
+        .iter()
+        .map(|(e, _)| e)
+        .collect::<Vec<_>>();
+
+    assert_eq!(entities.len(), 2);
+    assert!(entities.contains(&a));
+    assert!(entities.contains(&b));
+}

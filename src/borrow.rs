@@ -147,13 +147,24 @@ impl<'a, T: Component> DerefMut for RefMut<'a, T> {
 /// Handle to an entity with any component types
 #[derive(Copy, Clone)]
 pub struct EntityRef<'a> {
-    archetype: &'a Archetype,
+    archetype: Option<&'a Archetype>,
     index: u32,
 }
 
 impl<'a> EntityRef<'a> {
+    /// Construct a `Ref` for an entity with no components
+    pub(crate) fn empty() -> Self {
+        Self {
+            archetype: None,
+            index: 0,
+        }
+    }
+
     pub(crate) unsafe fn new(archetype: &'a Archetype, index: u32) -> Self {
-        Self { archetype, index }
+        Self {
+            archetype: Some(archetype),
+            index,
+        }
     }
 
     /// Borrow the component of type `T`, if it exists
@@ -161,14 +172,14 @@ impl<'a> EntityRef<'a> {
     /// Panics if the component is already uniquely borrowed from another entity with the same
     /// components.
     pub fn get<T: Component>(&self) -> Option<Ref<'a, T>> {
-        Some(unsafe { Ref::new(self.archetype, self.index).ok()? })
+        Some(unsafe { Ref::new(self.archetype?, self.index).ok()? })
     }
 
     /// Uniquely borrow the component of type `T`, if it exists
     ///
     /// Panics if the component is already borrowed from another entity with the same components.
     pub fn get_mut<T: Component>(&self) -> Option<RefMut<'a, T>> {
-        Some(unsafe { RefMut::new(self.archetype, self.index).ok()? })
+        Some(unsafe { RefMut::new(self.archetype?, self.index).ok()? })
     }
 }
 
