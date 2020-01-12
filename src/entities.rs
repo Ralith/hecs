@@ -1,5 +1,8 @@
+use alloc::boxed::Box;
 use alloc::vec::Vec;
-use core::fmt;
+use core::convert::TryFrom;
+use core::sync::atomic::{AtomicU32, Ordering};
+use core::{fmt, mem};
 #[cfg(feature = "std")]
 use std::error::Error;
 
@@ -51,63 +54,245 @@ impl fmt::Debug for Entity {
 
 #[derive(Default)]
 pub(crate) struct Entities {
-    pub meta: Vec<EntityMeta>,
-    free: Vec<u32>,
+    pub meta: Box<[EntityMeta]>,
+    // Reserved entities outside the range of `meta`, having implicit generation 0, archetype 0, and
+    // undefined index. Calling `flush` converts these to real entities, which can have a fully
+    // defined location.
+    pending: AtomicU32,
+    // Unused entity IDs below `meta.len()`
+    free: Box<[u32]>,
+    free_cursor: AtomicU32,
+    // Reserved IDs within `meta.len()` with implicit archetype 0 and undefined index. Should be
+    // consumed and used to initialize locations to produce real entities after calling `flush`.
+    reserved: Box<[AtomicU32]>,
+    reserved_cursor: AtomicU32,
 }
 
 impl Entities {
-    pub fn alloc(&mut self) -> Entity {
-        match self.free.pop() {
-            Some(i) => Entity {
-                generation: self.meta[i as usize].generation,
-                id: i,
-            },
-            None => {
-                let i = self.meta.len() as u32;
-                self.meta.push(EntityMeta {
-                    generation: 0,
-                    location: Location {
-                        archetype: 0,
-                        index: 0,
-                    },
-                });
-                Entity {
-                    generation: 0,
-                    id: i,
+    /// Reserve an entity ID concurrently
+    ///
+    /// Storage for entity generation and location is lazily allocated by calling `flush`. Locations
+    /// can be determined by the return value of `flush` and by iterating through the `reserved`
+    /// accessors, and should all be written immediately after flushing.
+    pub fn reserve(&self) -> Entity {
+        loop {
+            let index = self.free_cursor.load(Ordering::Relaxed);
+            match index.checked_sub(1) {
+                // The freelist is empty, so increment `pending` to arrange for a new entity with a
+                // predictable ID to be allocated on the next `flush` call
+                None => {
+                    let n = self.pending.fetch_add(1, Ordering::Relaxed);
+                    return Entity {
+                        generation: 0,
+                        id: u32::try_from(self.meta.len())
+                            .ok()
+                            .and_then(|x| x.checked_add(n))
+                            .expect("too many entities"),
+                    };
+                }
+                // The freelist has entities in it, so move the last entry to the reserved list, to
+                // be consumed by the caller as part of a higher-level flush.
+                Some(next) => {
+                    // We don't care about memory ordering here so long as we get our slot.
+                    if self
+                        .free_cursor
+                        .compare_exchange_weak(index, next, Ordering::Relaxed, Ordering::Relaxed)
+                        .is_err()
+                    {
+                        // Another thread already consumed this slot, start over.
+                        continue;
+                    }
+                    let id = self.free[next as usize];
+                    let reservation = self.reserved_cursor.fetch_add(1, Ordering::Relaxed);
+                    self.reserved[reservation as usize].store(id, Ordering::Relaxed);
+                    return Entity {
+                        generation: self.meta[id as usize].generation,
+                        id,
+                    };
                 }
             }
         }
     }
 
+    /// Allocate an entity ID directly
+    ///
+    /// Location should be written immediately.
+    pub fn alloc(&mut self) -> Entity {
+        debug_assert_eq!(
+            self.pending.load(Ordering::Relaxed),
+            0,
+            "allocator must be flushed before potentially growing"
+        );
+        let index = self.free_cursor.load(Ordering::Relaxed);
+        match index.checked_sub(1) {
+            None => {
+                self.grow(0);
+                let cursor = self.free_cursor.fetch_sub(1, Ordering::Relaxed);
+                let id = self.free[(cursor - 1) as usize];
+                Entity {
+                    generation: self.meta[id as usize].generation,
+                    id,
+                }
+            }
+            Some(next) => {
+                // Not racey due to &mut self
+                self.free_cursor.store(next, Ordering::Relaxed);
+                let id = self.free[next as usize];
+                Entity {
+                    generation: self.meta[id as usize].generation,
+                    id,
+                }
+            }
+        }
+    }
+
+    /// Destroy an entity, allowing it to be reused
+    ///
+    /// Must not be called on reserved entities prior to `flush`.
     pub fn free(&mut self, entity: Entity) -> Result<Location, NoSuchEntity> {
         let meta = &mut self.meta[entity.id as usize];
         if meta.generation != entity.generation {
             return Err(NoSuchEntity);
         }
         meta.generation += 1;
-        self.free.push(entity.id);
-        Ok(meta.location)
+        let loc = mem::replace(
+            &mut meta.location,
+            Location {
+                archetype: 0,
+                // Guard against bugs in reservation handling
+                index: u32::max_value(),
+            },
+        );
+        let index = self.free_cursor.fetch_add(1, Ordering::Relaxed); // Not racey due to &mut self
+        self.free[index as usize] = entity.id;
+        debug_assert!(
+            loc.index != u32::max_value(),
+            "free called on reserved entity without flush"
+        );
+        Ok(loc)
+    }
+
+    pub fn contains(&self, entity: Entity) -> bool {
+        if entity.id >= self.meta.len() as u32 {
+            return true;
+        }
+        self.meta[entity.id as usize].generation == entity.generation
     }
 
     pub fn clear(&mut self) {
-        self.meta.clear();
-        self.free.clear();
+        // Not racey due to &mut self
+        self.free_cursor
+            .store(self.meta.len() as u32, Ordering::Relaxed);
+        for (i, x) in self.free.iter_mut().enumerate() {
+            *x = i as u32;
+        }
+        self.pending.store(0, Ordering::Relaxed);
+        self.reserved_cursor.store(0, Ordering::Relaxed);
     }
 
+    /// Access the location storage of an entity
+    ///
+    /// Must not be called on pending entities.
     pub fn get_mut(&mut self, entity: Entity) -> Result<&mut Location, NoSuchEntity> {
         let meta = &mut self.meta[entity.id as usize];
-        if meta.generation != entity.generation {
-            return Err(NoSuchEntity);
+        if meta.generation == entity.generation {
+            Ok(&mut meta.location)
+        } else {
+            Err(NoSuchEntity)
         }
-        Ok(&mut meta.location)
     }
 
+    /// Returns `Ok(Location { archetype: 0, index: undefined })` for pending entities
     pub fn get(&self, entity: Entity) -> Result<Location, NoSuchEntity> {
+        if self.meta.len() <= entity.id as usize {
+            return Ok(Location {
+                archetype: 0,
+                index: u32::max_value(),
+            });
+        }
         let meta = &self.meta[entity.id as usize];
         if meta.generation != entity.generation {
             return Err(NoSuchEntity);
         }
+        if meta.location.archetype == 0 {
+            return Ok(Location {
+                archetype: 0,
+                index: u32::max_value(),
+            });
+        }
         Ok(meta.location)
+    }
+
+    /// Allocate space for and enumerate pending entities
+    pub fn flush(&mut self) -> impl Iterator<Item = u32> {
+        let pending = self.pending.swap(0, Ordering::Relaxed); // Not racey due to &mut self
+
+        if pending != 0 {
+            let first = self.meta.len() as u32;
+            self.grow(pending);
+            first..(first + pending)
+        } else {
+            0..0
+        }
+    }
+
+    // The following three methods allow iteration over `reserved` simultaneous to location
+    // writes. This is a lazy hack, but we only use it in `World::flush` so the complexity and unsafety
+    // involved in producing an `impl Iterator<Item=(u32, &mut Location)>` isn't a clear win.
+    pub fn reserved_len(&self) -> u32 {
+        self.reserved_cursor.load(Ordering::Relaxed)
+    }
+
+    pub fn reserved(&self, i: u32) -> u32 {
+        debug_assert!(i < self.reserved_len());
+        self.reserved[i as usize].load(Ordering::Relaxed)
+    }
+
+    pub fn clear_reserved(&mut self) {
+        self.reserved_cursor.store(0, Ordering::Relaxed);
+    }
+
+    /// Expand storage and mark all but the first `pending` of the new slots as free
+    fn grow(&mut self, pending: u32) {
+        let new_len = (self.meta.len() * 2)
+            .max(self.meta.len() + pending as usize)
+            .max(1024);
+        let mut new_meta = Vec::with_capacity(new_len);
+        new_meta.extend_from_slice(&self.meta);
+        new_meta.resize(
+            new_len,
+            EntityMeta {
+                generation: 0,
+                location: Location {
+                    archetype: 0,
+                    index: u32::max_value(), // dummy value, to be filled in
+                },
+            },
+        );
+
+        let free_cursor = self.free_cursor.load(Ordering::Relaxed); // Not racey due to &mut self
+        let mut new_free = Vec::with_capacity(new_len);
+        new_free.extend_from_slice(&self.free[0..free_cursor as usize]);
+        // Add freshly allocated trailing free slots
+        new_free.extend(((self.meta.len() as u32 + pending)..new_len as u32).rev());
+        debug_assert!(new_free.len() <= new_len);
+        self.free_cursor
+            .store(new_free.len() as u32, Ordering::Relaxed); // Not racey due to &mut self
+
+        // Zero-fill
+        new_free.resize(new_len, 0);
+
+        self.meta = new_meta.into();
+        self.free = new_free.into();
+        let mut new_reserved = Vec::with_capacity(new_len);
+        // Not racey due to &mut self
+        let reserved_cursor = self.reserved_cursor.load(Ordering::Relaxed);
+        for x in &self.reserved[..reserved_cursor as usize] {
+            new_reserved.push(AtomicU32::new(x.load(Ordering::Relaxed)));
+        }
+        new_reserved.resize_with(new_len, || AtomicU32::new(0));
+        for _ in 0..new_len {}
+        self.reserved = new_reserved.into();
     }
 }
 

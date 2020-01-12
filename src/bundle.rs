@@ -22,8 +22,10 @@ use crate::Component;
 
 /// A dynamically typed collection of components
 pub trait DynamicBundle {
+    /// Invoke a callback on the fields' type IDs, sorted by descending alignment then id
     #[doc(hidden)]
     fn with_ids<T>(&self, f: impl FnOnce(&[TypeId]) -> T) -> T;
+    /// Obtain the fields' TypeInfos, sorted by descending alignment then id
     #[doc(hidden)]
     fn type_info(&self) -> Vec<TypeInfo>;
     /// Allow a callback to move all components out of the bundle
