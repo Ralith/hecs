@@ -139,8 +139,6 @@ impl<'a, T: Fetch<'a>> Fetch<'a> for TryFetch<T> {
 
 /// Query transformer skipping entities that have a `T` component
 ///
-/// See also `QueryBorrow::without`.
-///
 /// # Example
 /// ```
 /// # use hecs::*;
@@ -188,8 +186,6 @@ impl<'a, T: Component, F: Fetch<'a>> Fetch<'a> for FetchWithout<T, F> {
 }
 
 /// Query transformer skipping entities that do not have a `T` component
-///
-/// See also `QueryBorrow::with`.
 ///
 /// # Example
 /// ```
@@ -280,70 +276,6 @@ impl<'w, Q: Query> QueryBorrow<'w, Q> {
             archetype_index: 0,
             iter: None,
         }
-    }
-
-    /// Transform the query into one that requires a certain component without borrowing it
-    ///
-    /// This can be useful when the component needs to be borrowed elsewhere and it isn't necessary
-    /// for the iterator to expose its data directly.
-    ///
-    /// Equivalent to using a query type wrapped in `With`.
-    ///
-    /// # Example
-    /// ```
-    /// # use hecs::*;
-    /// let mut world = World::new();
-    /// let a = world.spawn((123, true, "abc"));
-    /// let b = world.spawn((456, false));
-    /// let c = world.spawn((42, "def"));
-    /// let entities = world.query::<&i32>()
-    ///     .with::<bool>()
-    ///     .iter()
-    ///     .map(|(e, &i)| (e, i)) // Copy out of the world
-    ///     .collect::<Vec<_>>();
-    /// assert!(entities.contains(&(a, 123)));
-    /// assert!(entities.contains(&(b, 456)));
-    /// ```
-    pub fn with<T: Component>(mut self) -> QueryBorrow<'w, With<T, Q>> {
-        let x = QueryBorrow {
-            meta: self.meta,
-            archetypes: self.archetypes,
-            borrowed: self.borrowed,
-            _marker: PhantomData,
-        };
-        // Ensure `Drop` won't fire redundantly
-        self.borrowed = false;
-        x
-    }
-
-    /// Transform the query into one that skips entities having a certain component
-    ///
-    /// Equivalent to using a query type wrapped in `Without`.
-    ///
-    /// # Example
-    /// ```
-    /// # use hecs::*;
-    /// let mut world = World::new();
-    /// let a = world.spawn((123, true, "abc"));
-    /// let b = world.spawn((456, false));
-    /// let c = world.spawn((42, "def"));
-    /// let entities = world.query::<&i32>()
-    ///     .without::<bool>()
-    ///     .iter()
-    ///     .map(|(e, &i)| (e, i)) // Copy out of the world
-    ///     .collect::<Vec<_>>();
-    /// assert_eq!(entities, &[(c, 42)]);
-    /// ```
-    pub fn without<T: Component>(mut self) -> QueryBorrow<'w, Without<T, Q>> {
-        let x = QueryBorrow {
-            meta: self.meta,
-            archetypes: self.archetypes,
-            borrowed: self.borrowed,
-            _marker: PhantomData,
-        };
-        // Ensure `Drop` won't fire redundantly
-        self.borrowed = false;
-        x
     }
 }
 
