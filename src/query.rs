@@ -166,7 +166,7 @@ pub struct FetchWithout<T, F>(F, PhantomData<fn(T)>);
 impl<'a, T: Component, F: Fetch<'a>> Fetch<'a> for FetchWithout<T, F> {
     type Item = F::Item;
     fn wants(archetype: &Archetype) -> bool {
-        !archetype.has::<T>()
+        F::wants(archetype) && !archetype.has::<T>()
     }
 
     fn borrow(archetype: &Archetype) {
@@ -218,7 +218,7 @@ pub struct FetchWith<T, F>(F, PhantomData<fn(T)>);
 impl<'a, T: Component, F: Fetch<'a>> Fetch<'a> for FetchWith<T, F> {
     type Item = F::Item;
     fn wants(archetype: &Archetype) -> bool {
-        archetype.has::<T>()
+        F::wants(archetype) && archetype.has::<T>()
     }
 
     fn borrow(archetype: &Archetype) {
