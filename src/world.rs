@@ -116,6 +116,9 @@ impl World {
     ///
     /// Entities are yielded in arbitrary order.
     ///
+    /// The returned `QueryBorrow` can be further transformed with combinator methods; see its
+    /// documentation for details.
+    ///
     /// Iterating a query will panic if it would violate an existing unique reference or construct
     /// an invalid unique reference. This occurs when two simultaneously-active queries could expose
     /// the same entity. Simultaneous queries can access the same component type if and only if the
