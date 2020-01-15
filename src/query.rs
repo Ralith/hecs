@@ -304,16 +304,8 @@ impl<'w, Q: Query> QueryBorrow<'w, Q> {
     /// assert!(entities.contains(&(a, 123)));
     /// assert!(entities.contains(&(b, 456)));
     /// ```
-    pub fn with<T: Component>(mut self) -> QueryBorrow<'w, With<T, Q>> {
-        let x = QueryBorrow {
-            meta: self.meta,
-            archetypes: self.archetypes,
-            borrowed: self.borrowed,
-            _marker: PhantomData,
-        };
-        // Ensure `Drop` won't fire redundantly
-        self.borrowed = false;
-        x
+    pub fn with<T: Component>(self) -> QueryBorrow<'w, With<T, Q>> {
+        self.transform()
     }
 
     /// Transform the query into one that skips entities having a certain component
@@ -334,7 +326,12 @@ impl<'w, Q: Query> QueryBorrow<'w, Q> {
     ///     .collect::<Vec<_>>();
     /// assert_eq!(entities, &[(c, 42)]);
     /// ```
-    pub fn without<T: Component>(mut self) -> QueryBorrow<'w, Without<T, Q>> {
+    pub fn without<T: Component>(self) -> QueryBorrow<'w, Without<T, Q>> {
+        self.transform()
+    }
+
+    /// Helper to change the type of the query
+    fn transform<R: Query>(mut self) -> QueryBorrow<'w, R> {
         let x = QueryBorrow {
             meta: self.meta,
             archetypes: self.archetypes,
