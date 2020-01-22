@@ -45,6 +45,20 @@ group having a superset of those components. This is effectively a columnar
 database, and has the same benefits: the CPU can accurately predict memory
 accesses, bypassing unneeded data, maximizing cache use and minimizing latency.
 
+### Why Not ECS?
+
+An ECS world is not a be-all end-all data structure. Most games will store
+significant amounts of state in other structures. For example, many games
+maintain a spatial index structure (e.g. a tile map or bounding volume
+hierarchy) used to find entities and obstacles near a certain location for
+efficient collision detection without searching the entire world.
+
+If you need to search for specific entities using criteria other than the types
+of their components, consider maintaining a specialized index beside your world,
+storing `Entity` handles and whatever other data is necessary. Insert into the
+index when spawning relevant entities, and include a component with that allows
+efficiently removing them from the index when despawning.
+
 ### Other Libraries
 
 hecs would not exist if not for the great work done by others to introduce and
