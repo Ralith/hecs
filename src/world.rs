@@ -535,13 +535,4 @@ mod tests {
         assert_eq!(a.id, b.id);
         assert_ne!(a.generation, b.generation);
     }
-
-    #[test]
-    fn entity_bits_roundtrip() {
-        let e = Entity {
-            generation: 0xDEADBEEF,
-            id: 0xBAADF00D,
-        };
-        assert_eq!(Entity::from_bits(e.to_bits()), e);
-    }
 }

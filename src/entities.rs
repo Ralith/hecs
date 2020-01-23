@@ -135,3 +135,17 @@ impl fmt::Display for NoSuchEntity {
 
 #[cfg(feature = "std")]
 impl Error for NoSuchEntity {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn entity_bits_roundtrip() {
+        let e = Entity {
+            generation: 0xDEADBEEF,
+            id: 0xBAADF00D,
+        };
+        assert_eq!(Entity::from_bits(e.to_bits()), e);
+    }
+}
