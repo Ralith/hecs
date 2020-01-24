@@ -53,8 +53,10 @@ impl World {
     /// Returns the ID of the newly created entity.
     ///
     /// Arguments can be tuples, structs annotated with `#[derive(Bundle)]`, or `EntityBuilder`,
-    /// preferred if the set of components isn't statically known. To spawn an entity with only one
-    /// component, use a one-element tuple like `(x,)`.
+    /// which is useful if the set of components isn't statically known. To spawn an entity with
+    /// only one component, use a one-element tuple like `(x,)`.
+    ///
+    /// Any type that satisfies `Send + Sync + 'static` can be used as a component.
     ///
     /// # Example
     /// ```
@@ -443,7 +445,10 @@ impl From<MissingComponent> for ComponentError {
     }
 }
 
-/// Types that can be components (implemented automatically)
+/// Types that can be components, implemented automatically for all `Send + Sync + 'static` types
+///
+/// This is just a convenient shorthand for `Send + Sync + 'static`, and never needs to be
+/// implemented manually.
 pub trait Component: Send + Sync + 'static {}
 impl<T: Send + Sync + 'static> Component for T {}
 
