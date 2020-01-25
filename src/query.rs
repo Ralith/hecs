@@ -371,7 +371,7 @@ impl<'q, 'w, Q: Query> IntoIterator for &'q mut QueryBorrow<'w, Q> {
 struct ChunkIter<Q: Query> {
     entities: NonNull<u32>,
     fetch: Q::Fetch,
-    len: usize,
+    len: u32,
 }
 
 /// Iterator over the set of entities with the components in `Q`
@@ -433,7 +433,7 @@ impl<'q, 'w, Q: Query> ExactSizeIterator for QueryIter<'q, 'w, Q> {
             .archetypes
             .iter()
             .filter(|&x| Q::Fetch::wants(x))
-            .map(|x| x.len())
+            .map(|x| x.len() as usize)
             .sum()
     }
 }
