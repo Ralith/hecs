@@ -151,55 +151,57 @@ impl Archetype {
 
     /// Every type must be written immediately after this call
     pub(crate) unsafe fn allocate(&mut self, id: u32) -> u32 {
-        if (self.len as usize) < self.entities.len() {
-            self.entities[self.len as usize] = id;
-            self.len += 1;
-            return self.len - 1;
+        if self.len as usize == self.entities.len() {
+            self.grow(self.len.max(64));
         }
 
-        // At this point we need to allocate more storage.
-        let old_count = self.entities.len();
-        let count = if old_count == 0 { 64 } else { old_count * 2 };
-        let mut new_entities = vec![!0; count].into_boxed_slice();
-        new_entities[0..old_count].copy_from_slice(&self.entities);
-        self.entities = new_entities;
-
-        let old_data_size = mem::replace(&mut self.data_size, 0);
-        let mut state = HashMap::with_capacity(self.types.len());
-        for ty in &self.types {
-            self.data_size = align(self.data_size, ty.layout.align());
-            state.insert(ty.id, TypeState::new(self.data_size));
-            self.data_size += ty.layout.size() * count;
-        }
-        let new_data = if self.data_size == 0 {
-            NonNull::dangling()
-        } else {
-            NonNull::new(alloc(
-                Layout::from_size_align(
-                    self.data_size,
-                    self.types.first().map_or(1, |x| x.layout.align()),
-                )
-                .unwrap(),
-            ))
-            .unwrap()
-        };
-        if old_data_size != 0 {
-            for ty in &self.types {
-                let old_off = self.state.get(&ty.id).unwrap().offset;
-                let new_off = state.get(&ty.id).unwrap().offset;
-                ptr::copy_nonoverlapping(
-                    (*self.data.get()).as_ptr().add(old_off),
-                    new_data.as_ptr().add(new_off),
-                    ty.layout.size() * old_count,
-                );
-            }
-        }
-
-        self.data = UnsafeCell::new(new_data);
-        self.state = state;
         self.entities[self.len as usize] = id;
         self.len += 1;
         self.len - 1
+    }
+
+    fn grow(&mut self, increment: u32) {
+        unsafe {
+            let old_count = self.len as usize;
+            let count = old_count + increment as usize;
+            let mut new_entities = vec![!0; count].into_boxed_slice();
+            new_entities[0..old_count].copy_from_slice(&self.entities[0..old_count]);
+            self.entities = new_entities;
+
+            let old_data_size = mem::replace(&mut self.data_size, 0);
+            let mut state = HashMap::with_capacity(self.types.len());
+            for ty in &self.types {
+                self.data_size = align(self.data_size, ty.layout.align());
+                state.insert(ty.id, TypeState::new(self.data_size));
+                self.data_size += ty.layout.size() * count;
+            }
+            let new_data = if self.data_size == 0 {
+                NonNull::dangling()
+            } else {
+                NonNull::new(alloc(
+                    Layout::from_size_align(
+                        self.data_size,
+                        self.types.first().map_or(1, |x| x.layout.align()),
+                    )
+                    .unwrap(),
+                ))
+                .unwrap()
+            };
+            if old_data_size != 0 {
+                for ty in &self.types {
+                    let old_off = self.state.get(&ty.id).unwrap().offset;
+                    let new_off = state.get(&ty.id).unwrap().offset;
+                    ptr::copy_nonoverlapping(
+                        (*self.data.get()).as_ptr().add(old_off),
+                        new_data.as_ptr().add(new_off),
+                        ty.layout.size() * old_count,
+                    );
+                }
+            }
+
+            self.data = UnsafeCell::new(new_data);
+            self.state = state;
+        }
     }
 
     /// Returns the ID of the entity moved into `index`, if any
