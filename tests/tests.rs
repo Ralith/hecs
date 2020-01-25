@@ -290,10 +290,42 @@ fn reserve() {
     let entities = world
         .query::<()>()
         .iter()
-        .map(|(e, _)| e)
+        .map(|(e, ())| e)
         .collect::<Vec<_>>();
 
     assert_eq!(entities.len(), 2);
     assert!(entities.contains(&a));
     assert!(entities.contains(&b));
+}
+
+#[test]
+fn query_batched() {
+    let mut world = World::new();
+    let a = world.spawn(());
+    let b = world.spawn(());
+    let c = world.spawn((42,));
+    assert_eq!(world.query::<()>().iter_batched(1).count(), 3);
+    assert_eq!(world.query::<()>().iter_batched(2).count(), 2);
+    assert_eq!(
+        world.query::<()>().iter_batched(2).flat_map(|x| x).count(),
+        3
+    );
+    // different archetypes are always in different batches
+    assert_eq!(world.query::<()>().iter_batched(3).count(), 2);
+    assert_eq!(
+        world.query::<()>().iter_batched(3).flat_map(|x| x).count(),
+        3
+    );
+    assert_eq!(world.query::<()>().iter_batched(4).count(), 2);
+    let entities = world
+        .query::<()>()
+        .iter_batched(1)
+        .flat_map(|x| x)
+        .map(|(e, ())| e)
+        .collect::<Vec<_>>();
+    dbg!(&entities);
+    assert_eq!(entities.len(), 3);
+    assert!(entities.contains(&a));
+    assert!(entities.contains(&b));
+    assert!(entities.contains(&c));
 }
