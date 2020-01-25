@@ -93,10 +93,10 @@ pub fn derive_bundle(input: TokenStream) -> TokenStream {
 
             unsafe fn get(
                 mut f: impl FnMut(std::any::TypeId, usize) -> Option<std::ptr::NonNull<u8>>,
-            ) -> Result<Self, MissingComponent> {
+            ) -> Result<Self, ::hecs::MissingComponent> {
                 #(
                     let #fields = f(std::any::TypeId::of::<#tys>(), std::mem::size_of::<#tys>())
-                            .ok_or_else(MissingComponent::new::<#tys>)?
+                            .ok_or_else(::hecs::MissingComponent::new::<#tys>)?
                             .cast::<#tys>()
                         .as_ptr();
                 )*
