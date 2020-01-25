@@ -117,8 +117,8 @@ impl Archetype {
         }
     }
 
-    pub(crate) fn len(&self) -> usize {
-        self.len as usize
+    pub(crate) fn len(&self) -> u32 {
+        self.len
     }
 
     pub(crate) fn entities(&self) -> NonNull<u32> {
@@ -158,6 +158,16 @@ impl Archetype {
         self.entities[self.len as usize] = id;
         self.len += 1;
         self.len - 1
+    }
+
+    pub(crate) fn reserve(&mut self, additional: u32) {
+        if additional > (self.capacity() - self.len()) {
+            self.grow(additional - (self.capacity() - self.len()));
+        }
+    }
+
+    pub(crate) fn capacity(&self) -> u32 {
+        self.entities.len() as u32
     }
 
     fn grow(&mut self, increment: u32) {

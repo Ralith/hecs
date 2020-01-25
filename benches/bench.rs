@@ -41,6 +41,25 @@ fn spawn_static(b: &mut Bencher) {
     });
 }
 
+fn spawn_batch(b: &mut Bencher) {
+    #[derive(Bundle)]
+    struct Bundle {
+        pos: Position,
+        vel: Velocity,
+    };
+
+    let mut world = World::new();
+    b.iter(|| {
+        world
+            .spawn_batch((0..1_000).map(|_| Bundle {
+                pos: Position(0.0),
+                vel: Velocity(0.0),
+            }))
+            .for_each(|_| {});
+        world.clear();
+    });
+}
+
 fn iterate_100k(b: &mut Bencher) {
     let mut world = World::new();
     for i in 0..100_000 {
@@ -62,5 +81,12 @@ fn build(b: &mut Bencher) {
     });
 }
 
-benchmark_group!(benches, spawn_tuple, spawn_static, iterate_100k, build);
+benchmark_group!(
+    benches,
+    spawn_tuple,
+    spawn_static,
+    spawn_batch,
+    iterate_100k,
+    build
+);
 benchmark_main!(benches);

@@ -50,9 +50,7 @@ pub fn derive_bundle(input: TokenStream) -> TokenStream {
             }
 
             fn type_info(&self) -> Vec<::hecs::TypeInfo> {
-                let mut info = vec![#(::hecs::TypeInfo::of::<#tys>()),*];
-                info.sort_unstable();
-                info
+                Self::static_type_info()
             }
 
             unsafe fn put(mut self, mut f: impl FnMut(*mut u8, std::any::TypeId, usize) -> bool) {
@@ -89,6 +87,12 @@ pub fn derive_bundle(input: TokenStream) -> TokenStream {
                 }
 
                 f(&*ELEMENTS)
+            }
+
+            fn static_type_info() -> Vec<::hecs::TypeInfo> {
+                let mut info = vec![#(::hecs::TypeInfo::of::<#tys>()),*];
+                info.sort_unstable();
+                info
             }
 
             unsafe fn get(

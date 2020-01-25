@@ -40,6 +40,11 @@ pub trait DynamicBundle {
 pub trait Bundle: DynamicBundle {
     #[doc(hidden)]
     fn with_static_ids<T>(f: impl FnOnce(&[TypeId]) -> T) -> T;
+
+    /// Obtain the fields' TypeInfos, sorted by descending alignment then id
+    #[doc(hidden)]
+    fn static_type_info() -> Vec<TypeInfo>;
+
     /// Construct `Self` by moving components out of pointers fetched by `f`
     ///
     /// # Safety
@@ -82,9 +87,7 @@ macro_rules! tuple_impl {
             }
 
             fn type_info(&self) -> Vec<TypeInfo> {
-                let mut xs = vec![$(TypeInfo::of::<$name>()),*];
-                xs.sort_unstable();
-                xs
+                Self::static_type_info()
             }
 
             #[allow(unused_variables, unused_mut)]
@@ -113,6 +116,12 @@ macro_rules! tuple_impl {
                     *slot = id;
                 }
                 f(&ids)
+            }
+
+            fn static_type_info() -> Vec<TypeInfo> {
+                let mut xs = vec![$(TypeInfo::of::<$name>()),*];
+                xs.sort_unstable();
+                xs
             }
 
             #[allow(unused_variables, unused_mut)]

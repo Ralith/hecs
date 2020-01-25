@@ -74,7 +74,7 @@ impl Entities {
     /// Storage for entity generation and location is lazily allocated by calling `flush`. Locations
     /// can be determined by the return value of `flush` and by iterating through the `reserved`
     /// accessors, and should all be written immediately after flushing.
-    pub fn reserve(&self) -> Entity {
+    pub fn reserve_entity(&self) -> Entity {
         loop {
             let index = self.free_cursor.load(Ordering::Relaxed);
             match index.checked_sub(1) {
@@ -172,6 +172,19 @@ impl Entities {
         Ok(loc)
     }
 
+    /// Ensure `n` at least allocations can succeed without reallocating
+    pub fn reserve(&mut self, additional: u32) {
+        debug_assert_eq!(
+            self.pending.load(Ordering::Relaxed),
+            0,
+            "allocator must be flushed before potentially growing"
+        );
+        let free = self.free_cursor.load(Ordering::Relaxed);
+        if additional > free {
+            self.grow(additional - free);
+        }
+    }
+
     pub fn contains(&self, entity: Entity) -> bool {
         if entity.id >= self.meta.len() as u32 {
             return true;
@@ -225,11 +238,11 @@ impl Entities {
 
     /// Allocate space for and enumerate pending entities
     pub fn flush(&mut self) -> impl Iterator<Item = u32> {
-        let pending = self.pending.swap(0, Ordering::Relaxed); // Not racey due to &mut self
+        let pending = self.pending.load(Ordering::Relaxed); // Not racey due to &mut self
 
         if pending != 0 {
             let first = self.meta.len() as u32;
-            self.grow(pending);
+            self.grow(0);
             first..(first + pending)
         } else {
             0..0
@@ -253,9 +266,10 @@ impl Entities {
     }
 
     /// Expand storage and mark all but the first `pending` of the new slots as free
-    fn grow(&mut self, pending: u32) {
-        let new_len = (self.meta.len() * 2)
-            .max(self.meta.len() + pending as usize)
+    fn grow(&mut self, increment: u32) {
+        let pending = self.pending.swap(0, Ordering::Relaxed);
+        let new_len = (self.meta.len() + pending as usize + increment as usize)
+            .max(self.meta.len() * 2)
             .max(1024);
         let mut new_meta = Vec::with_capacity(new_len);
         new_meta.extend_from_slice(&self.meta);
@@ -291,7 +305,6 @@ impl Entities {
             new_reserved.push(AtomicU32::new(x.load(Ordering::Relaxed)));
         }
         new_reserved.resize_with(new_len, || AtomicU32::new(0));
-        for _ in 0..new_len {}
         self.reserved = new_reserved.into();
     }
 }

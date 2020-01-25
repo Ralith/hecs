@@ -14,6 +14,7 @@
 
 use crate::alloc::vec::Vec;
 use core::any::TypeId;
+use core::convert::TryFrom;
 use core::{fmt, mem, ptr};
 
 #[cfg(feature = "std")]
@@ -101,6 +102,45 @@ impl World {
         entity
     }
 
+    /// Efficiently spawn a large number of entities with the same components
+    ///
+    /// Faster than calling `spawn` repeatedly with the same components. The resulting iterator
+    /// *must* be driven to completion for entities to actually be spawned.
+    ///
+    /// # Example
+    /// ```
+    /// # use hecs::*;
+    /// let mut world = World::new();
+    /// let entities = world.spawn_batch((0..1_000).map(|i| (i, "abc"))).collect::<Vec<_>>();
+    /// for i in 0..1_000 {
+    ///     assert_eq!(*world.get::<i32>(entities[i]).unwrap(), i as i32);
+    /// }
+    /// ```
+    pub fn spawn_batch<'a, T: Bundle>(
+        &'a mut self,
+        iter: impl IntoIterator<Item = T> + 'a,
+    ) -> impl Iterator<Item = Entity> + 'a {
+        let iter = iter.into_iter();
+        let (lower, upper) = iter.size_hint();
+        let archetype_id = self
+            .reserve_inner::<T>(u32::try_from(upper.unwrap_or(lower)).expect("iterator too large"));
+
+        iter.map(move |components| unsafe {
+            let archetype = &mut self.archetypes[archetype_id as usize];
+            let entity = self.entities.alloc();
+            let index = archetype.allocate(entity.id);
+            components.put(|ptr, ty, size| {
+                archetype.put_dynamic(ptr, ty, size, index);
+                true
+            });
+            self.entities.meta[entity.id as usize].location = Location {
+                archetype: archetype_id,
+                index,
+            };
+            entity
+        })
+    }
+
     /// Allocate an entity ID concurrently
     ///
     /// Unlike `spawn`, this can be called simultaneously to other operations on the `World` such as
@@ -111,8 +151,8 @@ impl World {
     /// explicitly by calling `flush`.
     ///
     /// Useful for reserving an ID that will later have components attached to it with `insert`.
-    pub fn reserve(&self) -> Entity {
-        self.entities.reserve()
+    pub fn reserve_entity(&self) -> Entity {
+        self.entities.reserve_entity()
     }
 
     /// Destroy an entity and all its components
@@ -123,6 +163,28 @@ impl World {
             self.entities.meta[moved as usize].location.index = loc.index;
         }
         Ok(())
+    }
+
+    /// Ensure `additional` entities with exact components `T` can be spawned without reallocating
+    pub fn reserve<T: Bundle>(&mut self, additional: u32) {
+        self.reserve_inner::<T>(additional);
+    }
+
+    fn reserve_inner<T: Bundle>(&mut self, additional: u32) -> u32 {
+        self.flush();
+        self.entities.reserve(additional);
+
+        let archetype_id = T::with_static_ids(|ids| {
+            self.index.get(ids).copied().unwrap_or_else(|| {
+                let x = self.archetypes.len() as u32;
+                self.archetypes.push(Archetype::new(T::static_type_info()));
+                self.index.insert(ids.to_vec(), x);
+                x
+            })
+        });
+
+        self.archetypes[archetype_id as usize].reserve(additional);
+        archetype_id
     }
 
     /// Despawn all entities

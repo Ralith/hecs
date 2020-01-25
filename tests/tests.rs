@@ -280,8 +280,8 @@ fn remove_missing() {
 #[test]
 fn reserve() {
     let mut world = World::new();
-    let a = world.reserve();
-    let b = world.reserve();
+    let a = world.reserve_entity();
+    let b = world.reserve_entity();
 
     assert_eq!(world.query::<()>().iter().count(), 0);
 
