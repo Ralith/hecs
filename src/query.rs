@@ -406,6 +406,7 @@ unsafe impl<'q, 'w, Q: Query> Sync for QueryIter<'q, 'w, Q> {}
 impl<'q, 'w, Q: Query> Iterator for QueryIter<'q, 'w, Q> {
     type Item = (Entity, <Q::Fetch as Fetch<'q>>::Item);
 
+    #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             match self.iter {
