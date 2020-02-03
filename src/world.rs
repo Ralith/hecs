@@ -40,6 +40,7 @@ pub struct World {
     entities: Entities,
     index: HashMap<Vec<TypeId>, u32>,
     archetypes: Vec<Archetype>,
+    archetype_generation: u64,
 }
 
 impl World {
@@ -54,6 +55,7 @@ impl World {
             entities: Entities::default(),
             index,
             archetypes,
+            archetype_generation: 0,
         }
     }
 
@@ -85,6 +87,7 @@ impl World {
                 let x = self.archetypes.len() as u32;
                 self.archetypes.push(Archetype::new(components.type_info()));
                 self.index.insert(ids.to_vec(), x);
+                self.archetype_generation += 1;
                 x
             })
         });
@@ -181,6 +184,7 @@ impl World {
                 let x = self.archetypes.len() as u32;
                 self.archetypes.push(Archetype::new(T::static_type_info()));
                 self.index.insert(ids.to_vec(), x);
+                self.archetype_generation += 1;
                 x
             })
         });
@@ -345,6 +349,7 @@ impl World {
                     let index = self.archetypes.len() as u32;
                     self.archetypes.push(Archetype::new(info));
                     x.insert(index);
+                    self.archetype_generation += 1;
                     index
                 }
             };
@@ -431,6 +436,7 @@ impl World {
                     self.archetypes.push(Archetype::new(info));
                     let index = (self.archetypes.len() - 1) as u32;
                     x.insert(index);
+                    self.archetype_generation += 1;
                     index
                 }
             };
@@ -528,6 +534,28 @@ impl World {
     /// not provide access to entities.
     pub fn archetypes(&self) -> impl ExactSizeIterator<Item = &'_ Archetype> + '_ {
         self.archetypes.iter()
+    }
+
+    /// Returns a distinct value after `archetypes` is changed
+    ///
+    /// Store the current value after deriving information from `archetypes`, then check whether the
+    /// value returned by this function differs before attempting an operation that relies on its
+    /// correctness. Useful for determining whether e.g. a concurrent query execution plan is still
+    /// correct.
+    ///
+    /// The generation may be, but is not necessarily, changed as a result of adding or removing any
+    /// entity or component.
+    ///
+    /// # Example
+    /// ```
+    /// # use hecs::*;
+    /// let mut world = World::new();
+    /// let initial_gen = world.archetypes_generation();
+    /// world.spawn((123, "abc"));
+    /// assert_ne!(initial_gen, world.archetypes_generation());
+    /// ```
+    pub fn archetypes_generation(&self) -> ArchetypesGeneration {
+        ArchetypesGeneration(self.archetype_generation)
     }
 }
 
@@ -671,6 +699,10 @@ impl<A: DynamicBundle> core::iter::FromIterator<A> for World {
         world
     }
 }
+
+/// Determines freshness of information derived from `World::archetypes`
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub struct ArchetypesGeneration(u64);
 
 #[cfg(test)]
 mod tests {
