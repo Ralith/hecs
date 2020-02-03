@@ -69,16 +69,17 @@ mod entity_builder;
 mod query;
 mod world;
 
+pub use archetype::Archetype;
 pub use borrow::{EntityRef, Ref, RefMut};
 pub use bundle::{Bundle, DynamicBundle, MissingComponent};
 pub use entities::{Entity, NoSuchEntity};
 pub use entity_builder::{BuiltEntity, EntityBuilder};
-pub use query::{Query, QueryBorrow, QueryIter, With, Without};
+pub use query::{Access, Query, QueryBorrow, QueryIter, With, Without};
 pub use world::{Component, ComponentError, Iter, World};
 
 // Unstable implementation details needed by the macros
 #[doc(hidden)]
-pub use archetype::{Archetype, TypeInfo};
+pub use archetype::TypeInfo;
 #[cfg(feature = "macros")]
 #[doc(hidden)]
 pub use lazy_static;

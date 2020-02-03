@@ -23,9 +23,13 @@ use core::ptr::{self, NonNull};
 use hashbrown::HashMap;
 
 use crate::borrow::AtomicBorrow;
-use crate::Component;
+use crate::query::Fetch;
+use crate::{Access, Component, Query};
 
 /// A collection of entities having the same component types
+///
+/// Accessing `Archetype`s is only required for complex dynamic scheduling. To manipulate entities,
+/// go through the `World`.
 pub struct Archetype {
     types: Vec<TypeInfo>,
     state: HashMap<TypeId, TypeState>,
@@ -287,6 +291,11 @@ impl Archetype {
             .as_ptr()
             .cast::<u8>();
         ptr::copy_nonoverlapping(component, ptr, size);
+    }
+
+    /// How, if at all, `Q` will access entities in this archetype
+    pub fn access<Q: Query>(&self) -> Option<Access> {
+        Q::Fetch::access(self)
     }
 }
 
