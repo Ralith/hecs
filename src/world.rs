@@ -521,6 +521,14 @@ impl World {
         }
         self.entities.clear_reserved();
     }
+
+    /// Inspect the archetypes that entities are organized into
+    ///
+    /// Useful for dynamically scheduling concurrent queries by checking borrows in advance. Does
+    /// not provide access to entities.
+    pub fn archetypes(&self) -> impl ExactSizeIterator<Item = &'_ Archetype> + '_ {
+        self.archetypes.iter()
+    }
 }
 
 unsafe impl Send for World {}

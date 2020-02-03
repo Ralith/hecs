@@ -30,8 +30,8 @@ pub trait Fetch<'a>: Sized {
     /// Type of value to be fetched
     type Item;
 
-    /// Whether `get` will borrow from `archetype`
-    fn wants(archetype: &Archetype) -> bool;
+    /// How this query will access `archetype`, if at all
+    fn access(archetype: &Archetype) -> Option<Access>;
 
     /// Acquire dynamic borrows from `archetype`
     fn borrow(archetype: &Archetype);
@@ -53,6 +53,17 @@ pub trait Fetch<'a>: Sized {
     unsafe fn next(&mut self) -> Self::Item;
 }
 
+/// Type of access a `Query` may have to an `Archetype`
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
+pub enum Access {
+    /// Read entity IDs only, no components
+    Iterate,
+    /// Read components
+    Read,
+    /// Read and write components
+    Write,
+}
+
 impl<'a, T: Component> Query for &'a T {
     type Fetch = FetchRead<T>;
 }
@@ -62,8 +73,13 @@ pub struct FetchRead<T>(NonNull<T>);
 
 impl<'a, T: Component> Fetch<'a> for FetchRead<T> {
     type Item = &'a T;
-    fn wants(archetype: &Archetype) -> bool {
-        archetype.has::<T>()
+
+    fn access(archetype: &Archetype) -> Option<Access> {
+        if archetype.has::<T>() {
+            Some(Access::Read)
+        } else {
+            None
+        }
     }
 
     fn borrow(archetype: &Archetype) {
@@ -94,8 +110,13 @@ pub struct FetchWrite<T>(NonNull<T>);
 
 impl<'a, T: Component> Fetch<'a> for FetchWrite<T> {
     type Item = &'a mut T;
-    fn wants(archetype: &Archetype) -> bool {
-        archetype.has::<T>()
+
+    fn access(archetype: &Archetype) -> Option<Access> {
+        if archetype.has::<T>() {
+            Some(Access::Write)
+        } else {
+            None
+        }
     }
 
     fn borrow(archetype: &Archetype) {
@@ -126,8 +147,9 @@ pub struct TryFetch<T>(Option<T>);
 
 impl<'a, T: Fetch<'a>> Fetch<'a> for TryFetch<T> {
     type Item = Option<T::Item>;
-    fn wants(_: &Archetype) -> bool {
-        true
+
+    fn access(archetype: &Archetype) -> Option<Access> {
+        Some(T::access(archetype).unwrap_or(Access::Iterate))
     }
 
     fn borrow(archetype: &Archetype) {
@@ -173,8 +195,13 @@ pub struct FetchWithout<T, F>(F, PhantomData<fn(T)>);
 
 impl<'a, T: Component, F: Fetch<'a>> Fetch<'a> for FetchWithout<T, F> {
     type Item = F::Item;
-    fn wants(archetype: &Archetype) -> bool {
-        F::wants(archetype) && !archetype.has::<T>()
+
+    fn access(archetype: &Archetype) -> Option<Access> {
+        if archetype.has::<T>() {
+            None
+        } else {
+            F::access(archetype)
+        }
     }
 
     fn borrow(archetype: &Archetype) {
@@ -225,8 +252,13 @@ pub struct FetchWith<T, F>(F, PhantomData<fn(T)>);
 
 impl<'a, T: Component, F: Fetch<'a>> Fetch<'a> for FetchWith<T, F> {
     type Item = F::Item;
-    fn wants(archetype: &Archetype) -> bool {
-        F::wants(archetype) && archetype.has::<T>()
+
+    fn access(archetype: &Archetype) -> Option<Access> {
+        if archetype.has::<T>() {
+            F::access(archetype)
+        } else {
+            None
+        }
     }
 
     fn borrow(archetype: &Archetype) {
@@ -300,7 +332,7 @@ impl<'w, Q: Query> QueryBorrow<'w, Q> {
         }
         for x in self.archetypes {
             // TODO: Release prior borrows on failure?
-            if Q::Fetch::wants(x) {
+            if Q::Fetch::access(x) >= Some(Access::Read) {
                 Q::Fetch::borrow(x);
             }
         }
@@ -376,7 +408,7 @@ impl<'w, Q: Query> Drop for QueryBorrow<'w, Q> {
     fn drop(&mut self) {
         if self.borrowed {
             for x in self.archetypes {
-                if Q::Fetch::wants(x) {
+                if Q::Fetch::access(x) >= Some(Access::Read) {
                     Q::Fetch::release(x);
                 }
             }
@@ -451,7 +483,7 @@ impl<'q, 'w, Q: Query> ExactSizeIterator for QueryIter<'q, 'w, Q> {
         self.borrow
             .archetypes
             .iter()
-            .filter(|&x| Q::Fetch::wants(x))
+            .filter(|&x| Q::Fetch::access(x).is_some())
             .map(|x| x.len() as usize)
             .sum()
     }
@@ -555,9 +587,14 @@ macro_rules! tuple_impl {
     ($($name: ident),*) => {
         impl<'a, $($name: Fetch<'a>),*> Fetch<'a> for ($($name,)*) {
             type Item = ($($name::Item,)*);
-            #[allow(unused_variables)]
-            fn wants(archetype: &Archetype) -> bool {
-                $($name::wants(archetype) &&)* true
+
+            #[allow(unused_variables, unused_mut)]
+            fn access(archetype: &Archetype) -> Option<Access> {
+                let mut access = Access::Iterate;
+                $(
+                    access = access.max($name::access(archetype)?);
+                )*
+                Some(access)
             }
 
             #[allow(unused_variables)]
@@ -588,3 +625,15 @@ macro_rules! tuple_impl {
 
 //smaller_tuples_too!(tuple_impl, B, A);
 smaller_tuples_too!(tuple_impl, O, N, M, L, K, J, I, H, G, F, E, D, C, B, A);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn access_order() {
+        assert!(Access::Write > Access::Read);
+        assert!(Access::Read > Access::Iterate);
+        assert!(Some(Access::Iterate) > None);
+    }
+}
