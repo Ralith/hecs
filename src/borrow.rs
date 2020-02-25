@@ -53,7 +53,8 @@ impl AtomicBorrow {
     }
 
     pub fn release_mut(&self) {
-        self.0.store(0, Ordering::Release);
+        let value = self.0.fetch_and(!UNIQUE_BIT, Ordering::Release);
+        debug_assert_ne!(value & UNIQUE_BIT, 0, "unique release of shared borrow");
     }
 }
 
