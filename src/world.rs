@@ -63,9 +63,10 @@ impl World {
     ///
     /// Returns the ID of the newly created entity.
     ///
-    /// Arguments can be tuples, structs annotated with `#[derive(Bundle)]`, or `EntityBuilder`,
-    /// which is useful if the set of components isn't statically known. To spawn an entity with
-    /// only one component, use a one-element tuple like `(x,)`.
+    /// Arguments can be tuples, structs annotated with `#[derive(Bundle)]`, or the result of
+    /// calling `build` on an `EntityBuilder`, which is useful if the set of components isn't
+    /// statically known. To spawn an entity with only one component, use a one-element tuple like
+    /// `(x,)`.
     ///
     /// Any type that satisfies `Send + Sync + 'static` can be used as a component.
     ///
