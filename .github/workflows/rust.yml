@@ -76,8 +76,8 @@ jobs:
 
       - uses: actions-rs/cargo@v1
         with:
-          command: install
-          args: xargo
+          command: miri
+          args: setup
 
       - uses: actions-rs/cargo@v1
         with:
