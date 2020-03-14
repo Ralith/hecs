@@ -341,3 +341,20 @@ fn spawn_batch() {
         .collect::<Vec<_>>();
     assert_eq!(entities.len(), 100);
 }
+
+#[test]
+fn query_one() {
+    let mut world = World::new();
+    let a = world.spawn(("abc", 123));
+    let b = world.spawn(("def", 456));
+    let c = world.spawn(("ghi", 789, true));
+    assert_eq!(world.query_one::<&i32>(a).unwrap().get(), Some(&123));
+    assert_eq!(world.query_one::<&i32>(b).unwrap().get(), Some(&456));
+    assert!(world.query_one::<(&i32, &bool)>(a).unwrap().get().is_none());
+    assert_eq!(
+        world.query_one::<(&i32, &bool)>(c).unwrap().get(),
+        Some((&789, &true))
+    );
+    world.despawn(a).unwrap();
+    assert!(world.query_one::<&i32>(a).is_err());
+}
