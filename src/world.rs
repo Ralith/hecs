@@ -26,7 +26,7 @@ use crate::archetype::Archetype;
 use crate::entities::{Entities, Location};
 use crate::{
     Bundle, DynamicBundle, Entity, EntityRef, MissingComponent, NoSuchEntity, Query, QueryBorrow,
-    Ref, RefMut,
+    QueryOne, Ref, RefMut,
 };
 
 /// An unordered collection of entities, each having any number of distinctly typed components
@@ -246,6 +246,27 @@ impl World {
     /// ```
     pub fn query<Q: Query>(&self) -> QueryBorrow<'_, Q> {
         QueryBorrow::new(&self.entities.meta, &self.archetypes)
+    }
+
+    /// Prepare a query against a single entity
+    ///
+    /// Call `get` on the resulting `QueryOne` to actually execute the query.
+    ///
+    /// Handy for accessing multiple components simultaneously.
+    ///
+    /// # Example
+    /// ```
+    /// # use hecs::*;
+    /// let mut world = World::new();
+    /// let a = world.spawn((123, true, "abc"));
+    /// assert_eq!(
+    ///     world.query_one::<(&i32, &bool)>(a).unwrap().get().unwrap(),
+    ///     (&123, &true)
+    /// );
+    /// ```
+    pub fn query_one<Q: Query>(&self, entity: Entity) -> Result<QueryOne<'_, Q>, NoSuchEntity> {
+        let loc = self.entities.get(entity)?;
+        Ok(unsafe { QueryOne::new(&self.archetypes[loc.archetype as usize], loc.index) })
     }
 
     /// Borrow the `T` component of `entity`
