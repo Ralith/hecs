@@ -45,7 +45,7 @@ impl Archetype {
     pub(crate) fn new(types: Vec<TypeInfo>) -> Self {
         debug_assert!(
             types.windows(2).all(|x| x[0] < x[1]),
-            "type info not sorted"
+            "type info unsorted or contains duplicates"
         );
         Self {
             types,
