@@ -126,6 +126,10 @@ impl World {
         &'a mut self,
         iter: impl IntoIterator<Item = T> + 'a,
     ) -> impl Iterator<Item = Entity> + 'a {
+        // Ensure all entity allocations are accounted for so `self.entities` can realloc if
+        // necessary
+        self.flush();
+
         let iter = iter.into_iter();
         let (lower, upper) = iter.size_hint();
         let archetype_id = self
