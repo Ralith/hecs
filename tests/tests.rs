@@ -329,3 +329,15 @@ fn query_batched() {
     assert!(entities.contains(&b));
     assert!(entities.contains(&c));
 }
+
+#[test]
+fn spawn_batch() {
+    let mut world = World::new();
+    world.spawn_batch((0..100).map(|x| (x, "abc")));
+    let entities = world
+        .query::<&i32>()
+        .iter()
+        .map(|(_, &x)| x)
+        .collect::<Vec<_>>();
+    assert_eq!(entities.len(), 100);
+}

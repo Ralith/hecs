@@ -110,8 +110,7 @@ impl World {
 
     /// Efficiently spawn a large number of entities with the same components
     ///
-    /// Faster than calling `spawn` repeatedly with the same components. The resulting iterator
-    /// *must* be driven to completion for entities to actually be spawned.
+    /// Faster than calling `spawn` repeatedly with the same components.
     ///
     /// # Example
     /// ```
@@ -122,33 +121,27 @@ impl World {
     ///     assert_eq!(*world.get::<i32>(entities[i]).unwrap(), i as i32);
     /// }
     /// ```
-    pub fn spawn_batch<'a, T: Bundle>(
-        &'a mut self,
-        iter: impl IntoIterator<Item = T> + 'a,
-    ) -> impl Iterator<Item = Entity> + 'a {
+    pub fn spawn_batch<I>(&mut self, iter: I) -> SpawnBatchIter<'_, I::IntoIter>
+    where
+        I: IntoIterator,
+        I::Item: Bundle,
+    {
         // Ensure all entity allocations are accounted for so `self.entities` can realloc if
         // necessary
         self.flush();
 
         let iter = iter.into_iter();
         let (lower, upper) = iter.size_hint();
-        let archetype_id = self
-            .reserve_inner::<T>(u32::try_from(upper.unwrap_or(lower)).expect("iterator too large"));
+        let archetype_id = self.reserve_inner::<I::Item>(
+            u32::try_from(upper.unwrap_or(lower)).expect("iterator too large"),
+        );
 
-        iter.map(move |components| unsafe {
-            let archetype = &mut self.archetypes[archetype_id as usize];
-            let entity = self.entities.alloc();
-            let index = archetype.allocate(entity.id);
-            components.put(|ptr, ty, size| {
-                archetype.put_dynamic(ptr, ty, size, index);
-                true
-            });
-            self.entities.meta[entity.id as usize].location = Location {
-                archetype: archetype_id,
-                index,
-            };
-            entity
-        })
+        SpawnBatchIter {
+            inner: iter,
+            entities: &mut self.entities,
+            archetype_id,
+            archetype: &mut self.archetypes[archetype_id as usize],
+        }
     }
 
     /// Allocate an entity ID concurrently
@@ -708,6 +701,67 @@ impl<A: DynamicBundle> core::iter::FromIterator<A> for World {
 /// Determines freshness of information derived from `World::archetypes`
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct ArchetypesGeneration(u64);
+
+/// Entity IDs created by `World::spawn_batch`
+pub struct SpawnBatchIter<'a, I>
+where
+    I: Iterator,
+    I::Item: Bundle,
+{
+    inner: I,
+    entities: &'a mut Entities,
+    archetype_id: u32,
+    archetype: &'a mut Archetype,
+}
+
+impl<I> Drop for SpawnBatchIter<'_, I>
+where
+    I: Iterator,
+    I::Item: Bundle,
+{
+    fn drop(&mut self) {
+        for _ in self {}
+    }
+}
+
+impl<I> Iterator for SpawnBatchIter<'_, I>
+where
+    I: Iterator,
+    I::Item: Bundle,
+{
+    type Item = Entity;
+
+    fn next(&mut self) -> Option<Entity> {
+        let components = self.inner.next()?;
+        let entity = self.entities.alloc();
+        unsafe {
+            let index = self.archetype.allocate(entity.id);
+            components.put(|ptr, ty, size| {
+                self.archetype.put_dynamic(ptr, ty, size, index);
+                true
+            });
+            self.entities.meta[entity.id as usize].location = Location {
+                archetype: self.archetype_id,
+                index,
+            };
+        }
+        Some(entity)
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.inner.size_hint()
+    }
+}
+
+impl<I, T> ExactSizeIterator for SpawnBatchIter<'_, I>
+where
+    I: ExactSizeIterator<Item = T>,
+    T: Bundle,
+{
+    fn len(&self) -> usize {
+        self.inner.len()
+    }
+}
 
 #[cfg(test)]
 mod tests {
