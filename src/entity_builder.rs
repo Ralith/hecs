@@ -19,6 +19,8 @@ use core::any::TypeId;
 use core::mem::{self, MaybeUninit};
 use core::ptr;
 
+use hashbrown::HashSet;
+
 use crate::archetype::TypeInfo;
 use crate::{Component, DynamicBundle};
 
@@ -40,6 +42,7 @@ pub struct EntityBuilder {
     cursor: usize,
     info: Vec<(TypeInfo, usize)>,
     ids: Vec<TypeId>,
+    id_set: HashSet<TypeId>,
 }
 
 impl EntityBuilder {
@@ -50,11 +53,15 @@ impl EntityBuilder {
             storage: Box::new([]),
             info: Vec::new(),
             ids: Vec::new(),
+            id_set: HashSet::new(),
         }
     }
 
     /// Add `component` to the entity
     pub fn add<T: Component>(&mut self, component: T) -> &mut Self {
+        if !self.id_set.insert(TypeId::of::<T>()) {
+            return self;
+        }
         let end = self.cursor + mem::size_of::<T>();
         if end > self.storage.len() {
             self.grow(end);
@@ -82,7 +89,7 @@ impl EntityBuilder {
 
     /// Construct a `Bundle` suitable for spawning
     pub fn build(&mut self) -> BuiltEntity<'_> {
-        self.info.sort_unstable_by(|x, y| x.0.cmp(&y.0));
+        self.info.sort_unstable_by_key(|x| x.0);
         self.ids.extend(self.info.iter().map(|x| x.0.id()));
         BuiltEntity { builder: self }
     }
@@ -93,6 +100,7 @@ impl EntityBuilder {
     /// be called.
     pub fn clear(&mut self) {
         self.ids.clear();
+        self.id_set.clear();
         self.cursor = 0;
         let max_size = self
             .info
