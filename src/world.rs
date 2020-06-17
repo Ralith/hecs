@@ -225,9 +225,10 @@ impl World {
     /// world contains no entities that have all components required by both queries, assuming no
     /// other component borrows are outstanding.
     ///
-    /// Iterating a query yields references with lifetimes bound to the object returned here. To
-    /// ensure those are invalidated, the return value of this method must be dropped for its
-    /// borrows to be released.
+    /// Iterating a query yields references with lifetimes bound to the `QueryBorrow` returned
+    /// here. To ensure those are invalidated, the return value of this method must be dropped for
+    /// its dynamic borrows from the world to be released. Similarly, lifetime rules ensure that
+    /// references obtained from a query cannot outlive the `QueryBorrow`.
     ///
     /// # Example
     /// ```
@@ -250,7 +251,9 @@ impl World {
 
     /// Prepare a query against a single entity
     ///
-    /// Call `get` on the resulting `QueryOne` to actually execute the query.
+    /// Call `get` on the resulting `QueryOne` to actually execute the query. The `QueryOne` value
+    /// is responsible for releasing the dynamically-checked borrow made by `get`, so it can't be
+    /// dropped while references returned by `get` are live.
     ///
     /// Handy for accessing multiple components simultaneously.
     ///
@@ -259,10 +262,11 @@ impl World {
     /// # use hecs::*;
     /// let mut world = World::new();
     /// let a = world.spawn((123, true, "abc"));
-    /// assert_eq!(
-    ///     world.query_one::<(&i32, &bool)>(a).unwrap().get().unwrap(),
-    ///     (&123, &true)
-    /// );
+    /// // The returned query must outlive the borrow made by `get`
+    /// let mut query = world.query_one::<(&mut i32, &bool)>(a).unwrap();
+    /// let (number, flag) = query.get().unwrap();
+    /// if *flag { *number *= 2; }
+    /// assert_eq!(*number, 246);
     /// ```
     pub fn query_one<Q: Query>(&self, entity: Entity) -> Result<QueryOne<'_, Q>, NoSuchEntity> {
         let loc = self.entities.get(entity)?;
