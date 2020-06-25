@@ -4,14 +4,14 @@ use std::io;
 
 /*
  Simple simulation
- Spawn multiple entities. They have health, damage, position.
- On every tick they: 
-	1. move a little
- 	2. Find closest entity to themself.
- 	3. Fire at it.
- 	4. Get damaged by other entities firing at them.
- 	5. If health <= 0, the entities die.
- Use print to describe state after every tick
+ Spawn multiple entities. They have health, damage, position and other components.
+ On every tick every entity/unit:
+	1. Moves in random direction.
+ 	2. Finds closest entity to itself.
+ 	3. Fires at it and applies damage.
+ 	4. Gets damaged by other entities firing at them.
+ 	5. If health <= 0, the unit dies.
+State of the simulation is displayed in the sconsole through println! functions.
 */
 
 #[derive(Debug)]
@@ -45,10 +45,10 @@ fn manhattan_dist(x0: i32, x1: i32, y0: i32, y1: i32) -> i32{
 	let dx = (x0 - x1).max(x1 - x0);
 	let dy = (y0 - y1).max(y1 - y0);
 	return dx + dy
-
 }
 
-fn spawn_enitites(world: &mut World, n: usize){
+// Spawns entities one by one. It's better to use spawn_batch instead, which is used in function below.
+fn _spawn_enitites(world: &mut World, n: usize){
 
 	let mut rng = thread_rng();
 
@@ -67,6 +67,7 @@ fn spawn_enitites(world: &mut World, n: usize){
 }
 
 fn batch_spawn_entities(world: &mut World, n: usize){
+
 	let mut rng = thread_rng();
 
 	let to_spawn = (0..n).map(|_|{
@@ -86,7 +87,7 @@ fn batch_spawn_entities(world: &mut World, n: usize){
 	world.spawn_batch(to_spawn);
 }
 
-fn move_system(world: &mut World){
+fn system_integrate_motion(world: &mut World){
 
 	let mut rng = thread_rng();
 
@@ -102,8 +103,9 @@ fn move_system(world: &mut World){
 
 }
 
-fn fire_at_closest(world: &mut World){
-	// In this system entities find the closest entity and fire at them
+// In this system entities find the closest entity and fire at them
+fn system_fire_at_closest(world: &mut World){
+	
 	for (id0, (pos0, dmg0, kc0)) in &mut  world.query::<With<Health, (&Position, &Damage, &mut KillCount)>>(){
 
 		let mut min_dist: Option<i32> = None;
@@ -131,16 +133,16 @@ fn fire_at_closest(world: &mut World){
 			return;
 		}
 
-		// deal damage:
+		// Deal damage:
 /*
-		//like this
+		//Get target unit hp like this:
 		let mut hp1 = world.query_one::<&mut Health>(closest_id.unwrap()).unwrap();
         let hp1 = hp1.get().unwrap();
 */
 		//Or like this:
 		let mut hp1 = world.get_mut::<Health>(closest_id.unwrap()).unwrap();
 
-		// is it still alive?
+		// Is target unit still alive?
 		if hp1.hp > 0 {
 			// apply damage
 			hp1.hp = hp1.hp - dmg0.dmg;
@@ -148,13 +150,13 @@ fn fire_at_closest(world: &mut World){
 			if hp1.hp <= 0{
 				// if this killed it, increase own killcount
 				kc0.count += 1;
-				println!("Unit {:?} is now dead!",closest_id.unwrap());
+				println!("Unit {:?} was killed by unit {:?}!",closest_id.unwrap(), id0);
 			}
 		}
 	}
 }
 
-fn remove_dead(world: &mut World) {
+fn system_remove_dead(world: &mut World) {
 	// Here we query entities with 0 or less hp and despawn them
 	let mut to_remove: Vec<Entity> = Vec::new();
 	for (id, hp) in &mut  world.query::<&Health>(){
@@ -168,13 +170,13 @@ fn remove_dead(world: &mut World) {
 	}
 }
 
-fn get_world_state(world: &mut World) {
-	for (id, (hp, pos, dmg, kc)) in &mut  world.query::<
-		(&Health, 
+fn print_world_state(world: &mut World) {
+	for (id, (hp, pos, dmg, kc)) in &mut  world.query::<(
+		&Health, 
 		&Position, 
 		&Damage,
-		&KillCount)
-		>() {
+		&KillCount
+		)>() {
 			println!("Entity stats:");
 			println!("ID: {:?}, {:?}, {:?}, {:?}, {:?}",id, hp, dmg, pos, kc);
 		}
@@ -184,22 +186,27 @@ fn main() {
 
 	let mut world = World::new();
 
-	//spawn_enitites(&mut world, 5);
+	// _spawn_enitites(&mut world, 5);
 	batch_spawn_entities(&mut world, 5);
 
 	'running: loop{
 
-		move_system(&mut world);
-		fire_at_closest(&mut world);
-		remove_dead(&mut world);
+		println!("'Enter' to continue simulation, '?' for enity list, 'q' to quit");
 
-		println!("Enter to continue, '?' for enity list, 'q' to quit");
 		let mut input = String::new();
+
     	io::stdin().read_line(&mut input).unwrap();
+
     	match input.trim() {
+    		"" => {
+				// Run all simulation systems:
+				system_integrate_motion(&mut world);
+				system_fire_at_closest(&mut world);
+				system_remove_dead(&mut world);
+    		},
     		"q" => break 'running,
     		"?" => {
-    			get_world_state(&mut world);
+    			print_world_state(&mut world);
     		},
     		_ => {},
     	}
