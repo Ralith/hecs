@@ -142,7 +142,7 @@ fn system_fire_at_closest(world: &mut World) {
 
         // Deal damage:
         /*
-                //Get target unit hp like this:
+                // Get target unit hp like this:
                 let mut hp1 = world.query_one::<&mut Health>(closest_id.unwrap()).unwrap();
                 let hp1 = hp1.get().unwrap();
         */
