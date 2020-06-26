@@ -146,7 +146,7 @@ fn system_fire_at_closest(world: &mut World) {
                 let mut hp1 = world.query_one::<&mut Health>(closest_id.unwrap()).unwrap();
                 let hp1 = hp1.get().unwrap();
         */
-        //Or like this:
+        // Or like this:
         let mut hp1 = world.get_mut::<Health>(closest_id.unwrap()).unwrap();
 
         // Is target unit still alive?
