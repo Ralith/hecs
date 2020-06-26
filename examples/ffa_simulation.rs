@@ -6,7 +6,7 @@ use std::io;
  Simple simulation
  Spawn multiple entities. They have health, damage, position and other components.
  On every tick every entity/unit:
-    1. Moves in random direction.
+     1. Moves in random direction.
      2. Finds closest entity to itself.
      3. Fires at it and applies damage.
      4. Gets damaged by other entities firing at them.
