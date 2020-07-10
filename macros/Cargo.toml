@@ -13,3 +13,4 @@ proc-macro = true
 syn = { version = "1.0", default-features = false, features = ["proc-macro", "parsing", "printing", "derive"] }
 quote = "1.0.3"
 proc-macro2 = "1.0.1"
+proc-macro-crate = "0.1.4"

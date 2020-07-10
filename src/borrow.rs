@@ -69,10 +69,8 @@ pub struct Ref<'a, T: Component> {
 }
 
 impl<'a, T: Component> Ref<'a, T> {
-    pub(crate) unsafe fn new(
-        archetype: &'a Archetype,
-        index: u32,
-    ) -> Result<Self, MissingComponent> {
+    #[allow(missing_docs)]
+    pub unsafe fn new(archetype: &'a Archetype, index: u32) -> Result<Self, MissingComponent> {
         let target = NonNull::new_unchecked(
             archetype
                 .get::<T>()
@@ -109,10 +107,8 @@ pub struct RefMut<'a, T: Component> {
 }
 
 impl<'a, T: Component> RefMut<'a, T> {
-    pub(crate) unsafe fn new(
-        archetype: &'a Archetype,
-        index: u32,
-    ) -> Result<Self, MissingComponent> {
+    #[allow(missing_docs)]
+    pub unsafe fn new(archetype: &'a Archetype, index: u32) -> Result<Self, MissingComponent> {
         let target = NonNull::new_unchecked(
             archetype
                 .get::<T>()

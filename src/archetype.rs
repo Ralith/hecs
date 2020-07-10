@@ -42,10 +42,12 @@ pub struct Archetype {
     // containing the `Archetype` exist
     data: UnsafeCell<NonNull<u8>>,
     data_size: usize,
+    grow_size: u32,
 }
 
 impl Archetype {
-    pub(crate) fn new(types: Vec<TypeInfo>) -> Self {
+    #[allow(missing_docs)]
+    pub fn new(types: Vec<TypeInfo>) -> Self {
         debug_assert!(
             types.windows(2).all(|x| x[0] < x[1]),
             "type info unsorted or contains duplicates"
@@ -57,6 +59,24 @@ impl Archetype {
             len: 0,
             data: UnsafeCell::new(NonNull::dangling()),
             data_size: 0,
+            grow_size: 64,
+        }
+    }
+
+    #[allow(missing_docs)]
+    pub fn with_grow(types: Vec<TypeInfo>, grow_size: u32) -> Self {
+        debug_assert!(
+            types.windows(2).all(|x| x[0] < x[1]),
+            "type info unsorted or contains duplicates"
+        );
+        Self {
+            types,
+            state: HashMap::default(),
+            entities: Box::new([]),
+            len: 0,
+            data: UnsafeCell::new(NonNull::dangling()),
+            data_size: 0,
+            grow_size,
         }
     }
 
@@ -83,7 +103,8 @@ impl Archetype {
         self.state.contains_key(&id)
     }
 
-    pub(crate) fn get<T: Component>(&self) -> Option<NonNull<T>> {
+    #[allow(missing_docs)]
+    pub fn get<T: Component>(&self) -> Option<NonNull<T>> {
         let state = self.state.get(&TypeId::of::<T>())?;
         Some(unsafe {
             NonNull::new_unchecked(
@@ -92,7 +113,8 @@ impl Archetype {
         })
     }
 
-    pub(crate) fn borrow<T: Component>(&self) {
+    #[allow(missing_docs)]
+    pub fn borrow<T: Component>(&self) {
         if self
             .state
             .get(&TypeId::of::<T>())
@@ -102,7 +124,8 @@ impl Archetype {
         }
     }
 
-    pub(crate) fn borrow_mut<T: Component>(&self) {
+    #[allow(missing_docs)]
+    pub fn borrow_mut<T: Component>(&self) {
         if self
             .state
             .get(&TypeId::of::<T>())
@@ -112,20 +135,28 @@ impl Archetype {
         }
     }
 
-    pub(crate) fn release<T: Component>(&self) {
+    #[allow(missing_docs)]
+    pub fn release<T: Component>(&self) {
         if let Some(x) = self.state.get(&TypeId::of::<T>()) {
             x.borrow.release();
         }
     }
 
-    pub(crate) fn release_mut<T: Component>(&self) {
+    #[allow(missing_docs)]
+    pub fn release_mut<T: Component>(&self) {
         if let Some(x) = self.state.get(&TypeId::of::<T>()) {
             x.borrow.release_mut();
         }
     }
 
-    pub(crate) fn len(&self) -> u32 {
+    #[allow(missing_docs)]
+    pub fn len(&self) -> u32 {
         self.len
+    }
+
+    #[allow(missing_docs)]
+    pub fn iter_entities(&self) -> impl Iterator<Item = &u32> {
+        self.entities.iter().take(self.len as usize)
     }
 
     pub(crate) fn entities(&self) -> NonNull<u32> {
@@ -136,7 +167,8 @@ impl Archetype {
         self.entities[index as usize]
     }
 
-    pub(crate) fn types(&self) -> &[TypeInfo] {
+    #[allow(missing_docs)]
+    pub fn types(&self) -> &[TypeInfo] {
         &self.types
     }
 
@@ -157,9 +189,9 @@ impl Archetype {
     }
 
     /// Every type must be written immediately after this call
-    pub(crate) unsafe fn allocate(&mut self, id: u32) -> u32 {
+    pub unsafe fn allocate(&mut self, id: u32) -> u32 {
         if self.len as usize == self.entities.len() {
-            self.grow(self.len.max(64));
+            self.grow(self.len.max(self.grow_size));
         }
 
         self.entities[self.len as usize] = id;
@@ -173,7 +205,7 @@ impl Archetype {
         }
     }
 
-    pub(crate) fn capacity(&self) -> u32 {
+    fn capacity(&self) -> u32 {
         self.entities.len() as u32
     }
 
@@ -281,13 +313,8 @@ impl Archetype {
         }
     }
 
-    pub(crate) unsafe fn put_dynamic(
-        &mut self,
-        component: *mut u8,
-        ty: TypeId,
-        size: usize,
-        index: u32,
-    ) {
+    #[allow(missing_docs)]
+    pub unsafe fn put_dynamic(&mut self, component: *mut u8, ty: TypeId, size: usize, index: u32) {
         let ptr = self
             .get_dynamic(ty, size, index)
             .unwrap()
@@ -355,11 +382,13 @@ impl TypeInfo {
         }
     }
 
-    pub(crate) fn id(&self) -> TypeId {
+    #[allow(missing_docs)]
+    pub fn id(&self) -> TypeId {
         self.id
     }
 
-    pub(crate) fn layout(&self) -> Layout {
+    #[allow(missing_docs)]
+    pub fn layout(&self) -> Layout {
         self.layout
     }
 

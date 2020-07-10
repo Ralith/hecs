@@ -76,11 +76,20 @@ impl World {
     /// let b = world.spawn((456, true));
     /// ```
     pub fn spawn(&mut self, components: impl DynamicBundle) -> Entity {
-        // Ensure all entity allocations are accounted for so `self.entities` can realloc if
-        // necessary
-        self.flush();
+        let entity = Entity::new();
+        self.spawn_as_entity(entity, components);
+        entity
+    }
 
-        let entity = self.entities.alloc();
+    /// Create an entity with the given Entity id and the given components
+    ///
+    /// Arguments can be tuples, structs annotated with `#[derive(Bundle)]`, or the result of
+    /// calling `build` on an `EntityBuilder`, which is useful if the set of components isn't
+    /// statically known. To spawn an entity with only one component, use a one-element tuple like
+    /// `(x,)`.
+    ///
+    /// Any type that satisfies `Send + Sync + 'static` can be used as a component.
+    pub fn spawn_as_entity(&mut self, entity: Entity, components: impl DynamicBundle) {
         let archetype_id = components.with_ids(|ids| {
             self.index.get(ids).copied().unwrap_or_else(|| {
                 let x = self.archetypes.len() as u32;
@@ -93,17 +102,19 @@ impl World {
 
         let archetype = &mut self.archetypes[archetype_id as usize];
         unsafe {
-            let index = archetype.allocate(entity.id);
+            let index = archetype.allocate(entity.id());
             components.put(|ptr, ty, size| {
                 archetype.put_dynamic(ptr, ty, size, index);
                 true
             });
-            self.entities.meta[entity.id as usize].location = Location {
-                archetype: archetype_id,
-                index,
-            };
+            self.entities.insert(
+                entity,
+                Location {
+                    archetype: archetype_id,
+                    index,
+                },
+            );
         }
-        entity
     }
 
     /// Efficiently spawn a large number of entities with the same components
@@ -124,10 +135,6 @@ impl World {
         I: IntoIterator,
         I::Item: Bundle,
     {
-        // Ensure all entity allocations are accounted for so `self.entities` can realloc if
-        // necessary
-        self.flush();
-
         let iter = iter.into_iter();
         let (lower, upper) = iter.size_hint();
         let archetype_id = self.reserve_inner::<I::Item>(
@@ -142,26 +149,11 @@ impl World {
         }
     }
 
-    /// Allocate an entity ID concurrently
-    ///
-    /// Unlike `spawn`, this can be called simultaneously to other operations on the `World` such as
-    /// queries, but does not immediately create an entity. Reserved entities are not visible to
-    /// queries or world iteration, but can be otherwise operated on freely. Operations that
-    /// uniquely borrow the world, such as `insert` or `despawn`, will cause all outstanding
-    /// reserved entities to become real entities before proceeding. This can also be done
-    /// explicitly by calling `flush`.
-    ///
-    /// Useful for reserving an ID that will later have components attached to it with `insert`.
-    pub fn reserve_entity(&self) -> Entity {
-        self.entities.reserve_entity()
-    }
-
     /// Destroy an entity and all its components
     pub fn despawn(&mut self, entity: Entity) -> Result<(), NoSuchEntity> {
-        self.flush();
         let loc = self.entities.free(entity)?;
         if let Some(moved) = unsafe { self.archetypes[loc.archetype as usize].remove(loc.index) } {
-            self.entities.meta[moved as usize].location.index = loc.index;
+            self.entities.get_mut(Entity::with_id(moved)).unwrap().index = loc.index;
         }
         Ok(())
     }
@@ -172,7 +164,6 @@ impl World {
     }
 
     fn reserve_inner<T: Bundle>(&mut self, additional: u32) -> u32 {
-        self.flush();
         self.entities.reserve(additional);
 
         let archetype_id = T::with_static_ids(|ids| {
@@ -235,16 +226,16 @@ impl World {
     /// let a = world.spawn((123, true, "abc"));
     /// let b = world.spawn((456, false));
     /// let c = world.spawn((42, "def"));
-    /// let entities = world.query::<(&i32, &bool)>()
+    /// let entities = world.query::<(Entity, &i32, &bool)>()
     ///     .iter()
-    ///     .map(|(e, (&i, &b))| (e, i, b)) // Copy out of the world
+    ///     .map(|(e, &i, &b)| (e, i, b)) // Copy out of the world
     ///     .collect::<Vec<_>>();
     /// assert_eq!(entities.len(), 2);
     /// assert!(entities.contains(&(a, 123, true)));
     /// assert!(entities.contains(&(b, 456, false)));
     /// ```
     pub fn query<Q: Query>(&self) -> QueryBorrow<'_, Q> {
-        QueryBorrow::new(&self.entities.meta, &self.archetypes)
+        QueryBorrow::new(&self.archetypes)
     }
 
     /// Prepare a query against a single entity
@@ -347,7 +338,6 @@ impl World {
     ) -> Result<(), NoSuchEntity> {
         use hashbrown::hash_map::Entry;
 
-        self.flush();
         let loc = self.entities.get_mut(entity)?;
         unsafe {
             // Assemble Vec<TypeInfo> for the final entity
@@ -391,13 +381,13 @@ impl World {
                 loc.archetype as usize,
                 target as usize,
             );
-            let target_index = target_arch.allocate(entity.id);
+            let target_index = target_arch.allocate(entity.id());
             loc.archetype = target;
             let old_index = mem::replace(&mut loc.index, target_index);
             if let Some(moved) = source_arch.move_to(old_index, |ptr, ty, size| {
                 target_arch.put_dynamic(ptr, ty, size, target_index);
             }) {
-                self.entities.meta[moved as usize].location.index = old_index;
+                self.entities.get_mut(Entity::with_id(moved)).unwrap().index = old_index;
             }
             components.put(|ptr, ty, size| {
                 target_arch.put_dynamic(ptr, ty, size, target_index);
@@ -440,7 +430,6 @@ impl World {
     pub fn remove<T: Bundle>(&mut self, entity: Entity) -> Result<T, ComponentError> {
         use hashbrown::hash_map::Entry;
 
-        self.flush();
         let loc = self.entities.get_mut(entity)?;
         unsafe {
             let removed = T::with_static_ids(|ids| ids.iter().copied().collect::<HashSet<_>>());
@@ -469,7 +458,7 @@ impl World {
                 loc.archetype as usize,
                 target as usize,
             );
-            let target_index = target_arch.allocate(entity.id);
+            let target_index = target_arch.allocate(entity.id());
             loc.archetype = target;
             loc.index = target_index;
             if let Some(moved) = source_arch.move_to(old_index, |src, ty, size| {
@@ -478,7 +467,7 @@ impl World {
                     ptr::copy_nonoverlapping(src, dst.as_ptr(), size);
                 }
             }) {
-                self.entities.meta[moved as usize].location.index = old_index;
+                self.entities.get_mut(Entity::with_id(moved)).unwrap().index = old_index;
             }
             Ok(bundle)
         }
@@ -532,21 +521,6 @@ impl World {
             .ok_or_else(MissingComponent::new::<T>)?
             .as_ptr()
             .add(loc.index as usize))
-    }
-
-    /// Convert all reserved entities into empty entities that can be iterated and accessed
-    ///
-    /// Invoked implicitly by `spawn`, `despawn`, `insert`, and `remove`.
-    pub fn flush(&mut self) {
-        let arch = &mut self.archetypes[0];
-        for id in self.entities.flush() {
-            self.entities.meta[id as usize].location.index = unsafe { arch.allocate(id) };
-        }
-        for i in 0..self.entities.reserved_len() {
-            let id = self.entities.reserved(i);
-            self.entities.meta[id as usize].location.index = unsafe { arch.allocate(id) };
-        }
-        self.entities.clear_reserved();
     }
 
     /// Inspect the archetypes that entities are organized into
@@ -687,20 +661,16 @@ impl<'a> Iterator for Iter<'a> {
                     let index = self.index;
                     self.index += 1;
                     let id = current.entity_id(index);
-                    return Some((
-                        Entity {
-                            id,
-                            generation: self.entities.meta[id as usize].generation,
-                        },
-                        unsafe { EntityRef::new(current, index) },
-                    ));
+                    return Some((Entity::with_id(id), unsafe {
+                        EntityRef::new(current, index)
+                    }));
                 }
             }
         }
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        (0, Some(self.entities.meta.len()))
+        (0, Some(self.entities.entity_locations.len()))
     }
 }
 
@@ -758,17 +728,20 @@ where
 
     fn next(&mut self) -> Option<Entity> {
         let components = self.inner.next()?;
-        let entity = self.entities.alloc();
+        let entity = Entity::new();
         unsafe {
-            let index = self.archetype.allocate(entity.id);
+            let index = self.archetype.allocate(entity.id());
             components.put(|ptr, ty, size| {
                 self.archetype.put_dynamic(ptr, ty, size, index);
                 true
             });
-            self.entities.meta[entity.id as usize].location = Location {
-                archetype: self.archetype_id,
-                index,
-            };
+            self.entities.insert(
+                entity,
+                Location {
+                    archetype: self.archetype_id,
+                    index,
+                },
+            );
         }
         Some(entity)
     }
@@ -785,33 +758,5 @@ where
 {
     fn len(&self) -> usize {
         self.inner.len()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn reuse_empty() {
-        let mut world = World::new();
-        let a = world.spawn(());
-        world.despawn(a).unwrap();
-        let b = world.spawn(());
-        assert_eq!(a.id, b.id);
-        assert_ne!(a.generation, b.generation);
-    }
-
-    #[test]
-    fn reuse_populated() {
-        let mut world = World::new();
-        let a = world.spawn((42,));
-        assert_eq!(*world.get::<i32>(a).unwrap(), 42);
-        world.despawn(a).unwrap();
-        let b = world.spawn((true,));
-        assert_eq!(a.id, b.id);
-        assert_ne!(a.generation, b.generation);
-        assert!(world.get::<i32>(b).is_err());
-        assert!(*world.get::<bool>(b).unwrap());
     }
 }

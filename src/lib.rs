@@ -31,7 +31,7 @@
 //! let a = world.spawn((123, true, "abc"));
 //! let b = world.spawn((42, false));
 //! // Systems can be simple for loops
-//! for (id, (number, &flag)) in world.query::<(&mut i32, &bool)>().iter() {
+//! for (id, number, &flag) in &mut world.query::<(Entity, &mut i32, &bool)>() {
 //!   if flag { *number *= 2; }
 //! }
 //! // Random access is simple and safe
@@ -51,6 +51,7 @@ extern crate alloc;
 ///
 /// Calls m!(A, B, C), m!(A, B), m!(B), and m!() for i.e. (m, A, B, C)
 /// where m is any macro, for any number of parameters.
+#[macro_export]
 macro_rules! smaller_tuples_too {
     ($m: ident, $ty: ident) => {
         $m!{$ty}
@@ -69,12 +70,14 @@ mod entities;
 mod entity_builder;
 mod query;
 mod query_one;
+#[cfg(feature = "serde")]
+mod serde;
 mod world;
 
 pub use archetype::Archetype;
 pub use borrow::{EntityRef, Ref, RefMut};
 pub use bundle::{Bundle, DynamicBundle, MissingComponent};
-pub use entities::{Entity, NoSuchEntity};
+pub use entities::{Entity, Location, NoSuchEntity};
 pub use entity_builder::{BuiltEntity, EntityBuilder};
 pub use query::{Access, BatchedIter, Query, QueryBorrow, QueryIter, With, Without};
 pub use query_one::QueryOne;

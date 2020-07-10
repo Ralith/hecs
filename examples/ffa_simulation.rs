@@ -62,7 +62,7 @@ fn batch_spawn_entities(world: &mut World, n: usize) {
 fn system_integrate_motion(world: &mut World) {
     let mut rng = thread_rng();
 
-    for (id, (pos, s)) in &mut world.query::<(&mut Position, &Speed)>() {
+    for (id, pos, s) in &mut world.query::<(Entity, &mut Position, &Speed)>() {
         let change = (rng.gen_range(-s.0, s.0), rng.gen_range(-s.0, s.0));
         pos.x += change.0;
         pos.y += change.1;
@@ -72,15 +72,15 @@ fn system_integrate_motion(world: &mut World) {
 
 // In this system entities find the closest entity and fire at them
 fn system_fire_at_closest(world: &mut World) {
-    for (id0, (pos0, dmg0, kc0)) in
-        &mut world.query::<With<Health, (&Position, &Damage, &mut KillCount)>>()
+    for (id0, pos0, dmg0, kc0) in
+        &mut world.query::<With<Health, (Entity, &Position, &Damage, &mut KillCount)>>()
     {
         // Find closest:
         // Nested queries are O(n^2) and you usually want to avoid that by using some sort of
         // spatial index like a quadtree or more general BVH, which we don't bother with here since
         // it's out of scope for the example.
         let closest = world
-            .query::<With<Health, &Position>>()
+            .query::<With<Health, (Entity, &Position)>>()
             .iter()
             .filter(|(id1, _)| *id1 != id0)
             .min_by_key(|(_, pos1)| manhattan_dist(pos0.x, pos1.x, pos0.y, pos1.y))
@@ -124,7 +124,7 @@ fn system_fire_at_closest(world: &mut World) {
 fn system_remove_dead(world: &mut World) {
     // Here we query entities with 0 or less hp and despawn them
     let mut to_remove: Vec<Entity> = Vec::new();
-    for (id, hp) in &mut world.query::<&Health>() {
+    for (id, hp) in &mut world.query::<(Entity, &Health)>() {
         if hp.0 <= 0 {
             to_remove.push(id);
         }
@@ -137,7 +137,8 @@ fn system_remove_dead(world: &mut World) {
 
 fn print_world_state(world: &mut World) {
     println!("\nEntity stats:");
-    for (id, (hp, pos, dmg, kc)) in &mut world.query::<(&Health, &Position, &Damage, &KillCount)>()
+    for (id, hp, pos, dmg, kc) in
+        &mut world.query::<(Entity, &Health, &Position, &Damage, &KillCount)>()
     {
         println!("ID: {:?}, {:?}, {:?}, {:?}, {:?}", id, hp, dmg, pos, kc);
     }
