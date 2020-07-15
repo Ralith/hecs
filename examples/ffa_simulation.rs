@@ -6,7 +6,7 @@ use std::io;
  Simple simulation
  Spawn multiple entities. They have health, damage, position and other components.
  On every tick every entity/unit:
-    1. Moves in random direction.
+     1. Moves in random direction.
      2. Finds closest entity to itself.
      3. Fires at it and applies damage.
      4. Gets damaged by other entities firing at them.
@@ -147,12 +147,12 @@ fn system_fire_at_closest(world: &mut World) {
 
         // Deal damage:
         /*
-                //Get target unit hp like this:
+                // Get target unit hp like this:
                 let mut hp1 = world.query_one::<&mut Health>(closest_id.unwrap()).unwrap();
                 let hp1 = hp1.get().unwrap();
         */
 
-        //Or like this:
+        // Or like this:
         let mut hp1 = world.get_mut::<Health>(closest_id.unwrap()).unwrap();
 
         // Is target unit still alive?
