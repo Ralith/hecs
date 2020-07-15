@@ -41,12 +41,12 @@ struct KillCount {
 }
 
 fn manhattan_dist(x0: i32, x1: i32, y0: i32, y1: i32) -> i32 {
-    let dx = (x0 - x1).max(x1 - x0);
-    let dy = (y0 - y1).max(y1 - y0);
+    let dx = (x0 - x1).abs();
+    let dy = (y0 - y1).abs();
     return dx + dy;
 }
 
-// Spawns entities one by one. It's better to use spawn_batch instead, which is used in function below.
+// Spawns entities one by one. It's preferable to use spawn_batch instead, which has better performance for spawning multiple entities.
 fn _spawn_enitites(world: &mut World, n: usize) {
     let mut rng = thread_rng();
 
@@ -117,21 +117,26 @@ fn system_fire_at_closest(world: &mut World) {
         let mut min_dist: Option<i32> = None;
         let mut closest_id: Option<Entity> = None;
 
-        // find closest:
-        for (id1, pos1) in &mut world.query::<With<Health, &Position>>() {
-            if id0 != id1 {
-                let dist = manhattan_dist(pos0.x, pos1.x, pos0.y, pos1.y);
-                match min_dist {
-                    None => {
-                        min_dist = Some(dist);
-                    }
-                    Some(mut _dist0) => {
-                        _dist0 = _dist0.min(dist);
-                    }
+        //Find closest:
+        //Comment about implementation: Nested queries are O(n^2) and you usually want to avoid that by using some sort of spatial index like a quadtree or more general BVH, which we don't bother with here since it's out of scope for the example.
+        'child_loop: for (id1, pos1) in &mut world.query::<With<Health, &Position>>() {
+            if id0 == id1 {
+                continue 'child_loop;
+            }
+
+            let dist = manhattan_dist(pos0.x, pos1.x, pos0.y, pos1.y);
+
+            match min_dist {
+                None => {
+                    min_dist = Some(dist);
                 }
-                if Some(dist) == min_dist {
-                    closest_id = Some(id1);
+                Some(mut _dist0) => {
+                    _dist0 = _dist0.min(dist);
                 }
+            }
+
+            if Some(dist) == min_dist {
+                closest_id = Some(id1);
             }
         }
 
@@ -146,6 +151,7 @@ fn system_fire_at_closest(world: &mut World) {
                 let mut hp1 = world.query_one::<&mut Health>(closest_id.unwrap()).unwrap();
                 let hp1 = hp1.get().unwrap();
         */
+
         //Or like this:
         let mut hp1 = world.get_mut::<Health>(closest_id.unwrap()).unwrap();
 
@@ -187,9 +193,9 @@ fn system_remove_dead(world: &mut World) {
 }
 
 fn print_world_state(world: &mut World) {
+    println!("\nEntity stats:");
     for (id, (hp, pos, dmg, kc)) in &mut world.query::<(&Health, &Position, &Damage, &KillCount)>()
     {
-        println!("Entity stats:");
         println!("ID: {:?}, {:?}, {:?}, {:?}, {:?}", id, hp, dmg, pos, kc);
     }
 }
@@ -201,7 +207,7 @@ fn main() {
     batch_spawn_entities(&mut world, 5);
 
     'running: loop {
-        println!("'Enter' to continue simulation, '?' for enity list, 'q' to quit");
+        println!("\n'Enter' to continue simulation, '?' for enity list, 'q' to quit");
 
         let mut input = String::new();
 

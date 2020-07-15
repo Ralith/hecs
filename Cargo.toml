@@ -31,7 +31,6 @@ lazy_static = { version = "1.4.0", optional = true, features = ["spin_no_std"] }
 bencher = "0.1.5"
 rand = "0.7.3"
 
-
 [[bench]]
 name = "bench"
 harness = false
