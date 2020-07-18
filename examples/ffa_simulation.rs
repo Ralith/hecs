@@ -35,7 +35,7 @@ struct KillCount(i32);
 fn manhattan_dist(x0: i32, x1: i32, y0: i32, y1: i32) -> i32 {
     let dx = (x0 - x1).abs();
     let dy = (y0 - y1).abs();
-    return dx + dy;
+    dx + dy
 }
 
 fn batch_spawn_entities(world: &mut World, n: usize) {
@@ -107,7 +107,7 @@ fn system_fire_at_closest(world: &mut World) {
         // Is target unit still alive?
         if hp1.0 > 0 {
             // apply damage
-            hp1.0 = hp1.0 - dmg0.0;
+            hp1.0 -= dmg0.0;
             println!(
                 "Unit {:?} was damaged by {:?} for {:?} HP",
                 closest, id0, dmg0.0
@@ -146,10 +146,9 @@ fn print_world_state(world: &mut World) {
 fn main() {
     let mut world = World::new();
 
-    // _spawn_enitites(&mut world, 5);
     batch_spawn_entities(&mut world, 5);
 
-    'running: loop {
+    loop {
         println!("\n'Enter' to continue simulation, '?' for enity list, 'q' to quit");
 
         let mut input = String::new();
@@ -163,7 +162,7 @@ fn main() {
                 system_fire_at_closest(&mut world);
                 system_remove_dead(&mut world);
             }
-            "q" => break 'running,
+            "q" => break,
             "?" => {
                 print_world_state(&mut world);
             }
