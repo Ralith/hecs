@@ -237,6 +237,7 @@ impl Entities {
     }
 
     /// Allocate space for and enumerate pending entities
+    #[allow(clippy::reversed_empty_ranges)]
     pub fn flush(&mut self) -> impl Iterator<Item = u32> {
         let pending = self.pending.load(Ordering::Relaxed); // Not racey due to &mut self
 
