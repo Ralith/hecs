@@ -88,6 +88,7 @@ impl Archetype {
     }
 
     #[allow(missing_docs)]
+    #[inline]
     pub fn has<T: Component>(&self) -> bool {
         self.has_dynamic(TypeId::of::<T>())
     }
@@ -137,6 +138,7 @@ impl Archetype {
     }
 
     #[allow(missing_docs)]
+    #[inline]
     pub fn borrow<T: Component>(&self) {
         if self
             .state
@@ -148,6 +150,7 @@ impl Archetype {
     }
 
     #[allow(missing_docs)]
+    #[inline]
     pub fn borrow_mut<T: Component>(&self) {
         if self
             .state
@@ -159,6 +162,7 @@ impl Archetype {
     }
 
     #[allow(missing_docs)]
+    #[inline]
     pub fn release<T: Component>(&self) {
         if let Some(x) = self.state.get(&TypeId::of::<T>()) {
             x.borrow.release();
@@ -166,6 +170,7 @@ impl Archetype {
     }
 
     #[allow(missing_docs)]
+    #[inline]
     pub fn release_mut<T: Component>(&self) {
         if let Some(x) = self.state.get(&TypeId::of::<T>()) {
             x.borrow.release_mut();
@@ -173,6 +178,7 @@ impl Archetype {
     }
 
     #[allow(missing_docs)]
+    #[inline]
     pub fn len(&self) -> u32 {
         self.len
     }
@@ -182,6 +188,7 @@ impl Archetype {
         self.entities.iter().take(self.len as usize)
     }
 
+    #[inline]
     pub(crate) fn entities(&self) -> NonNull<u32> {
         unsafe { NonNull::new_unchecked(self.entities.as_ptr() as *mut _) }
     }
@@ -436,11 +443,13 @@ impl TypeInfo {
     }
 
     #[allow(missing_docs)]
+    #[inline]
     pub fn id(&self) -> TypeId {
         self.id
     }
 
     #[allow(missing_docs)]
+    #[inline]
     pub fn layout(&self) -> Layout {
         self.layout
     }
