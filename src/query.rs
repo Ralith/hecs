@@ -238,6 +238,7 @@ pub struct Mutated<'a, T> {
 impl<'a, T: Component> Deref for Mutated<'a, T> {
     type Target = T;
 
+    #[inline]
     fn deref(&self) -> &T {
         self.value
     }
@@ -302,6 +303,7 @@ pub struct Added<'a, T> {
 impl<'a, T: Component> Deref for Added<'a, T> {
     type Target = T;
 
+    #[inline]
     fn deref(&self) -> &T {
         self.value
     }
@@ -364,6 +366,7 @@ pub struct Changed<'a, T> {
 impl<'a, T: Component> Deref for Changed<'a, T> {
     type Target = T;
 
+    #[inline]
     fn deref(&self) -> &T {
         self.value
     }
