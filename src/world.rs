@@ -37,6 +37,7 @@ use crate::{
 pub struct World {
     entities: Entities,
     index: HashMap<Vec<TypeId>, u32>,
+    removed_components: HashMap<TypeId, Vec<Entity>>,
     archetypes: Vec<Archetype>,
     archetype_generation: u64,
 }
@@ -54,6 +55,7 @@ impl World {
             index,
             archetypes,
             archetype_generation: 0,
+            removed_components: HashMap::default(),
         }
     }
 
@@ -152,8 +154,16 @@ impl World {
     /// Destroy an entity and all its components
     pub fn despawn(&mut self, entity: Entity) -> Result<(), NoSuchEntity> {
         let loc = self.entities.free(entity)?;
-        if let Some(moved) = unsafe { self.archetypes[loc.archetype as usize].remove(loc.index) } {
-            self.entities.get_mut(Entity::with_id(moved)).unwrap().index = loc.index;
+        let archetype = &mut self.archetypes[loc.archetype as usize];
+        if let Some(moved) = unsafe { archetype.remove(loc.index) } {
+            self.entities.get_mut(Entity::from_id(moved)).unwrap().index = loc.index;
+        }
+        for ty in archetype.types() {
+            let removed_entities = self
+                .removed_components
+                .entry(ty.id())
+                .or_insert_with(|| Vec::new());
+            removed_entities.push(entity);
         }
         Ok(())
     }
@@ -184,8 +194,15 @@ impl World {
     ///
     /// Preserves allocated storage for reuse.
     pub fn clear(&mut self) {
-        for x in &mut self.archetypes {
-            x.clear();
+        for archetype in &mut self.archetypes {
+            for ty in archetype.types() {
+                let removed_entities = self
+                    .removed_components
+                    .entry(ty.id())
+                    .or_insert_with(|| Vec::new());
+                removed_entities.extend(archetype.iter_entities().map(|id| Entity::from_id(*id)));
+            }
+            archetype.clear();
         }
         self.entities.clear();
     }
@@ -315,6 +332,13 @@ impl World {
         Iter::new(&self.archetypes, &self.entities)
     }
 
+    #[allow(missing_docs)]
+    pub fn removed<C: Component>(&self) -> &[Entity] {
+        self.removed_components
+            .get(&TypeId::of::<C>())
+            .map_or(&[], |entities| entities.as_slice())
+    }
+
     /// Add `components` to `entity`
     ///
     /// Computational cost is proportional to the number of components `entity` has. If an entity
@@ -392,7 +416,7 @@ impl World {
                     type_state.mutated_entities[target_index as usize] = is_mutated;
                 })
             {
-                self.entities.get_mut(Entity::with_id(moved)).unwrap().index = old_index;
+                self.entities.get_mut(Entity::from_id(moved)).unwrap().index = old_index;
             }
 
             components.put(|ptr, ty, size| {
@@ -467,6 +491,7 @@ impl World {
             let target_index = target_arch.allocate(entity.id());
             loc.archetype = target;
             loc.index = target_index;
+            let removed_components = &mut self.removed_components;
             if let Some(moved) =
                 source_arch.move_to(old_index, |src, ty, size, is_added, is_mutated| {
                     // Only move the components present in the target archetype, i.e. the non-removed ones.
@@ -475,10 +500,14 @@ impl World {
                         let state = target_arch.get_type_state_mut(ty).unwrap();
                         state.added_entities[target_index as usize] = is_added;
                         state.mutated_entities[target_index as usize] = is_mutated;
+                    } else {
+                        let removed_entities =
+                            removed_components.entry(ty).or_insert_with(|| Vec::new());
+                        removed_entities.push(entity);
                     }
                 })
             {
-                self.entities.get_mut(Entity::with_id(moved)).unwrap().index = old_index;
+                self.entities.get_mut(Entity::from_id(moved)).unwrap().index = old_index;
             }
             Ok(bundle)
         }
@@ -574,6 +603,8 @@ impl World {
         for archetype in self.archetypes.iter_mut() {
             archetype.clear_trackers();
         }
+
+        self.removed_components.clear();
     }
 }
 
@@ -684,7 +715,7 @@ impl<'a> Iterator for Iter<'a> {
                     let index = self.index;
                     self.index += 1;
                     let id = current.entity_id(index);
-                    return Some((Entity::with_id(id), unsafe {
+                    return Some((Entity::from_id(id), unsafe {
                         EntityRef::new(current, index)
                     }));
                 }
