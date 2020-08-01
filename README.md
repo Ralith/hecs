@@ -9,6 +9,22 @@ world. It is a library, not a framework. In place of an explicit "System"
 abstraction, a `World`'s entities are easily queried from regular code. Organize
 your application however you like!
 
+### Example
+
+```rust
+let mut world = World::new();
+// Nearly any type can be used as a component with zero boilerplate
+let a = world.spawn((123, true, "abc"));
+let b = world.spawn((42, false));
+// Systems can be simple for loops
+for (id, (number, &flag)) in world.query::<(&mut i32, &bool)>().iter() {
+  if flag { *number *= 2; }
+}
+// Random access is simple and safe
+assert_eq!(*world.get::<i32>(a).unwrap(), 246);
+assert_eq!(*world.get::<i32>(b).unwrap(), 42);
+```
+
 ### Why ECS?
 
 Entity-component-system architecture makes it easy to compose loosely-coupled
