@@ -12,12 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use core::ops::{Deref, DerefMut};
-use core::ptr::NonNull;
-use core::sync::atomic::{AtomicUsize, Ordering};
+use core::{
+    ops::{Deref, DerefMut},
+    ptr::NonNull,
+    sync::atomic::{AtomicUsize, Ordering},
+};
 
-use crate::archetype::Archetype;
-use crate::{Component, MissingComponent};
+use crate::{archetype::Archetype, Component, MissingComponent};
 
 pub struct AtomicBorrow(AtomicUsize);
 
@@ -95,6 +96,7 @@ impl<'a, T: Component> Drop for Ref<'a, T> {
 
 impl<'a, T: Component> Deref for Ref<'a, T> {
     type Target = T;
+
     fn deref(&self) -> &T {
         unsafe { self.target.as_ref() }
     }
@@ -134,6 +136,7 @@ impl<'a, T: Component> Drop for RefMut<'a, T> {
 
 impl<'a, T: Component> Deref for RefMut<'a, T> {
     type Target = T;
+
     fn deref(&self) -> &T {
         unsafe { self.target.as_ref() }
     }

@@ -12,19 +12,22 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::alloc::alloc::{alloc, dealloc, Layout};
-use crate::alloc::boxed::Box;
-use crate::alloc::{vec, vec::Vec};
-use core::any::{type_name, TypeId};
-use core::cell::UnsafeCell;
-use core::mem;
-use core::ptr::{self, NonNull};
+use crate::alloc::{
+    alloc::{alloc, dealloc, Layout},
+    boxed::Box,
+    vec,
+    vec::Vec,
+};
+use core::{
+    any::{type_name, TypeId},
+    cell::UnsafeCell,
+    mem,
+    ptr::{self, NonNull},
+};
 
 use hashbrown::HashMap;
 
-use crate::borrow::AtomicBorrow;
-use crate::query::Fetch;
-use crate::{Access, Component, Query};
+use crate::{borrow::AtomicBorrow, query::Fetch, Access, Component, Query};
 
 /// A collection of entities having the same component types
 ///

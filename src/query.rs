@@ -12,12 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use core::marker::PhantomData;
-use core::ptr::NonNull;
+use core::{marker::PhantomData, ptr::NonNull};
 
-use crate::archetype::Archetype;
-use crate::entities::EntityMeta;
-use crate::{Component, Entity};
+use crate::{archetype::Archetype, entities::EntityMeta, Component, Entity};
 
 /// A collection of component types to fetch from a `World`
 pub trait Query {
@@ -85,11 +82,13 @@ impl<'a, T: Component> Fetch<'a> for FetchRead<T> {
     fn borrow(archetype: &Archetype) {
         archetype.borrow::<T>();
     }
+
     unsafe fn get(archetype: &'a Archetype, offset: usize) -> Option<Self> {
         archetype
             .get::<T>()
             .map(|x| Self(NonNull::new_unchecked(x.as_ptr().add(offset))))
     }
+
     fn release(archetype: &Archetype) {
         archetype.release::<T>();
     }
@@ -122,11 +121,13 @@ impl<'a, T: Component> Fetch<'a> for FetchWrite<T> {
     fn borrow(archetype: &Archetype) {
         archetype.borrow_mut::<T>();
     }
+
     unsafe fn get(archetype: &'a Archetype, offset: usize) -> Option<Self> {
         archetype
             .get::<T>()
             .map(|x| Self(NonNull::new_unchecked(x.as_ptr().add(offset))))
     }
+
     fn release(archetype: &Archetype) {
         archetype.release_mut::<T>();
     }
@@ -155,9 +156,11 @@ impl<'a, T: Fetch<'a>> Fetch<'a> for TryFetch<T> {
     fn borrow(archetype: &Archetype) {
         T::borrow(archetype)
     }
+
     unsafe fn get(archetype: &'a Archetype, offset: usize) -> Option<Self> {
         Some(Self(T::get(archetype, offset)))
     }
+
     fn release(archetype: &Archetype) {
         T::release(archetype)
     }
@@ -207,12 +210,14 @@ impl<'a, T: Component, F: Fetch<'a>> Fetch<'a> for FetchWithout<T, F> {
     fn borrow(archetype: &Archetype) {
         F::borrow(archetype)
     }
+
     unsafe fn get(archetype: &'a Archetype, offset: usize) -> Option<Self> {
         if archetype.has::<T>() {
             return None;
         }
         Some(Self(F::get(archetype, offset)?, PhantomData))
     }
+
     fn release(archetype: &Archetype) {
         F::release(archetype)
     }
@@ -264,12 +269,14 @@ impl<'a, T: Component, F: Fetch<'a>> Fetch<'a> for FetchWith<T, F> {
     fn borrow(archetype: &Archetype) {
         F::borrow(archetype)
     }
+
     unsafe fn get(archetype: &'a Archetype, offset: usize) -> Option<Self> {
         if !archetype.has::<T>() {
             return None;
         }
         Some(Self(F::get(archetype, offset)?, PhantomData))
     }
+
     fn release(archetype: &Archetype) {
         F::release(archetype)
     }
@@ -417,8 +424,8 @@ impl<'w, Q: Query> Drop for QueryBorrow<'w, Q> {
 }
 
 impl<'q, 'w, Q: Query> IntoIterator for &'q mut QueryBorrow<'w, Q> {
-    type Item = (Entity, <Q::Fetch as Fetch<'q>>::Item);
     type IntoIter = QueryIter<'q, 'w, Q>;
+    type Item = (Entity, <Q::Fetch as Fetch<'q>>::Item);
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter()

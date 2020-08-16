@@ -13,12 +13,13 @@
 // limitations under the License.
 
 use crate::alloc::{vec, vec::Vec};
-use core::any::{type_name, TypeId};
-use core::ptr::NonNull;
-use core::{fmt, mem};
+use core::{
+    any::{type_name, TypeId},
+    fmt, mem,
+    ptr::NonNull,
+};
 
-use crate::archetype::TypeInfo;
-use crate::Component;
+use crate::{archetype::TypeInfo, Component};
 
 /// A dynamically typed collection of components
 pub trait DynamicBundle {

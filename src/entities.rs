@@ -1,8 +1,9 @@
-use alloc::boxed::Box;
-use alloc::vec::Vec;
-use core::convert::TryFrom;
-use core::sync::atomic::{AtomicU32, Ordering};
-use core::{fmt, mem};
+use alloc::{boxed::Box, vec::Vec};
+use core::{
+    convert::TryFrom,
+    fmt, mem,
+    sync::atomic::{AtomicU32, Ordering},
+};
 #[cfg(feature = "std")]
 use std::error::Error;
 

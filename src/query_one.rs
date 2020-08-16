@@ -1,7 +1,9 @@
 use core::marker::PhantomData;
 
-use crate::query::{Fetch, With, Without};
-use crate::{Archetype, Component, Query};
+use crate::{
+    query::{Fetch, With, Without},
+    Archetype, Component, Query,
+};
 
 /// A borrow of a `World` sufficient to execute the query `Q` on a single entity
 pub struct QueryOne<'a, Q: Query> {

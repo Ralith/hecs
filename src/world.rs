@@ -13,18 +13,16 @@
 // limitations under the License.
 
 use crate::alloc::vec::Vec;
-use core::any::TypeId;
-use core::convert::TryFrom;
-use core::{fmt, mem, ptr};
+use core::{any::TypeId, convert::TryFrom, fmt, mem, ptr};
 
 #[cfg(feature = "std")]
 use std::error::Error;
 
 use hashbrown::{HashMap, HashSet};
 
-use crate::archetype::Archetype;
-use crate::entities::{Entities, Location};
 use crate::{
+    archetype::Archetype,
+    entities::{Entities, Location},
     Bundle, DynamicBundle, Entity, EntityRef, MissingComponent, NoSuchEntity, Query, QueryBorrow,
     QueryOne, Ref, RefMut,
 };
@@ -594,6 +592,7 @@ impl Default for World {
 impl<'a> IntoIterator for &'a World {
     type IntoIter = Iter<'a>;
     type Item = (Entity, EntityRef<'a>);
+
     fn into_iter(self) -> Iter<'a> {
         self.iter()
     }
@@ -672,6 +671,7 @@ unsafe impl Sync for Iter<'_> {}
 
 impl<'a> Iterator for Iter<'a> {
     type Item = (Entity, EntityRef<'a>);
+
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             match self.current {
