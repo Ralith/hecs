@@ -216,13 +216,13 @@ fn derived_bundle() {
     #[derive(Bundle)]
     struct Foo {
         x: i32,
-        y: f64,
+        y: char,
     }
 
     let mut world = World::new();
-    let e = world.spawn(Foo { x: 42, y: 1.0 });
+    let e = world.spawn(Foo { x: 42, y: 'a' });
     assert_eq!(*world.get::<i32>(e).unwrap(), 42);
-    assert_eq!(*world.get::<f64>(e).unwrap(), 1.0);
+    assert_eq!(*world.get::<char>(e).unwrap(), 'a');
 }
 
 #[test]
@@ -306,21 +306,15 @@ fn query_batched() {
     let c = world.spawn((42,));
     assert_eq!(world.query::<()>().iter_batched(1).count(), 3);
     assert_eq!(world.query::<()>().iter_batched(2).count(), 2);
-    assert_eq!(
-        world.query::<()>().iter_batched(2).flat_map(|x| x).count(),
-        3
-    );
+    assert_eq!(world.query::<()>().iter_batched(2).flatten().count(), 3);
     // different archetypes are always in different batches
     assert_eq!(world.query::<()>().iter_batched(3).count(), 2);
-    assert_eq!(
-        world.query::<()>().iter_batched(3).flat_map(|x| x).count(),
-        3
-    );
+    assert_eq!(world.query::<()>().iter_batched(3).flatten().count(), 3);
     assert_eq!(world.query::<()>().iter_batched(4).count(), 2);
     let entities = world
         .query::<()>()
         .iter_batched(1)
-        .flat_map(|x| x)
+        .flatten()
         .map(|(e, ())| e)
         .collect::<Vec<_>>();
     dbg!(&entities);
