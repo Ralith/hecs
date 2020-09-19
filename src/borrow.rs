@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use core::any::TypeId;
 use core::ops::{Deref, DerefMut};
 use core::ptr::NonNull;
 use core::sync::atomic::{AtomicUsize, Ordering};
@@ -181,6 +182,18 @@ impl<'a> EntityRef<'a> {
     /// Panics if the component is already borrowed from another entity with the same components.
     pub fn get_mut<T: Component>(&self) -> Option<RefMut<'a, T>> {
         Some(unsafe { RefMut::new(self.archetype?, self.index).ok()? })
+    }
+
+    /// Enumerate the types of the entity's components
+    ///
+    /// Convenient for dispatching component-specific logic for a single entity. For example, this
+    /// can be combined with a `HashMap<TypeId, Box<dyn Handler>>` where `Handler` is some
+    /// user-defined trait with methods for serialization, or to be called after spawning or before
+    /// despawning to maintain secondary indices.
+    pub fn component_types(&self) -> impl Iterator<Item = TypeId> + 'a {
+        self.archetype
+            .into_iter()
+            .flat_map(|arch| arch.types().iter().map(|ty| ty.id()))
     }
 }
 
