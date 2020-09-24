@@ -1,13 +1,14 @@
 use core::marker::PhantomData;
 
 use crate::query::{Fetch, With, Without};
-use crate::{Archetype, Component, Query};
+use crate::{Archetype, Component, Entity, Query};
 
 /// A borrow of a `World` sufficient to execute the query `Q` on a single entity
 pub struct QueryOne<'w, Q: Query<'w, C>, C: Copy + 'w> {
     archetype: &'w Archetype,
     index: u32,
     borrowed: bool,
+    entity: Entity,
     context: C,
     _marker: PhantomData<Q>,
 }
@@ -18,11 +19,17 @@ impl<'w, Q: Query<'w, C>, C: Copy + 'w> QueryOne<'w, Q, C> {
     /// # Safety
     ///
     /// `index` must be in-bounds for `archetype`
-    pub(crate) unsafe fn new(archetype: &'w Archetype, index: u32, context: C) -> Self {
+    pub(crate) unsafe fn new(
+        archetype: &'w Archetype,
+        index: u32,
+        entity: Entity,
+        context: C,
+    ) -> Self {
         Self {
             archetype,
             index,
             borrowed: false,
+            entity,
             context,
             _marker: PhantomData,
         }
@@ -42,7 +49,7 @@ impl<'w, Q: Query<'w, C>, C: Copy + 'w> QueryOne<'w, Q, C> {
             let mut fetch = Q::Fetch::get(self.archetype, self.index as usize)?;
             self.borrowed = true;
             Q::Fetch::borrow(self.archetype);
-            Some(fetch.next(self.index, self.context))
+            Some(fetch.next(self.entity, self.context))
         }
     }
 
@@ -66,6 +73,7 @@ impl<'w, Q: Query<'w, C>, C: Copy + 'w> QueryOne<'w, Q, C> {
             archetype: self.archetype,
             index: self.index,
             borrowed: self.borrowed,
+            entity: self.entity,
             context: self.context,
             _marker: PhantomData,
         };

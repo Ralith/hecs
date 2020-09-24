@@ -18,7 +18,7 @@ use core::ptr::NonNull;
 use core::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::archetype::Archetype;
-use crate::{Component, MissingComponent};
+use crate::{Component, Entity, MissingComponent, SmartComponent};
 
 pub struct AtomicBorrow(AtomicUsize);
 
@@ -63,15 +63,19 @@ const UNIQUE_BIT: usize = !(usize::max_value() >> 1);
 
 /// Shared borrow of an entity's component
 #[derive(Clone)]
-pub struct Ref<'a, T: Component> {
+pub struct Ref<'a, T: SmartComponent<C>, C: Clone + 'a = ()> {
     archetype: &'a Archetype,
     target: NonNull<T>,
+    entity: Entity,
+    context: C,
 }
 
-impl<'a, T: Component> Ref<'a, T> {
+impl<'a, T: SmartComponent<C>, C: Clone + 'a> Ref<'a, T, C> {
     pub(crate) unsafe fn new(
         archetype: &'a Archetype,
         index: u32,
+        entity: Entity,
+        context: C,
     ) -> Result<Self, MissingComponent> {
         let target = NonNull::new_unchecked(
             archetype
@@ -81,36 +85,47 @@ impl<'a, T: Component> Ref<'a, T> {
                 .add(index as usize),
         );
         archetype.borrow::<T>();
-        Ok(Self { archetype, target })
+        Ok(Self {
+            archetype,
+            target,
+            entity,
+            context,
+        })
     }
 }
 
-unsafe impl<T: Component> Send for Ref<'_, T> {}
-unsafe impl<T: Component> Sync for Ref<'_, T> {}
+unsafe impl<T: SmartComponent<C>, C: Clone + Sync> Send for Ref<'_, T, C> {}
+unsafe impl<T: SmartComponent<C>, C: Clone + Sync> Sync for Ref<'_, T, C> {}
 
-impl<'a, T: Component> Drop for Ref<'a, T> {
+impl<'a, T: SmartComponent<C>, C: Clone> Drop for Ref<'a, T, C> {
     fn drop(&mut self) {
         self.archetype.release::<T>();
     }
 }
 
-impl<'a, T: Component> Deref for Ref<'a, T> {
+impl<'a, T: SmartComponent<C>, C: Clone> Deref for Ref<'a, T, C> {
     type Target = T;
     fn deref(&self) -> &T {
-        unsafe { self.target.as_ref() }
+        let value = unsafe { self.target.as_ref() };
+        value.on_borrow(self.entity, &self.context);
+        value
     }
 }
 
 /// Unique borrow of an entity's component
-pub struct RefMut<'a, T: Component> {
+pub struct RefMut<'a, T: SmartComponent<C>, C: Clone = ()> {
     archetype: &'a Archetype,
     target: NonNull<T>,
+    entity: Entity,
+    context: C,
 }
 
-impl<'a, T: Component> RefMut<'a, T> {
+impl<'a, T: SmartComponent<C>, C: Clone> RefMut<'a, T, C> {
     pub(crate) unsafe fn new(
         archetype: &'a Archetype,
         index: u32,
+        entity: Entity,
+        context: C,
     ) -> Result<Self, MissingComponent> {
         let target = NonNull::new_unchecked(
             archetype
@@ -120,14 +135,19 @@ impl<'a, T: Component> RefMut<'a, T> {
                 .add(index as usize),
         );
         archetype.borrow_mut::<T>();
-        Ok(Self { archetype, target })
+        Ok(Self {
+            archetype,
+            target,
+            entity,
+            context,
+        })
     }
 }
 
-unsafe impl<T: Component> Send for RefMut<'_, T> {}
-unsafe impl<T: Component> Sync for RefMut<'_, T> {}
+unsafe impl<T: SmartComponent<C>, C: Clone + Sync> Send for RefMut<'_, T, C> {}
+unsafe impl<T: SmartComponent<C>, C: Clone + Sync> Sync for RefMut<'_, T, C> {}
 
-impl<'a, T: Component> Drop for RefMut<'a, T> {
+impl<'a, T: SmartComponent<C>, C: Clone> Drop for RefMut<'a, T, C> {
     fn drop(&mut self) {
         self.archetype.release_mut::<T>();
     }
@@ -136,36 +156,51 @@ impl<'a, T: Component> Drop for RefMut<'a, T> {
 impl<'a, T: Component> Deref for RefMut<'a, T> {
     type Target = T;
     fn deref(&self) -> &T {
-        unsafe { self.target.as_ref() }
+        let value = unsafe { self.target.as_ref() };
+        value.on_borrow(self.entity, &self.context);
+        value
     }
 }
 
 impl<'a, T: Component> DerefMut for RefMut<'a, T> {
     fn deref_mut(&mut self) -> &mut T {
-        unsafe { self.target.as_mut() }
+        let value = unsafe { self.target.as_mut() };
+        value.on_borrow_mut(self.entity, &self.context);
+        value
     }
 }
 
 /// Handle to an entity with any component types
 #[derive(Copy, Clone)]
-pub struct EntityRef<'a> {
+pub struct EntityRef<'a, C: Clone = ()> {
     archetype: Option<&'a Archetype>,
     index: u32,
+    entity: Entity,
+    context: C,
 }
 
-impl<'a> EntityRef<'a> {
+impl<'a, C: Clone> EntityRef<'a, C> {
     /// Construct a `Ref` for an entity with no components
-    pub(crate) fn empty() -> Self {
+    pub(crate) fn empty(entity: Entity, context: C) -> Self {
         Self {
             archetype: None,
             index: 0,
+            entity,
+            context,
         }
     }
 
-    pub(crate) unsafe fn new(archetype: &'a Archetype, index: u32) -> Self {
+    pub(crate) unsafe fn new(
+        archetype: &'a Archetype,
+        index: u32,
+        entity: Entity,
+        context: C,
+    ) -> Self {
         Self {
             archetype: Some(archetype),
             index,
+            entity,
+            context,
         }
     }
 
@@ -173,15 +208,31 @@ impl<'a> EntityRef<'a> {
     ///
     /// Panics if the component is already uniquely borrowed from another entity with the same
     /// components.
-    pub fn get<T: Component>(&self) -> Option<Ref<'a, T>> {
-        Some(unsafe { Ref::new(self.archetype?, self.index).ok()? })
+    pub fn get<T: SmartComponent<C>>(&self) -> Option<Ref<'a, T, C>> {
+        Some(unsafe {
+            Ref::new(
+                self.archetype?,
+                self.index,
+                self.entity,
+                self.context.clone(),
+            )
+            .ok()?
+        })
     }
 
     /// Uniquely borrow the component of type `T`, if it exists
     ///
     /// Panics if the component is already borrowed from another entity with the same components.
-    pub fn get_mut<T: Component>(&self) -> Option<RefMut<'a, T>> {
-        Some(unsafe { RefMut::new(self.archetype?, self.index).ok()? })
+    pub fn get_mut<T: SmartComponent<C>>(&self) -> Option<RefMut<'a, T, C>> {
+        Some(unsafe {
+            RefMut::new(
+                self.archetype?,
+                self.index,
+                self.entity,
+                self.context.clone(),
+            )
+            .ok()?
+        })
     }
 
     /// Enumerate the types of the entity's components
@@ -197,5 +248,5 @@ impl<'a> EntityRef<'a> {
     }
 }
 
-unsafe impl<'a> Send for EntityRef<'a> {}
-unsafe impl<'a> Sync for EntityRef<'a> {}
+unsafe impl<'a, C: Clone + Sync> Send for EntityRef<'a, C> {}
+unsafe impl<'a, C: Clone + Sync> Sync for EntityRef<'a, C> {}

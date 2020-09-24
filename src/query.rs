@@ -52,7 +52,7 @@ pub trait Fetch<'q, 'c, C: Clone + 'c>: Sized {
     /// - `release` must not be called while `'a` is still live
     /// - Bounds-checking must be performed externally
     /// - Any resulting borrows must be legal (e.g. no &mut to something another iterator might access)
-    unsafe fn next(&mut self, id: u32, context: C) -> Self::Item;
+    unsafe fn next(&mut self, id: Entity, context: C) -> Self::Item;
 }
 
 /// Type of access a `Query` may have to an `Archetype`
@@ -75,7 +75,7 @@ pub struct FetchRead<T>(NonNull<T>);
 
 pub struct Ref<'a, T, C> {
     value: &'a T,
-    id: u32,
+    id: Entity,
     context: C,
 }
 
@@ -131,7 +131,7 @@ impl<'q, 'c, T: SmartComponent<C>, C: Clone + 'c> Fetch<'q, 'c, C> for FetchRead
         archetype.release::<T>();
     }
 
-    unsafe fn next(&mut self, id: u32, context: C) -> Ref<'q, T, C> {
+    unsafe fn next(&mut self, id: Entity, context: C) -> Ref<'q, T, C> {
         let x = self.0.as_ptr();
         self.0 = NonNull::new_unchecked(x.add(1));
         Ref {
@@ -151,7 +151,7 @@ pub struct FetchWrite<T>(NonNull<T>);
 
 pub struct RefMut<'a, T, C> {
     value: &'a mut T,
-    id: u32,
+    id: Entity,
     context: C,
 }
 
@@ -202,7 +202,7 @@ impl<'q, 'c, T: SmartComponent<C>, C: Clone + 'c> Fetch<'q, 'c, C> for FetchWrit
         archetype.release_mut::<T>();
     }
 
-    unsafe fn next(&mut self, id: u32, context: C) -> RefMut<'q, T, C> {
+    unsafe fn next(&mut self, id: Entity, context: C) -> RefMut<'q, T, C> {
         let x = self.0.as_ptr();
         self.0 = NonNull::new_unchecked(x.add(1));
         RefMut {
@@ -239,7 +239,7 @@ impl<'q, 'c, T: Fetch<'q, 'c, C>, C: Clone + 'c> Fetch<'q, 'c, C> for TryFetch<T
         T::release(archetype)
     }
 
-    unsafe fn next(&mut self, id: u32, context: C) -> Option<T::Item> {
+    unsafe fn next(&mut self, id: Entity, context: C) -> Option<T::Item> {
         Some(self.0.as_mut()?.next(id, context))
     }
 }
@@ -296,7 +296,7 @@ impl<'q, 'c, T: Component, F: Fetch<'q, 'c, C>, C: Clone + 'c> Fetch<'q, 'c, C>
         F::release(archetype)
     }
 
-    unsafe fn next(&mut self, id: u32, context: C) -> F::Item {
+    unsafe fn next(&mut self, id: Entity, context: C) -> F::Item {
         self.0.next(id, context)
     }
 }
@@ -357,7 +357,7 @@ impl<'q, 'c, T: Component, F: Fetch<'q, 'c, C>, C: Clone + 'c> Fetch<'q, 'c, C>
         F::release(archetype)
     }
 
-    unsafe fn next(&mut self, id: u32, context: C) -> F::Item {
+    unsafe fn next(&mut self, id: Entity, context: C) -> F::Item {
         self.0.next(id, context)
     }
 }
@@ -540,21 +540,15 @@ impl<'q, 'w, Q: Query<'w, C>, C: Clone + 'w> Iterator for QueryIter<'q, 'w, Q, C
                         });
                     }
                 }
-                Some(ref mut iter) => match unsafe { iter.next(self.borrow.context.clone()) } {
-                    None => {
-                        self.iter = None;
-                        continue;
+                Some(ref mut iter) => {
+                    match unsafe { iter.next(self.borrow.meta, self.borrow.context.clone()) } {
+                        None => {
+                            self.iter = None;
+                            continue;
+                        }
+                        Some(item) => return Some(item),
                     }
-                    Some((id, components)) => {
-                        return Some((
-                            Entity {
-                                id,
-                                generation: self.borrow.meta[id as usize].generation,
-                            },
-                            components,
-                        ));
-                    }
-                },
+                }
             }
         }
     }
@@ -587,16 +581,21 @@ impl<'c, Q: Query<'c, C>, C: Clone + 'c> ChunkIter<'c, Q, C> {
     #[inline]
     unsafe fn next<'a>(
         &mut self,
+        meta: &'c [EntityMeta],
         context: C,
-    ) -> Option<(u32, <Q::Fetch as Fetch<'a, 'c, C>>::Item)> {
+    ) -> Option<(Entity, <Q::Fetch as Fetch<'a, 'c, C>>::Item)> {
         if self.len == 0 {
             return None;
         }
         self.len -= 1;
-        let entity = self.entities.as_ptr();
-        let id = *entity;
-        self.entities = NonNull::new_unchecked(entity.add(1));
-        Some((id, self.fetch.next(id, context)))
+        let entity_ptr = self.entities.as_ptr();
+        self.entities = NonNull::new_unchecked(entity_ptr.add(1));
+        let id = *entity_ptr;
+        let entity = Entity {
+            id,
+            generation: meta[id as usize].generation,
+        };
+        Some((entity, self.fetch.next(entity, context)))
     }
 }
 
@@ -664,14 +663,7 @@ impl<'q, 'w, Q: Query<'w, C>, C: Clone + 'w> Iterator for Batch<'q, 'w, Q, C> {
     type Item = (Entity, <Q::Fetch as Fetch<'q, 'w, C>>::Item);
 
     fn next(&mut self) -> Option<Self::Item> {
-        let (id, components) = unsafe { self.state.next(self.context.clone())? };
-        Some((
-            Entity {
-                id,
-                generation: self.meta[id as usize].generation,
-            },
-            components,
-        ))
+        unsafe { self.state.next(self.meta, self.context.clone()) }
     }
 }
 
@@ -708,7 +700,7 @@ macro_rules! tuple_impl {
             }
 
             #[allow(unused_variables)]
-            unsafe fn next(&mut self, id: u32, context: Z) -> Self::Item {
+            unsafe fn next(&mut self, id: Entity, context: Z) -> Self::Item {
                 #[allow(non_snake_case)]
                 let ($($name,)*) = self;
                 ($($name.next(id, context.clone()),)*)

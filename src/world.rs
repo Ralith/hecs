@@ -245,10 +245,10 @@ impl World {
     /// assert!(entities.contains(&(b, 456, false)));
     /// ```
     pub fn query<'q, Q: Query<'q>>(&'q self) -> QueryBorrow<'q, Q, ()> {
-        QueryBorrow::new(&self.entities.meta, &self.archetypes, ())
+        self.query_with_context(())
     }
 
-    pub fn smart_query<'q, Q, C>(&'q self, context: C) -> QueryBorrow<'q, Q, C>
+    pub fn query_with_context<'q, Q, C>(&'q self, context: C) -> QueryBorrow<'q, Q, C>
     where
         Q: Query<'q, C>,
         C: Copy + 'q,
@@ -279,11 +279,10 @@ impl World {
     where
         Q: Query<'q>,
     {
-        let loc = self.entities.get(entity)?;
-        Ok(unsafe { QueryOne::new(&self.archetypes[loc.archetype as usize], loc.index, ()) })
+        self.query_one_with_context(entity, ())
     }
 
-    pub fn smart_query_one<'q, Q, C>(
+    pub fn query_one_with_context<'q, Q, C>(
         &'q self,
         entity: Entity,
         context: C,
@@ -293,19 +292,33 @@ impl World {
         C: Copy + 'q,
     {
         let loc = self.entities.get(entity)?;
-        Ok(unsafe { QueryOne::new(&self.archetypes[loc.archetype as usize], loc.index, context) })
+        Ok(unsafe {
+            QueryOne::new(
+                &self.archetypes[loc.archetype as usize],
+                loc.index,
+                entity,
+                context,
+            )
+        })
     }
 
     /// Borrow the `T` component of `entity`
     ///
     /// Panics if the component is already uniquely borrowed from another entity with the same
     /// components.
-    pub fn get<T: Component>(&self, entity: Entity) -> Result<Ref<'_, T>, ComponentError> {
+    pub fn get<T: Component>(&self, entity: Entity) -> Result<Ref<'_, T, ()>, ComponentError> {
         let loc = self.entities.get(entity)?;
         if loc.archetype == 0 {
             return Err(MissingComponent::new::<T>().into());
         }
-        Ok(unsafe { Ref::new(&self.archetypes[loc.archetype as usize], loc.index)? })
+        Ok(unsafe {
+            Ref::new(
+                &self.archetypes[loc.archetype as usize],
+                loc.index,
+                entity,
+                (),
+            )?
+        })
     }
 
     /// Uniquely borrow the `T` component of `entity`
@@ -316,7 +329,14 @@ impl World {
         if loc.archetype == 0 {
             return Err(MissingComponent::new::<T>().into());
         }
-        Ok(unsafe { RefMut::new(&self.archetypes[loc.archetype as usize], loc.index)? })
+        Ok(unsafe {
+            RefMut::new(
+                &self.archetypes[loc.archetype as usize],
+                loc.index,
+                entity,
+                (),
+            )?
+        })
     }
 
     /// Access an entity regardless of its component types
@@ -324,8 +344,71 @@ impl World {
     /// Does not immediately borrow any component.
     pub fn entity(&self, entity: Entity) -> Result<EntityRef<'_>, NoSuchEntity> {
         Ok(match self.entities.get(entity)? {
-            Location { archetype: 0, .. } => EntityRef::empty(),
-            loc => unsafe { EntityRef::new(&self.archetypes[loc.archetype as usize], loc.index) },
+            Location { archetype: 0, .. } => EntityRef::empty(entity, ()),
+            loc => unsafe {
+                EntityRef::new(
+                    &self.archetypes[loc.archetype as usize],
+                    loc.index,
+                    entity,
+                    (),
+                )
+            },
+        })
+    }
+
+    pub fn get_with_context<T: SmartComponent<C>, C: Clone>(
+        &self,
+        entity: Entity,
+        context: C,
+    ) -> Result<Ref<'_, T, C>, ComponentError> {
+        let loc = self.entities.get(entity)?;
+        if loc.archetype == 0 {
+            return Err(MissingComponent::new::<T>().into());
+        }
+        Ok(unsafe {
+            Ref::new(
+                &self.archetypes[loc.archetype as usize],
+                loc.index,
+                entity,
+                context,
+            )?
+        })
+    }
+
+    pub fn get_mut_with_context<T: SmartComponent<C>, C: Clone>(
+        &self,
+        entity: Entity,
+        context: C,
+    ) -> Result<RefMut<'_, T, C>, ComponentError> {
+        let loc = self.entities.get(entity)?;
+        if loc.archetype == 0 {
+            return Err(MissingComponent::new::<T>().into());
+        }
+        Ok(unsafe {
+            RefMut::new(
+                &self.archetypes[loc.archetype as usize],
+                loc.index,
+                entity,
+                context,
+            )?
+        })
+    }
+
+    pub fn entity_with_context<C: Clone>(
+        &self,
+        entity: Entity,
+        context: C,
+    ) -> Result<EntityRef<'_, C>, NoSuchEntity> {
+        Ok(match self.entities.get(entity)? {
+            Location { archetype: 0, .. } => EntityRef::empty(entity, context),
+            loc => unsafe {
+                EntityRef::new(
+                    &self.archetypes[loc.archetype as usize],
+                    loc.index,
+                    entity,
+                    context,
+                )
+            },
         })
     }
 
@@ -670,8 +753,8 @@ pub trait Component: Send + Sync + 'static {}
 impl<T: Send + Sync + 'static> Component for T {}
 
 pub trait SmartComponent<T: Clone>: Component {
-    fn on_borrow(&self, _id: u32, _x: &T) {}
-    fn on_borrow_mut(&mut self, _id: u32, _x: &T) {}
+    fn on_borrow(&self, _id: Entity, _x: &T) {}
+    fn on_borrow_mut(&mut self, _id: Entity, _x: &T) {}
 }
 
 impl<T: Component> SmartComponent<()> for T {}
@@ -715,13 +798,13 @@ impl<'a> Iterator for Iter<'a> {
                     let index = self.index;
                     self.index += 1;
                     let id = current.entity_id(index);
-                    return Some((
-                        Entity {
-                            id,
-                            generation: self.entities.meta[id as usize].generation,
-                        },
-                        unsafe { EntityRef::new(current, index) },
-                    ));
+                    let entity = Entity {
+                        id,
+                        generation: self.entities.meta[id as usize].generation,
+                    };
+                    return Some((entity, unsafe {
+                        EntityRef::new(current, index, entity, ())
+                    }));
                 }
             }
         }
