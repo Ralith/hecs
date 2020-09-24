@@ -78,7 +78,9 @@ pub use entities::{Entity, NoSuchEntity};
 pub use entity_builder::{BuiltEntity, EntityBuilder};
 pub use query::{Access, BatchedIter, Query, QueryBorrow, QueryIter, With, Without};
 pub use query_one::QueryOne;
-pub use world::{ArchetypesGeneration, Component, ComponentError, Iter, SpawnBatchIter, World};
+pub use world::{
+    ArchetypesGeneration, Component, ComponentError, Iter, SmartComponent, SpawnBatchIter, World,
+};
 
 // Unstable implementation details needed by the macros
 #[doc(hidden)]

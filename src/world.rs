@@ -244,8 +244,12 @@ impl World {
     /// assert!(entities.contains(&(a, 123, true)));
     /// assert!(entities.contains(&(b, 456, false)));
     /// ```
-    pub fn query<Q: Query>(&self) -> QueryBorrow<'_, Q> {
-        QueryBorrow::new(&self.entities.meta, &self.archetypes)
+    pub fn query<Q: Query>(&self) -> QueryBorrow<'_, Q, ()> {
+        QueryBorrow::new(&self.entities.meta, &self.archetypes, &())
+    }
+
+    pub fn smart_query<'q, Q: Query<C>, C>(&'q self, context: &'q C) -> QueryBorrow<'q, Q, C> {
+        QueryBorrow::new(&self.entities.meta, &self.archetypes, context)
     }
 
     /// Prepare a query against a single entity
@@ -267,9 +271,18 @@ impl World {
     /// if *flag { *number *= 2; }
     /// assert_eq!(*number, 246);
     /// ```
-    pub fn query_one<Q: Query>(&self, entity: Entity) -> Result<QueryOne<'_, Q>, NoSuchEntity> {
+    pub fn query_one<Q: Query>(&self, entity: Entity) -> Result<QueryOne<'_, Q, ()>, NoSuchEntity> {
         let loc = self.entities.get(entity)?;
-        Ok(unsafe { QueryOne::new(&self.archetypes[loc.archetype as usize], loc.index) })
+        Ok(unsafe { QueryOne::new(&self.archetypes[loc.archetype as usize], loc.index, &()) })
+    }
+
+    pub fn smart_query_one<'q, Q: Query<C>, C>(
+        &'q self,
+        entity: Entity,
+        context: &'q C,
+    ) -> Result<QueryOne<'q, Q, C>, NoSuchEntity> {
+        let loc = self.entities.get(entity)?;
+        Ok(unsafe { QueryOne::new(&self.archetypes[loc.archetype as usize], loc.index, context) })
     }
 
     /// Borrow the `T` component of `entity`
@@ -644,6 +657,13 @@ impl From<MissingComponent> for ComponentError {
 /// implemented manually.
 pub trait Component: Send + Sync + 'static {}
 impl<T: Send + Sync + 'static> Component for T {}
+
+pub trait SmartComponent<T>: Component {
+    fn on_borrow(&self, _id: u32, _x: &T) {}
+    fn on_borrow_mut(&mut self, _id: u32, _x: &T) {}
+}
+
+impl<T: Component> SmartComponent<()> for T {}
 
 /// Iterator over all of a world's entities
 pub struct Iter<'a> {
