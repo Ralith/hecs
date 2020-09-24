@@ -18,7 +18,7 @@ use core::ptr::NonNull;
 use core::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::archetype::Archetype;
-use crate::{Component, Entity, MissingComponent, SmartComponent};
+use crate::{Entity, MissingComponent, SmartComponent};
 
 pub struct AtomicBorrow(AtomicUsize);
 
@@ -153,7 +153,7 @@ impl<'a, T: SmartComponent<C>, C: Clone> Drop for RefMut<'a, T, C> {
     }
 }
 
-impl<'a, T: Component> Deref for RefMut<'a, T> {
+impl<'a, T: SmartComponent<C>, C: Clone> Deref for RefMut<'a, T, C> {
     type Target = T;
     fn deref(&self) -> &T {
         let value = unsafe { self.target.as_ref() };
@@ -162,7 +162,7 @@ impl<'a, T: Component> Deref for RefMut<'a, T> {
     }
 }
 
-impl<'a, T: Component> DerefMut for RefMut<'a, T> {
+impl<'a, T: SmartComponent<C>, C: Clone> DerefMut for RefMut<'a, T, C> {
     fn deref_mut(&mut self) -> &mut T {
         let value = unsafe { self.target.as_mut() };
         value.on_borrow_mut(self.entity, self.context.clone());
