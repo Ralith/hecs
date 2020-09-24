@@ -244,14 +244,15 @@ impl World {
     /// assert!(entities.contains(&(a, 123, true)));
     /// assert!(entities.contains(&(b, 456, false)));
     /// ```
-    pub fn query<'q, Q: Query<'static>>(&'q self) -> QueryBorrow<'q, 'static, Q, ()> {
+    pub fn query<'q, Q: Query<'q>>(&'q self) -> QueryBorrow<'q, Q, ()> {
         QueryBorrow::new(&self.entities.meta, &self.archetypes, ())
     }
 
-    pub fn smart_query<'q, 'c, Q: Query<'c, C>, C: Copy + 'c>(
-        &'q self,
-        context: C,
-    ) -> QueryBorrow<'q, 'c, Q, C> {
+    pub fn smart_query<'q, Q, C>(&'q self, context: C) -> QueryBorrow<'q, Q, C>
+    where
+        Q: Query<'q, C>,
+        C: Copy + 'q,
+    {
         QueryBorrow::new(&self.entities.meta, &self.archetypes, context)
     }
 
@@ -274,19 +275,23 @@ impl World {
     /// if *flag { *number *= 2; }
     /// assert_eq!(*number, 246);
     /// ```
-    pub fn query_one<Q: Query<'static>>(
-        &self,
-        entity: Entity,
-    ) -> Result<QueryOne<'_, 'static, Q, ()>, NoSuchEntity> {
+    pub fn query_one<'q, Q>(&'q self, entity: Entity) -> Result<QueryOne<'_, Q, ()>, NoSuchEntity>
+    where
+        Q: Query<'q>,
+    {
         let loc = self.entities.get(entity)?;
         Ok(unsafe { QueryOne::new(&self.archetypes[loc.archetype as usize], loc.index, ()) })
     }
 
-    pub fn smart_query_one<'q, 'c, Q: Query<'c, C>, C: Copy + 'c>(
+    pub fn smart_query_one<'q, Q, C>(
         &'q self,
         entity: Entity,
         context: C,
-    ) -> Result<QueryOne<'q, 'c, Q, C>, NoSuchEntity> {
+    ) -> Result<QueryOne<'q, Q, C>, NoSuchEntity>
+    where
+        Q: Query<'q, C>,
+        C: Copy + 'q,
+    {
         let loc = self.entities.get(entity)?;
         Ok(unsafe { QueryOne::new(&self.archetypes[loc.archetype as usize], loc.index, context) })
     }

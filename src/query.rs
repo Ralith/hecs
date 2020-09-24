@@ -365,15 +365,15 @@ impl<'q, 'c, T: Component, F: Fetch<'q, 'c, C>, C: Clone + 'c> Fetch<'q, 'c, C>
 /// A borrow of a `World` sufficient to execute the query `Q`
 ///
 /// Note that borrows are not released until this object is dropped.
-pub struct QueryBorrow<'w, 'c, Q: Query<'c, C>, C: Clone + 'c> {
+pub struct QueryBorrow<'w, Q: Query<'w, C>, C: Clone + 'w> {
     meta: &'w [EntityMeta],
     archetypes: &'w [Archetype],
     borrowed: bool,
     context: C,
-    _marker: PhantomData<(Q, &'c ())>,
+    _marker: PhantomData<Q>,
 }
 
-impl<'w, 'c, Q: Query<'c, C>, C: Clone + 'c> QueryBorrow<'w, 'c, Q, C> {
+impl<'w, Q: Query<'w, C>, C: Clone + 'w> QueryBorrow<'w, Q, C> {
     pub(crate) fn new(meta: &'w [EntityMeta], archetypes: &'w [Archetype], context: C) -> Self {
         Self {
             meta,
@@ -387,7 +387,7 @@ impl<'w, 'c, Q: Query<'c, C>, C: Clone + 'c> QueryBorrow<'w, 'c, Q, C> {
     /// Execute the query
     ///
     /// Must be called only once per query.
-    pub fn iter<'q>(&'q mut self) -> QueryIter<'q, 'w, 'c, Q, C> {
+    pub fn iter<'q>(&'q mut self) -> QueryIter<'q, 'w, Q, C> {
         self.borrow();
         QueryIter {
             borrow: self,
@@ -399,7 +399,7 @@ impl<'w, 'c, Q: Query<'c, C>, C: Clone + 'c> QueryBorrow<'w, 'c, Q, C> {
     /// Like `iter`, but returns child iterators of at most `batch_size` elements
     ///
     /// Useful for distributing work over a threadpool.
-    pub fn iter_batched<'q>(&'q mut self, batch_size: u32) -> BatchedIter<'q, 'w, 'c, Q, C> {
+    pub fn iter_batched<'q>(&'q mut self, batch_size: u32) -> BatchedIter<'q, 'w, Q, C> {
         self.borrow();
         BatchedIter {
             borrow: self,
@@ -446,7 +446,7 @@ impl<'w, 'c, Q: Query<'c, C>, C: Clone + 'c> QueryBorrow<'w, 'c, Q, C> {
     /// assert!(entities.contains(&(a, 123)));
     /// assert!(entities.contains(&(b, 456)));
     /// ```
-    pub fn with<T: Component>(self) -> QueryBorrow<'w, 'c, With<T, Q>, C> {
+    pub fn with<T: Component>(self) -> QueryBorrow<'w, With<T, Q>, C> {
         self.transform()
     }
 
@@ -468,12 +468,12 @@ impl<'w, 'c, Q: Query<'c, C>, C: Clone + 'c> QueryBorrow<'w, 'c, Q, C> {
     ///     .collect::<Vec<_>>();
     /// assert_eq!(entities, &[(c, 42)]);
     /// ```
-    pub fn without<T: Component>(self) -> QueryBorrow<'w, 'c, Without<T, Q>, C> {
+    pub fn without<T: Component>(self) -> QueryBorrow<'w, Without<T, Q>, C> {
         self.transform()
     }
 
     /// Helper to change the type of the query
-    fn transform<R: Query<'c, C>>(mut self) -> QueryBorrow<'w, 'c, R, C> {
+    fn transform<R: Query<'w, C>>(mut self) -> QueryBorrow<'w, R, C> {
         let x = QueryBorrow {
             meta: self.meta,
             archetypes: self.archetypes,
@@ -487,10 +487,10 @@ impl<'w, 'c, Q: Query<'c, C>, C: Clone + 'c> QueryBorrow<'w, 'c, Q, C> {
     }
 }
 
-unsafe impl<'w, 'c, Q: Query<'c, C>, C: Clone + Sync + 'c> Send for QueryBorrow<'w, 'c, Q, C> {}
-unsafe impl<'w, 'c, Q: Query<'c, C>, C: Clone + Sync + 'c> Sync for QueryBorrow<'w, 'c, Q, C> {}
+unsafe impl<'w, Q: Query<'w, C>, C: Clone + Sync + 'w> Send for QueryBorrow<'w, Q, C> {}
+unsafe impl<'w, Q: Query<'w, C>, C: Clone + Sync + 'w> Sync for QueryBorrow<'w, Q, C> {}
 
-impl<'w, 'c, Q: Query<'c, C>, C: Clone + 'c> Drop for QueryBorrow<'w, 'c, Q, C> {
+impl<'w, Q: Query<'w, C>, C: Clone + 'w> Drop for QueryBorrow<'w, Q, C> {
     fn drop(&mut self) {
         if self.borrowed {
             for x in self.archetypes {
@@ -502,11 +502,9 @@ impl<'w, 'c, Q: Query<'c, C>, C: Clone + 'c> Drop for QueryBorrow<'w, 'c, Q, C> 
     }
 }
 
-impl<'q, 'w, 'c, Q: Query<'c, C>, C: Clone + 'c> IntoIterator
-    for &'q mut QueryBorrow<'w, 'c, Q, C>
-{
-    type Item = (Entity, <Q::Fetch as Fetch<'q, 'c, C>>::Item);
-    type IntoIter = QueryIter<'q, 'w, 'c, Q, C>;
+impl<'q, 'w, Q: Query<'w, C>, C: Clone + 'w> IntoIterator for &'q mut QueryBorrow<'w, Q, C> {
+    type Item = (Entity, <Q::Fetch as Fetch<'q, 'w, C>>::Item);
+    type IntoIter = QueryIter<'q, 'w, Q, C>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
@@ -514,23 +512,17 @@ impl<'q, 'w, 'c, Q: Query<'c, C>, C: Clone + 'c> IntoIterator
 }
 
 /// Iterator over the set of entities with the components in `Q`
-pub struct QueryIter<'q, 'w, 'c, Q: Query<'c, C>, C: Clone + 'c> {
-    borrow: &'q mut QueryBorrow<'w, 'c, Q, C>,
+pub struct QueryIter<'q, 'w, Q: Query<'w, C>, C: Clone + 'w> {
+    borrow: &'q mut QueryBorrow<'w, Q, C>,
     archetype_index: u32,
-    iter: Option<ChunkIter<'c, Q, C>>,
+    iter: Option<ChunkIter<'w, Q, C>>,
 }
 
-unsafe impl<'q, 'w, 'c, Q: Query<'c, C>, C: Clone + Sync + 'w> Send
-    for QueryIter<'q, 'w, 'c, Q, C>
-{
-}
-unsafe impl<'q, 'w, 'c, Q: Query<'c, C>, C: Clone + Sync + 'w> Sync
-    for QueryIter<'q, 'w, 'c, Q, C>
-{
-}
+unsafe impl<'q, 'w, Q: Query<'w, C>, C: Clone + Sync + 'w> Send for QueryIter<'q, 'w, Q, C> {}
+unsafe impl<'q, 'w, Q: Query<'w, C>, C: Clone + Sync + 'w> Sync for QueryIter<'q, 'w, Q, C> {}
 
-impl<'q, 'w, 'c, Q: Query<'c, C>, C: Clone + 'c> Iterator for QueryIter<'q, 'w, 'c, Q, C> {
-    type Item = (Entity, <Q::Fetch as Fetch<'q, 'c, C>>::Item);
+impl<'q, 'w, Q: Query<'w, C>, C: Clone + 'w> Iterator for QueryIter<'q, 'w, Q, C> {
+    type Item = (Entity, <Q::Fetch as Fetch<'q, 'w, C>>::Item);
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
@@ -573,7 +565,7 @@ impl<'q, 'w, 'c, Q: Query<'c, C>, C: Clone + 'c> Iterator for QueryIter<'q, 'w, 
     }
 }
 
-impl<'q, 'w, 'c, Q: Query<'c, C>, C: Clone + 'c> ExactSizeIterator for QueryIter<'q, 'w, 'c, Q, C> {
+impl<'q, 'w, Q: Query<'w, C>, C: Clone + 'w> ExactSizeIterator for QueryIter<'q, 'w, Q, C> {
     fn len(&self) -> usize {
         self.borrow
             .archetypes
@@ -609,24 +601,18 @@ impl<'c, Q: Query<'c, C>, C: Clone + 'c> ChunkIter<'c, Q, C> {
 }
 
 /// Batched version of `QueryIter`
-pub struct BatchedIter<'q, 'w, 'c, Q: Query<'c, C>, C: Clone + 'c> {
-    borrow: &'q mut QueryBorrow<'w, 'c, Q, C>,
+pub struct BatchedIter<'q, 'w, Q: Query<'w, C>, C: Clone + 'w> {
+    borrow: &'q mut QueryBorrow<'w, Q, C>,
     archetype_index: u32,
     batch_size: u32,
     batch: u32,
 }
 
-unsafe impl<'q, 'w, 'c, Q: Query<'c, C>, C: Clone + Sync + 'w> Send
-    for BatchedIter<'q, 'w, 'c, Q, C>
-{
-}
-unsafe impl<'q, 'w, 'c, Q: Query<'c, C>, C: Clone + Sync + 'w> Sync
-    for BatchedIter<'q, 'w, 'c, Q, C>
-{
-}
+unsafe impl<'q, 'w, Q: Query<'w, C>, C: Clone + Sync + 'w> Send for BatchedIter<'q, 'w, Q, C> {}
+unsafe impl<'q, 'w, Q: Query<'w, C>, C: Clone + Sync + 'w> Sync for BatchedIter<'q, 'w, Q, C> {}
 
-impl<'q, 'w, 'c, Q: Query<'c, C>, C: Clone + 'w> Iterator for BatchedIter<'q, 'w, 'c, Q, C> {
-    type Item = Batch<'q, 'w, 'c, Q, C>;
+impl<'q, 'w, Q: Query<'w, C>, C: Clone + 'w> Iterator for BatchedIter<'q, 'w, Q, C> {
+    type Item = Batch<'q, 'w, Q, C>;
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
@@ -667,15 +653,15 @@ impl<'q, 'w, 'c, Q: Query<'c, C>, C: Clone + 'w> Iterator for BatchedIter<'q, 'w
 }
 
 /// A sequence of entities yielded by `BatchedIter`
-pub struct Batch<'q, 'w, 'c, Q: Query<'c, C>, C: Clone + 'w> {
+pub struct Batch<'q, 'w, Q: Query<'w, C>, C: Clone + 'w> {
     _marker: PhantomData<&'q ()>,
     meta: &'w [EntityMeta],
-    state: ChunkIter<'c, Q, C>,
+    state: ChunkIter<'w, Q, C>,
     context: C,
 }
 
-impl<'q, 'w, 'c, Q: Query<'c, C>, C: Clone + 'w> Iterator for Batch<'q, 'w, 'c, Q, C> {
-    type Item = (Entity, <Q::Fetch as Fetch<'q, 'c, C>>::Item);
+impl<'q, 'w, Q: Query<'w, C>, C: Clone + 'w> Iterator for Batch<'q, 'w, Q, C> {
+    type Item = (Entity, <Q::Fetch as Fetch<'q, 'w, C>>::Item);
 
     fn next(&mut self) -> Option<Self::Item> {
         let (id, components) = unsafe { self.state.next(self.context.clone())? };
@@ -689,8 +675,8 @@ impl<'q, 'w, 'c, Q: Query<'c, C>, C: Clone + 'w> Iterator for Batch<'q, 'w, 'c, 
     }
 }
 
-unsafe impl<'q, 'w, 'c, Q: Query<'c, C>, C: Clone + Sync + 'w> Send for Batch<'q, 'w, 'c, Q, C> {}
-unsafe impl<'q, 'w, 'c, Q: Query<'c, C>, C: Clone + Sync + 'w> Sync for Batch<'q, 'w, 'c, Q, C> {}
+unsafe impl<'q, 'w, Q: Query<'w, C>, C: Clone + Sync + 'w> Send for Batch<'q, 'w, Q, C> {}
+unsafe impl<'q, 'w, Q: Query<'w, C>, C: Clone + Sync + 'w> Sync for Batch<'q, 'w, Q, C> {}
 
 macro_rules! tuple_impl {
     ($($name: ident),*) => {
