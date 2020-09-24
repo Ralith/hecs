@@ -257,7 +257,7 @@ impl<'q, 'c, T: Fetch<'q, 'c, C>, C: Clone + 'c> Fetch<'q, 'c, C> for TryFetch<T
 /// let c = world.spawn((42, "def"));
 /// let entities = world.query::<Without<bool, &i32>>()
 ///     .iter()
-///     .map(|(e, &i)| (e, i))
+///     .map(|(e, i)| (e, *i))
 ///     .collect::<Vec<_>>();
 /// assert_eq!(entities, &[(c, 42)]);
 /// ```
@@ -314,7 +314,7 @@ impl<'q, 'c, T: Component, F: Fetch<'q, 'c, C>, C: Clone + 'c> Fetch<'q, 'c, C>
 /// let c = world.spawn((42, "def"));
 /// let entities = world.query::<With<bool, &i32>>()
 ///     .iter()
-///     .map(|(e, &i)| (e, i))
+///     .map(|(e, i)| (e, *i))
 ///     .collect::<Vec<_>>();
 /// assert_eq!(entities.len(), 2);
 /// assert!(entities.contains(&(a, 123)));
@@ -441,7 +441,7 @@ impl<'w, Q: Query<'w, C>, C: Clone + 'w> QueryBorrow<'w, Q, C> {
     /// let entities = world.query::<&i32>()
     ///     .with::<bool>()
     ///     .iter()
-    ///     .map(|(e, &i)| (e, i)) // Clone out of the world
+    ///     .map(|(e, i)| (e, *i)) // Clone out of the world
     ///     .collect::<Vec<_>>();
     /// assert!(entities.contains(&(a, 123)));
     /// assert!(entities.contains(&(b, 456)));
@@ -464,7 +464,7 @@ impl<'w, Q: Query<'w, C>, C: Clone + 'w> QueryBorrow<'w, Q, C> {
     /// let entities = world.query::<&i32>()
     ///     .without::<bool>()
     ///     .iter()
-    ///     .map(|(e, &i)| (e, i)) // Clone out of the world
+    ///     .map(|(e, i)| (e, *i)) // Clone out of the world
     ///     .collect::<Vec<_>>();
     /// assert_eq!(entities, &[(c, 42)]);
     /// ```

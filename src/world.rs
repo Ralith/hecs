@@ -238,7 +238,7 @@ impl World {
     /// let c = world.spawn((42, "def"));
     /// let entities = world.query::<(&i32, &bool)>()
     ///     .iter()
-    ///     .map(|(e, (&i, &b))| (e, i, b)) // Copy out of the world
+    ///     .map(|(e, (i, b))| (e, *i, *b)) // Copy out of the world
     ///     .collect::<Vec<_>>();
     /// assert_eq!(entities.len(), 2);
     /// assert!(entities.contains(&(a, 123, true)));
@@ -271,7 +271,7 @@ impl World {
     /// let a = world.spawn((123, true, "abc"));
     /// // The returned query must outlive the borrow made by `get`
     /// let mut query = world.query_one::<(&mut i32, &bool)>(a).unwrap();
-    /// let (number, flag) = query.get().unwrap();
+    /// let (mut number, flag) = query.get().unwrap();
     /// if *flag { *number *= 2; }
     /// assert_eq!(*number, 246);
     /// ```
