@@ -301,7 +301,7 @@ impl Archetype {
     }
 
     /// How, if at all, `Q` will access entities in this archetype
-    pub fn access<Q: Query>(&self) -> Option<Access> {
+    pub fn access<'w, Q: Query<'w, C>, C: Copy + 'w>(&self) -> Option<Access> {
         Q::Fetch::access(self)
     }
 }

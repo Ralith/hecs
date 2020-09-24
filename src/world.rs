@@ -244,11 +244,14 @@ impl World {
     /// assert!(entities.contains(&(a, 123, true)));
     /// assert!(entities.contains(&(b, 456, false)));
     /// ```
-    pub fn query<Q: Query>(&self) -> QueryBorrow<'_, Q, ()> {
-        QueryBorrow::new(&self.entities.meta, &self.archetypes, &())
+    pub fn query<'q, Q: Query<'static>>(&'q self) -> QueryBorrow<'q, 'static, Q, ()> {
+        QueryBorrow::new(&self.entities.meta, &self.archetypes, ())
     }
 
-    pub fn smart_query<'q, Q: Query<C>, C>(&'q self, context: &'q C) -> QueryBorrow<'q, Q, C> {
+    pub fn smart_query<'q, 'c, Q: Query<'c, C>, C: Copy + 'c>(
+        &'q self,
+        context: C,
+    ) -> QueryBorrow<'q, 'c, Q, C> {
         QueryBorrow::new(&self.entities.meta, &self.archetypes, context)
     }
 
@@ -271,16 +274,19 @@ impl World {
     /// if *flag { *number *= 2; }
     /// assert_eq!(*number, 246);
     /// ```
-    pub fn query_one<Q: Query>(&self, entity: Entity) -> Result<QueryOne<'_, Q, ()>, NoSuchEntity> {
+    pub fn query_one<Q: Query<'static>>(
+        &self,
+        entity: Entity,
+    ) -> Result<QueryOne<'_, 'static, Q, ()>, NoSuchEntity> {
         let loc = self.entities.get(entity)?;
-        Ok(unsafe { QueryOne::new(&self.archetypes[loc.archetype as usize], loc.index, &()) })
+        Ok(unsafe { QueryOne::new(&self.archetypes[loc.archetype as usize], loc.index, ()) })
     }
 
-    pub fn smart_query_one<'q, Q: Query<C>, C>(
+    pub fn smart_query_one<'q, 'c, Q: Query<'c, C>, C: Copy + 'c>(
         &'q self,
         entity: Entity,
-        context: &'q C,
-    ) -> Result<QueryOne<'q, Q, C>, NoSuchEntity> {
+        context: C,
+    ) -> Result<QueryOne<'q, 'c, Q, C>, NoSuchEntity> {
         let loc = self.entities.get(entity)?;
         Ok(unsafe { QueryOne::new(&self.archetypes[loc.archetype as usize], loc.index, context) })
     }
@@ -658,7 +664,7 @@ impl From<MissingComponent> for ComponentError {
 pub trait Component: Send + Sync + 'static {}
 impl<T: Send + Sync + 'static> Component for T {}
 
-pub trait SmartComponent<T>: Component {
+pub trait SmartComponent<T: Clone>: Component {
     fn on_borrow(&self, _id: u32, _x: &T) {}
     fn on_borrow_mut(&mut self, _id: u32, _x: &T) {}
 }
