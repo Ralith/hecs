@@ -1,6 +1,6 @@
 [package]
 name = "hecs"
-version = "0.2.14"
+version = "0.2.15"
 description = "A fast, minimal, and ergonomic entity-component-system"
 authors = ["Benjamin Saunders <ben.e.saunders@gmail.com>"]
 edition = "2018"
