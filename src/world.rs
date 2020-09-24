@@ -753,8 +753,8 @@ pub trait Component: Send + Sync + 'static {}
 impl<T: Send + Sync + 'static> Component for T {}
 
 pub trait SmartComponent<T: Clone>: Component {
-    fn on_borrow(&self, _id: Entity, _x: &T) {}
-    fn on_borrow_mut(&mut self, _id: Entity, _x: &T) {}
+    fn on_borrow(&self, _id: Entity, _x: T) {}
+    fn on_borrow_mut(&mut self, _id: Entity, _x: T) {}
 }
 
 impl<T: Component> SmartComponent<()> for T {}

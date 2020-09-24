@@ -107,7 +107,7 @@ impl<'a, T: SmartComponent<C>, C: Clone> Deref for Ref<'a, T, C> {
     type Target = T;
     fn deref(&self) -> &T {
         let value = unsafe { self.target.as_ref() };
-        value.on_borrow(self.entity, &self.context);
+        value.on_borrow(self.entity, self.context.clone());
         value
     }
 }
@@ -157,7 +157,7 @@ impl<'a, T: Component> Deref for RefMut<'a, T> {
     type Target = T;
     fn deref(&self) -> &T {
         let value = unsafe { self.target.as_ref() };
-        value.on_borrow(self.entity, &self.context);
+        value.on_borrow(self.entity, self.context.clone());
         value
     }
 }
@@ -165,7 +165,7 @@ impl<'a, T: Component> Deref for RefMut<'a, T> {
 impl<'a, T: Component> DerefMut for RefMut<'a, T> {
     fn deref_mut(&mut self) -> &mut T {
         let value = unsafe { self.target.as_mut() };
-        value.on_borrow_mut(self.entity, &self.context);
+        value.on_borrow_mut(self.entity, self.context.clone());
         value
     }
 }
