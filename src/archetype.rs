@@ -137,6 +137,13 @@ impl Archetype {
         &self.types
     }
 
+    /// Enumerate the types of the components of entities stored in this archetype
+    ///
+    /// Convenient for dispatching logic which needs to be performed on sets of type ids.
+    pub fn component_types(&self) -> impl Iterator<Item = TypeId> + '_ {
+        self.types.iter().map(|typeinfo| typeinfo.id)
+    }
+
     /// `index` must be in-bounds
     pub(crate) unsafe fn get_dynamic(
         &self,
