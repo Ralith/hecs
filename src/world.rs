@@ -306,54 +306,22 @@ impl World {
     ///
     /// Panics if the component is already uniquely borrowed from another entity with the same
     /// components.
-    pub fn get<T: Component>(&self, entity: Entity) -> Result<Ref<'_, T, ()>, ComponentError> {
-        let loc = self.entities.get(entity)?;
-        if loc.archetype == 0 {
-            return Err(MissingComponent::new::<T>().into());
-        }
-        Ok(unsafe {
-            Ref::new(
-                &self.archetypes[loc.archetype as usize],
-                loc.index,
-                entity,
-                (),
-            )?
-        })
+    pub fn get<T: Component>(&self, entity: Entity) -> Result<Ref<'_, T>, ComponentError> {
+        self.get_with_context(entity, ())
     }
 
     /// Uniquely borrow the `T` component of `entity`
     ///
     /// Panics if the component is already borrowed from another entity with the same components.
     pub fn get_mut<T: Component>(&self, entity: Entity) -> Result<RefMut<'_, T>, ComponentError> {
-        let loc = self.entities.get(entity)?;
-        if loc.archetype == 0 {
-            return Err(MissingComponent::new::<T>().into());
-        }
-        Ok(unsafe {
-            RefMut::new(
-                &self.archetypes[loc.archetype as usize],
-                loc.index,
-                entity,
-                (),
-            )?
-        })
+        self.get_mut_with_context(entity, ())
     }
 
     /// Access an entity regardless of its component types
     ///
     /// Does not immediately borrow any component.
     pub fn entity(&self, entity: Entity) -> Result<EntityRef<'_>, NoSuchEntity> {
-        Ok(match self.entities.get(entity)? {
-            Location { archetype: 0, .. } => EntityRef::empty(entity, ()),
-            loc => unsafe {
-                EntityRef::new(
-                    &self.archetypes[loc.archetype as usize],
-                    loc.index,
-                    entity,
-                    (),
-                )
-            },
-        })
+        self.entity_with_context(entity, ())
     }
 
     pub fn get_with_context<T: SmartComponent<C>, C: Clone>(
