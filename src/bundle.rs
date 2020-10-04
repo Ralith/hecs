@@ -30,10 +30,10 @@ pub trait DynamicBundle {
     fn type_info(&self) -> Vec<TypeInfo>;
     /// Allow a callback to move all components out of the bundle
     ///
-    /// Must invoke `f` only with a valid pointer, its type, and the pointee's size. A `false`
-    /// return value indicates that the value was not moved and should be dropped.
+    /// Must invoke `f` only with a valid pointer and the pointee's type and size. `put` may only be
+    /// called at most once on any given value.
     #[doc(hidden)]
-    unsafe fn put(self, f: impl FnMut(*mut u8, TypeId, usize) -> bool);
+    unsafe fn put(self, f: impl FnMut(*mut u8, TypeId, usize));
 }
 
 /// A statically typed collection of components
@@ -91,17 +91,16 @@ macro_rules! tuple_impl {
             }
 
             #[allow(unused_variables, unused_mut)]
-            unsafe fn put(self, mut f: impl FnMut(*mut u8, TypeId, usize) -> bool) {
+            unsafe fn put(self, mut f: impl FnMut(*mut u8, TypeId, usize)) {
                 #[allow(non_snake_case)]
                 let ($(mut $name,)*) = self;
                 $(
-                    if f(
+                    f(
                         (&mut $name as *mut $name).cast::<u8>(),
                         TypeId::of::<$name>(),
                         mem::size_of::<$name>()
-                    ) {
-                        mem::forget($name)
-                    }
+                    );
+                    mem::forget($name);
                 )*
             }
         }

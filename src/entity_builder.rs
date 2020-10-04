@@ -169,12 +169,10 @@ impl DynamicBundle for BuiltEntity<'_> {
         self.builder.info.iter().map(|x| x.0).collect()
     }
 
-    unsafe fn put(self, mut f: impl FnMut(*mut u8, TypeId, usize) -> bool) {
+    unsafe fn put(self, mut f: impl FnMut(*mut u8, TypeId, usize)) {
         for (ty, offset) in self.builder.info.drain(..) {
             let ptr = self.builder.storage.as_mut_ptr().add(offset).cast();
-            if !f(ptr, ty.id(), ty.layout().size()) {
-                ty.drop(ptr);
-            }
+            f(ptr, ty.id(), ty.layout().size());
         }
     }
 }
