@@ -98,7 +98,6 @@ impl World {
             let index = archetype.allocate(entity.id);
             components.put(|ptr, ty, size| {
                 archetype.put_dynamic(ptr, ty, size, index);
-                true
             });
             self.entities.meta[entity.id as usize].location = Location {
                 archetype: archetype_id,
@@ -382,7 +381,6 @@ impl World {
                 let arch = &mut self.archetypes[loc.archetype as usize];
                 components.put(|ptr, ty, size| {
                     arch.put_dynamic(ptr, ty, size, loc.index);
-                    true
                 });
                 return Ok(());
             }
@@ -403,7 +401,6 @@ impl World {
             }
             components.put(|ptr, ty, size| {
                 target_arch.put_dynamic(ptr, ty, size, target_index);
-                true
             });
         }
         Ok(())
@@ -763,7 +760,6 @@ where
             let index = self.archetype.allocate(entity.id);
             components.put(|ptr, ty, size| {
                 self.archetype.put_dynamic(ptr, ty, size, index);
-                true
             });
             self.entities.meta[entity.id as usize].location = Location {
                 archetype: self.archetype_id,

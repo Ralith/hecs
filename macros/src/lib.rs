@@ -55,11 +55,10 @@ pub fn derive_bundle(input: TokenStream) -> TokenStream {
             }
 
             #[allow(clippy::forget_copy)]
-            unsafe fn put(mut self, mut f: impl FnMut(*mut u8, std::any::TypeId, usize) -> bool) {
+            unsafe fn put(mut self, mut f: impl FnMut(*mut u8, std::any::TypeId, usize)) {
                 #(
-                    if f((&mut self.#fields as *mut #tys).cast::<u8>(), std::any::TypeId::of::<#tys>(), std::mem::size_of::<#tys>()) {
-                        std::mem::forget(self.#fields);
-                    }
+                    f((&mut self.#fields as *mut #tys).cast::<u8>(), std::any::TypeId::of::<#tys>(), std::mem::size_of::<#tys>());
+                    std::mem::forget(self.#fields);
                 )*
             }
         }
