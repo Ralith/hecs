@@ -131,6 +131,20 @@ fn build_entity() {
 }
 
 #[test]
+fn build_entity_bundle() {
+    let mut world = World::new();
+    let mut entity = EntityBuilder::new();
+    entity.add_bundle(("abc", 123));
+    let e = world.spawn(entity.build());
+    entity.add_bundle(("def", [0u8; 1024], 456));
+    let f = world.spawn(entity.build());
+    assert_eq!(*world.get::<&str>(e).unwrap(), "abc");
+    assert_eq!(*world.get::<i32>(e).unwrap(), 123);
+    assert_eq!(*world.get::<&str>(f).unwrap(), "def");
+    assert_eq!(*world.get::<i32>(f).unwrap(), 456);
+}
+
+#[test]
 fn dynamic_components() {
     let mut world = World::new();
     let e = world.spawn((42,));

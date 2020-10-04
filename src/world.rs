@@ -96,8 +96,8 @@ impl World {
         let archetype = &mut self.archetypes[archetype_id as usize];
         unsafe {
             let index = archetype.allocate(entity.id);
-            components.put(|ptr, ty, size| {
-                archetype.put_dynamic(ptr, ty, size, index);
+            components.put(|ptr, ty| {
+                archetype.put_dynamic(ptr, ty.id(), ty.layout().size(), index);
             });
             self.entities.meta[entity.id as usize].location = Location {
                 archetype: archetype_id,
@@ -379,8 +379,8 @@ impl World {
             if target == loc.archetype {
                 // Update components in the current archetype
                 let arch = &mut self.archetypes[loc.archetype as usize];
-                components.put(|ptr, ty, size| {
-                    arch.put_dynamic(ptr, ty, size, loc.index);
+                components.put(|ptr, ty| {
+                    arch.put_dynamic(ptr, ty.id(), ty.layout().size(), loc.index);
                 });
                 return Ok(());
             }
@@ -399,8 +399,8 @@ impl World {
             }) {
                 self.entities.meta[moved as usize].location.index = old_index;
             }
-            components.put(|ptr, ty, size| {
-                target_arch.put_dynamic(ptr, ty, size, target_index);
+            components.put(|ptr, ty| {
+                target_arch.put_dynamic(ptr, ty.id(), ty.layout().size(), target_index);
             });
         }
         Ok(())
@@ -462,7 +462,8 @@ impl World {
             };
             let old_index = loc.index;
             let source_arch = &self.archetypes[loc.archetype as usize];
-            let bundle = T::get(|ty, size| source_arch.get_dynamic(ty, size, old_index))?;
+            let bundle =
+                T::get(|ty| source_arch.get_dynamic(ty.id(), ty.layout().size(), old_index))?;
             let (source_arch, target_arch) = index2(
                 &mut self.archetypes,
                 loc.archetype as usize,
@@ -758,8 +759,9 @@ where
         let entity = self.entities.alloc();
         unsafe {
             let index = self.archetype.allocate(entity.id);
-            components.put(|ptr, ty, size| {
-                self.archetype.put_dynamic(ptr, ty, size, index);
+            components.put(|ptr, ty| {
+                self.archetype
+                    .put_dynamic(ptr, ty.id(), ty.layout().size(), index);
             });
             self.entities.meta[entity.id as usize].location = Location {
                 archetype: self.archetype_id,

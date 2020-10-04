@@ -25,6 +25,9 @@ pub trait DynamicBundle {
     /// Invoke a callback on the fields' type IDs, sorted by descending alignment then id
     #[doc(hidden)]
     fn with_ids<T>(&self, f: impl FnOnce(&[TypeId]) -> T) -> T;
+    // /// Invoke a callback on the fields' type IDs, sorted by descending alignment then id
+    // #[doc(hidden)]
+    // fn with_infos<T>(&self, f: impl FnOnce(&[TypeInfo]) -> T) -> T;
     /// Obtain the fields' TypeInfos, sorted by descending alignment then id
     #[doc(hidden)]
     fn type_info(&self) -> Vec<TypeInfo>;
@@ -33,13 +36,16 @@ pub trait DynamicBundle {
     /// Must invoke `f` only with a valid pointer and the pointee's type and size. `put` may only be
     /// called at most once on any given value.
     #[doc(hidden)]
-    unsafe fn put(self, f: impl FnMut(*mut u8, TypeId, usize));
+    unsafe fn put(self, f: impl FnMut(*mut u8, TypeInfo));
 }
 
 /// A statically typed collection of components
 pub trait Bundle: DynamicBundle {
     #[doc(hidden)]
     fn with_static_ids<T>(f: impl FnOnce(&[TypeId]) -> T) -> T;
+
+    // #[doc(hidden)]
+    // fn with_static_infos<T>(f: impl FnOnce(&[TypeInfo]) -> T) -> T;
 
     /// Obtain the fields' TypeInfos, sorted by descending alignment then id
     #[doc(hidden)]
@@ -52,9 +58,7 @@ pub trait Bundle: DynamicBundle {
     /// `f` must produce pointers to the expected fields. The implementation must not read from any
     /// pointers if any call to `f` returns `None`.
     #[doc(hidden)]
-    unsafe fn get(
-        f: impl FnMut(TypeId, usize) -> Option<NonNull<u8>>,
-    ) -> Result<Self, MissingComponent>
+    unsafe fn get(f: impl FnMut(TypeInfo) -> Option<NonNull<u8>>) -> Result<Self, MissingComponent>
     where
         Self: Sized;
 }
@@ -82,6 +86,10 @@ impl std::error::Error for MissingComponent {}
 macro_rules! tuple_impl {
     ($($name: ident),*) => {
         impl<$($name: Component),*> DynamicBundle for ($($name,)*) {
+            // fn with_infos<T>(&self, f: impl FnOnce(&[TypeInfo]) -> T) -> T {
+            //     Self::with_static_infos(f)
+            // }
+
             fn with_ids<T>(&self, f: impl FnOnce(&[TypeId]) -> T) -> T {
                 Self::with_static_ids(f)
             }
@@ -91,14 +99,13 @@ macro_rules! tuple_impl {
             }
 
             #[allow(unused_variables, unused_mut)]
-            unsafe fn put(self, mut f: impl FnMut(*mut u8, TypeId, usize)) {
+            unsafe fn put(self, mut f: impl FnMut(*mut u8, TypeInfo)) {
                 #[allow(non_snake_case)]
                 let ($(mut $name,)*) = self;
                 $(
                     f(
                         (&mut $name as *mut $name).cast::<u8>(),
-                        TypeId::of::<$name>(),
-                        mem::size_of::<$name>()
+                        TypeInfo::of::<$name>()
                     );
                     mem::forget($name);
                 )*
@@ -123,11 +130,18 @@ macro_rules! tuple_impl {
                 xs
             }
 
+            // fn with_static_infos<T>(f: impl FnOnce(&[TypeInfo]) -> T) -> T {
+            //     const N: usize = count!($($name),*);
+            //     let mut xs: [TypeInfo; N] = [$(TypeInfo::of::<$name>()),*];
+            //     xs.sort_unstable();
+            //     f(&xs)
+            // }
+
             #[allow(unused_variables, unused_mut)]
-            unsafe fn get(mut f: impl FnMut(TypeId, usize) -> Option<NonNull<u8>>) -> Result<Self, MissingComponent> {
+            unsafe fn get(mut f: impl FnMut(TypeInfo) -> Option<NonNull<u8>>) -> Result<Self, MissingComponent> {
                 #[allow(non_snake_case)]
                 let ($(mut $name,)*) = ($(
-                    f(TypeId::of::<$name>(), mem::size_of::<$name>()).ok_or_else(MissingComponent::new::<$name>)?
+                    f(TypeInfo::of::<$name>()).ok_or_else(MissingComponent::new::<$name>)?
                         .as_ptr()
                         .cast::<$name>(),)*
                 );
