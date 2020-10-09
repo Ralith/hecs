@@ -236,6 +236,25 @@ impl Entities {
         Ok(meta.location)
     }
 
+    /// Returns `None` if the given id would represent an index outside of `meta`.
+    ///
+    /// # Safety
+    /// Must only be called for currently allocated `id`s.
+    pub unsafe fn resolve_unknown_gen(&self, id: u32) -> Entity {
+        let meta_len = self.meta.len();
+        if meta_len + self.pending.load(Ordering::Relaxed) as usize <= id as usize {
+            panic!("entity id is out of range");
+        } else if meta_len <= id as usize {
+            Entity { generation: 0, id }
+        } else {
+            let meta = &self.meta[id as usize];
+            Entity {
+                generation: meta.generation,
+                id,
+            }
+        }
+    }
+
     /// Allocate space for and enumerate pending entities
     #[allow(clippy::reversed_empty_ranges)]
     pub fn flush(&mut self) -> impl Iterator<Item = u32> {

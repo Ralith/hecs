@@ -305,6 +305,14 @@ impl World {
         })
     }
 
+    /// Given an id obtained from `Entity::id`, reconstruct the still-live `Entity`.
+    ///
+    /// # Safety
+    /// `id` must correspond to a currently live `Entity`. A despawned or never-allocated `id` will produce undefined behavior.
+    pub unsafe fn find_entity_from_id(&self, id: u32) -> Entity {
+        self.entities.resolve_unknown_gen(id)
+    }
+
     /// Iterate over all entities in the world
     ///
     /// Entities are yielded in arbitrary order. Prefer `World::query` for better performance when
