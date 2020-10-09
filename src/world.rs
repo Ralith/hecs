@@ -205,7 +205,7 @@ impl World {
         self.entities.contains(entity)
     }
 
-    /// Efficiently iterate over all entities that have certain components
+    /// Efficiently iterate over all entities that have certain components.
     ///
     /// Calling `iter` on the returned value yields `(Entity, Q)` tuples, where `Q` is some query
     /// type. A query type is `&T`, `&mut T`, a tuple of query types, or an `Option` wrapping a
@@ -229,6 +229,12 @@ impl World {
     /// its dynamic borrows from the world to be released. Similarly, lifetime rules ensure that
     /// references obtained from a query cannot outlive the `QueryBorrow`.
     ///
+    /// If you need change detection of some sort, you will likely want to use [`query_with_context`]
+    /// instead; this method is actually shorthand for `.query_with_context(())`. See also [`SmartComponent`].
+    ///
+    /// [`query_with_context`]: World::query_with_context
+    /// [`SmartComponent`]: SmartComponent
+    ///
     /// # Example
     /// ```
     /// # use hecs::*;
@@ -248,6 +254,13 @@ impl World {
         self.query_with_context(())
     }
 
+    /// See [`query`]. This method augments `query` with a contex type, accessible by components
+    /// through the [`SmartComponent`] trait (`query` is actually implemented on top of this
+    /// method, using the empty context `()`.) If you are implementing an ECS on top of `hecs`
+    /// which needs some sort of change detection, this is likely the interface you want to use.
+    ///
+    /// [`query`]: World::query
+    /// [`SmartComponent`]: SmartComponent
     pub fn query_with_context<'q, Q, C>(&'q self, context: C) -> QueryBorrow<'q, Q, C>
     where
         Q: Query<'q, C>,
@@ -263,6 +276,12 @@ impl World {
     /// dropped while references returned by `get` are live.
     ///
     /// Handy for accessing multiple components simultaneously.
+    ///
+    /// If you need change detection of some sort, you will likely want to use [`query_one_with_context`]
+    /// instead; this method is actually shorthand for `.query_one_with_context(())`. See also [`SmartComponent`].
+    ///
+    /// [`query_one_with_context`]: World::query_with_context
+    /// [`SmartComponent`]: SmartComponent
     ///
     /// # Example
     /// ```
@@ -282,6 +301,13 @@ impl World {
         self.query_one_with_context(entity, ())
     }
 
+    /// See [`query_one`]. This method augments `query_one` with a contex type, accessible by components
+    /// through the [`SmartComponent`] trait (`query_one` is actually implemented on top of this
+    /// method, using the empty context `()`.) If you are implementing an ECS on top of `hecs`
+    /// which needs some sort of change detection, this is likely the interface you want to use.
+    ///
+    /// [`query_one`]: World::query_one
+    /// [`SmartComponent`]: SmartComponent
     pub fn query_one_with_context<'q, Q, C>(
         &'q self,
         entity: Entity,
@@ -324,6 +350,12 @@ impl World {
         self.entity_with_context(entity, ())
     }
 
+    /// See [`get`]. This method allows `get` to be augmented with a context type `C`, provided to
+    /// components which implement `SmartComponent<C>`. This allows for detecting when the component
+    /// is accessed immutably. See also [`SmartComponent`].
+    ///
+    /// [`get`]: World::get
+    /// [`SmartComponent`]: SmartComponent
     pub fn get_with_context<T: SmartComponent<C>, C: Clone>(
         &self,
         entity: Entity,
@@ -343,6 +375,12 @@ impl World {
         })
     }
 
+    /// See [`get_mut`]. This method allows `get_mut` to be augmented with a context type `C`, provided to
+    /// components which implement `SmartComponent<C>`. This allows for detecting when the component
+    /// is accessed mutably. See also [`SmartComponent`].
+    ///
+    /// [`get_mut`]: World::get_mut
+    /// [`SmartComponent`]: SmartComponent
     pub fn get_mut_with_context<T: SmartComponent<C>, C: Clone>(
         &self,
         entity: Entity,
@@ -362,6 +400,12 @@ impl World {
         })
     }
 
+    /// See [`entity`]. This method allows `entity` to be augmented with a context type `C`, provided to
+    /// components which implement `SmartComponent<C>`. This allows for detecting when the component is
+    /// accessed, and how. See also [`SmartComponent`].
+    ///
+    /// [`entity`]: World::entity
+    /// [`SmartComponent`]: SmartComponent
     pub fn entity_with_context<C: Clone>(
         &self,
         entity: Entity,
@@ -720,8 +764,21 @@ impl From<MissingComponent> for ComponentError {
 pub trait Component: Send + Sync + 'static {}
 impl<T: Send + Sync + 'static> Component for T {}
 
+/// `SmartComponent` is an additional layer on top of `Component` which optionally allows components
+/// to be aware of when they are accessed. It is by default implemented for all components w.r.t. the
+/// "empty context" `()` (all types that implement `Component` implement `SmartComponent<()>`.)
+///
+/// The callbacks in this trait are called *when the reference returned from a query is dereferenced;*
+/// in other words, these will not be called until the component is derefenced to an `&` or `&mut`.
+///
+/// The type parameter `T` of `SmartComponent<T>` is the "context" type. It's generally expected that
+/// you'll use an immutable reference of some kind here, but anything clonable is fine.
 pub trait SmartComponent<T: Clone>: Component {
+    /// Called when the component is immutably accessed. You probably won't ever need this one.
     fn on_borrow(&self, _id: Entity, _x: T) {}
+    /// Called when the component is mutably accessed. Useful for flagging changes to components.
+    /// For example, the context type `T` might be a `Mutex<BitSet>` type or similar (`AtomicBitSet`)
+    /// for which you might set the relevant bit on a mutable access to this component on an entity.
     fn on_borrow_mut(&mut self, _id: Entity, _x: T) {}
 }
 
