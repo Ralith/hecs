@@ -123,11 +123,12 @@ fn build_entity() {
     entity.add("def");
     entity.add([0u8; 1024]);
     entity.add(456);
+    entity.add(789);
     let f = world.spawn(entity.build());
     assert_eq!(*world.get::<&str>(e).unwrap(), "abc");
     assert_eq!(*world.get::<i32>(e).unwrap(), 123);
     assert_eq!(*world.get::<&str>(f).unwrap(), "def");
-    assert_eq!(*world.get::<i32>(f).unwrap(), 456);
+    assert_eq!(*world.get::<i32>(f).unwrap(), 789);
 }
 
 #[test]
@@ -136,12 +137,13 @@ fn build_entity_bundle() {
     let mut entity = EntityBuilder::new();
     entity.add_bundle(("abc", 123));
     let e = world.spawn(entity.build());
-    entity.add_bundle(("def", [0u8; 1024], 456));
+    entity.add(456);
+    entity.add_bundle(("def", [0u8; 1024], 789));
     let f = world.spawn(entity.build());
     assert_eq!(*world.get::<&str>(e).unwrap(), "abc");
     assert_eq!(*world.get::<i32>(e).unwrap(), 123);
     assert_eq!(*world.get::<&str>(f).unwrap(), "def");
-    assert_eq!(*world.get::<i32>(f).unwrap(), 456);
+    assert_eq!(*world.get::<i32>(f).unwrap(), 789);
 }
 
 #[test]
