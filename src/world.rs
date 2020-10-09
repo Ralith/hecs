@@ -312,7 +312,7 @@ impl World {
     ///
     /// # Safety
     /// `id` must correspond to a currently live `Entity`. A despawned or never-allocated `id` will produce undefined behavior.
-    pub unsafe fn resolve_unknown_gen(&self, id: u32) -> Option<Entity> {
+    pub unsafe fn resolve_unknown_gen(&self, id: u32) -> Entity {
         self.entities.resolve_unknown_gen(id)
     }
 

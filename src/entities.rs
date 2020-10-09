@@ -240,18 +240,18 @@ impl Entities {
     ///
     /// # Safety
     /// Must only be called for currently allocated `id`s.
-    pub unsafe fn resolve_unknown_gen(&self, id: u32) -> Option<Entity> {
+    pub unsafe fn resolve_unknown_gen(&self, id: u32) -> Entity {
         let meta_len = self.meta.len();
         if meta_len + self.pending.load(Ordering::Relaxed) as usize <= id as usize {
-            None
+            panic!("entity id is out of range");
         } else if meta_len <= id as usize {
-            Some(Entity { generation: 0, id })
+            Entity { generation: 0, id }
         } else {
             let meta = &self.meta[id as usize];
-            Some(Entity {
+            Entity {
                 generation: meta.generation,
                 id,
-            })
+            }
         }
     }
 
