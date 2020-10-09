@@ -55,9 +55,9 @@ pub fn derive_bundle(input: TokenStream) -> TokenStream {
             }
 
             #[allow(clippy::forget_copy)]
-            unsafe fn put(mut self, mut f: impl FnMut(*mut u8, std::any::TypeId, usize)) {
+            unsafe fn put(mut self, mut f: impl FnMut(*mut u8, ::hecs::TypeInfo)) {
                 #(
-                    f((&mut self.#fields as *mut #tys).cast::<u8>(), std::any::TypeId::of::<#tys>(), std::mem::size_of::<#tys>());
+                    f((&mut self.#fields as *mut #tys).cast::<u8>(), ::hecs::TypeInfo::of::<#tys>());
                     std::mem::forget(self.#fields);
                 )*
             }
@@ -97,10 +97,10 @@ pub fn derive_bundle(input: TokenStream) -> TokenStream {
             }
 
             unsafe fn get(
-                mut f: impl FnMut(std::any::TypeId, usize) -> Option<std::ptr::NonNull<u8>>,
+                mut f: impl FnMut(::hecs::TypeInfo) -> Option<std::ptr::NonNull<u8>>,
             ) -> Result<Self, ::hecs::MissingComponent> {
                 #(
-                    let #fields = f(std::any::TypeId::of::<#tys>(), std::mem::size_of::<#tys>())
+                    let #fields = f(::hecs::TypeInfo::of::<#tys>())
                             .ok_or_else(::hecs::MissingComponent::new::<#tys>)?
                             .cast::<#tys>()
                         .as_ptr();

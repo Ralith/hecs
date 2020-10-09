@@ -19,7 +19,7 @@ use core::any::TypeId;
 use core::mem::{self, MaybeUninit};
 use core::ptr;
 
-use hashbrown::HashSet;
+use hashbrown::hash_map::{Entry, HashMap};
 
 use crate::archetype::TypeInfo;
 use crate::{Component, DynamicBundle};
@@ -42,7 +42,7 @@ pub struct EntityBuilder {
     cursor: usize,
     info: Vec<(TypeInfo, usize)>,
     ids: Vec<TypeId>,
-    id_set: HashSet<TypeId>,
+    indices: HashMap<TypeId, usize>,
 }
 
 impl EntityBuilder {
@@ -53,38 +53,104 @@ impl EntityBuilder {
             storage: Box::new([]),
             info: Vec::new(),
             ids: Vec::new(),
-            id_set: HashSet::new(),
+            indices: HashMap::new(),
         }
     }
 
-    /// Add `component` to the entity
+    /// Add `component` to the entity.
+    ///
+    /// If the bundle already contains a component of type `T`, it will
+    /// be dropped and replaced with the most recently added one.
     pub fn add<T: Component>(&mut self, component: T) -> &mut Self {
-        if !self.id_set.insert(TypeId::of::<T>()) {
-            return self;
-        }
-        let end = self.cursor + mem::size_of::<T>();
-        if end > self.storage.len() {
-            self.grow(end);
-        }
-        if mem::size_of::<T>() != 0 {
-            unsafe {
-                self.storage
-                    .as_mut_ptr()
-                    .add(self.cursor)
-                    .cast::<T>()
-                    .write_unaligned(component);
+        match self.indices.entry(TypeId::of::<T>()) {
+            Entry::Occupied(occupied) => {
+                let index = *occupied.get();
+                let (_, offset) = self.info[index];
+                unsafe {
+                    let storage_ptr = self
+                        .storage
+                        .as_mut_ptr()
+                        .cast::<u8>()
+                        .add(offset)
+                        .cast::<T>();
+
+                    // Drop the old value.
+                    let _ = storage_ptr.read_unaligned();
+                    // Overwrite the old value with our new one.
+                    storage_ptr.write_unaligned(component);
+                }
+                self
+            }
+            Entry::Vacant(vacant) => {
+                let end = self.cursor + mem::size_of::<T>();
+                if end > self.storage.len() {
+                    Self::grow(end, self.cursor, &mut self.storage);
+                }
+                unsafe {
+                    self.storage
+                        .as_mut_ptr()
+                        .add(self.cursor)
+                        .cast::<T>()
+                        .write_unaligned(component);
+                }
+                vacant.insert(self.info.len());
+                self.info.push((TypeInfo::of::<T>(), self.cursor));
+                self.cursor += mem::size_of::<T>();
+                self
             }
         }
-        self.info.push((TypeInfo::of::<T>(), self.cursor));
-        self.cursor += mem::size_of::<T>();
+    }
+
+    /// Add all components in `bundle` to the entity.
+    ///
+    /// If the bundle contains any component which matches the type of a component
+    /// already in the `EntityBuilder`, the newly added component from the bundle
+    /// will replace the old component and the old component will be dropped.
+    pub fn add_bundle(&mut self, bundle: impl DynamicBundle) -> &mut Self {
+        unsafe {
+            bundle.put(|ptr, ty| {
+                match self.indices.entry(ty.id()) {
+                    Entry::Occupied(occupied) => {
+                        let index = *occupied.get();
+                        let (ty, offset) = self.info[index];
+
+                        let storage_ptr = self.storage.as_mut_ptr().cast::<u8>().add(offset);
+                        // alloc a properly aligned tmp buffer and copy in the old value
+                        // so we can drop it safely
+                        let tmp = alloc(ty.layout());
+                        ptr::copy_nonoverlapping(storage_ptr, tmp, ty.layout().size());
+                        ty.drop(tmp);
+                        dealloc(tmp, ty.layout());
+                        // Overwrite the old value with our new one.
+                        ptr::copy_nonoverlapping(ptr, storage_ptr, ty.layout().size());
+                    }
+                    Entry::Vacant(vacant) => {
+                        let end = self.cursor + ty.layout().size();
+                        if end > self.storage.len() {
+                            Self::grow(end, self.cursor, &mut self.storage);
+                        }
+
+                        ptr::copy_nonoverlapping(
+                            ptr,
+                            self.storage.as_mut_ptr().add(self.cursor).cast(),
+                            ty.layout().size(),
+                        );
+
+                        vacant.insert(self.info.len());
+                        self.info.push((ty, self.cursor));
+                        self.cursor += ty.layout().size();
+                    }
+                }
+            });
+        }
         self
     }
 
-    fn grow(&mut self, min_size: usize) {
+    fn grow(min_size: usize, cursor: usize, storage: &mut Box<[MaybeUninit<u8>]>) {
         let new_len = min_size.next_power_of_two().max(64);
         let mut new_storage = vec![MaybeUninit::uninit(); new_len].into_boxed_slice();
-        new_storage[..self.cursor].copy_from_slice(&self.storage[..self.cursor]);
-        self.storage = new_storage;
+        new_storage[..cursor].copy_from_slice(&storage[..cursor]);
+        *storage = new_storage;
     }
 
     /// Construct a `Bundle` suitable for spawning
@@ -100,7 +166,7 @@ impl EntityBuilder {
     /// be called.
     pub fn clear(&mut self) {
         self.ids.clear();
-        self.id_set.clear();
+        self.indices.clear();
         self.cursor = 0;
         let max_size = self
             .info
@@ -169,10 +235,10 @@ impl DynamicBundle for BuiltEntity<'_> {
         self.builder.info.iter().map(|x| x.0).collect()
     }
 
-    unsafe fn put(self, mut f: impl FnMut(*mut u8, TypeId, usize)) {
+    unsafe fn put(self, mut f: impl FnMut(*mut u8, TypeInfo)) {
         for (ty, offset) in self.builder.info.drain(..) {
             let ptr = self.builder.storage.as_mut_ptr().add(offset).cast();
-            f(ptr, ty.id(), ty.layout().size());
+            f(ptr, ty);
         }
     }
 }
