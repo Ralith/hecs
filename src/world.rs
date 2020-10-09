@@ -305,6 +305,14 @@ impl World {
         })
     }
 
+    /// Given the ID of an entity without a generation, try to find the matching generation.
+    ///
+    /// This function is useful if you know there's an element with a given index, but you
+    /// don't know its generation.
+    pub unsafe fn resolve_unknown_gen(&self, id: u32) -> Option<Entity> {
+        self.entities.resolve_unknown_gen(id)
+    }
+
     /// Iterate over all entities in the world
     ///
     /// Entities are yielded in arbitrary order. Prefer `World::query` for better performance when
