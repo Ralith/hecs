@@ -57,7 +57,10 @@ impl EntityBuilder {
         }
     }
 
-    /// Add `component` to the entity
+    /// Add `component` to the entity.
+    ///
+    /// If the bundle already contains a component of type `T`, it will
+    /// be dropped and replaced with the most recently added one.
     pub fn add<T: Component>(&mut self, component: T) -> &mut Self {
         match self.indices.entry(TypeId::of::<T>()) {
             Entry::Occupied(occupied) => {
@@ -71,8 +74,7 @@ impl EntityBuilder {
                         .add(offset)
                         .cast::<T>();
 
-                    // alloc a properly aligned tmp buffer and copy in the old value
-                    // so we can drop it safely
+                    // Drop the old value.
                     let _ = storage_ptr.read_unaligned();
                     // Overwrite the old value with our new one.
                     storage_ptr.write_unaligned(component);
@@ -99,7 +101,11 @@ impl EntityBuilder {
         }
     }
 
-    /// Add all components in `bundle` to the entity
+    /// Add all components in `bundle` to the entity.
+    ///
+    /// If the bundle contains any component which matches the type of a component
+    /// already in the `EntityBuilder`, the newly added component from the bundle
+    /// will replace the old component and the old component will be dropped.
     pub fn add_bundle(&mut self, bundle: impl DynamicBundle) -> &mut Self {
         unsafe {
             bundle.put(|ptr, ty| {
