@@ -309,6 +309,13 @@ impl World {
     ///
     /// This function is useful if you know there's an element with a given index, but you
     /// don't know its generation.
+    ///
+    /// # Safety
+    /// This function can still return `Some` if passed the ID of a dead entity. In this case,
+    /// it will return an entity which will, if looked up, have no components, but which may
+    /// later become allocated with some other set of components. Only use this if you're
+    /// absolutely certain that the entity is live, or if you have some other way to ensure
+    /// you have acquired a live entity!
     pub unsafe fn resolve_unknown_gen(&self, id: u32) -> Option<Entity> {
         self.entities.resolve_unknown_gen(id)
     }
