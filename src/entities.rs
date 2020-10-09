@@ -237,6 +237,9 @@ impl Entities {
     }
 
     /// Returns `None` if the given id would represent an index outside of `meta`.
+    ///
+    /// # Safety
+    /// Must only be called for currently allocated `id`s.
     pub unsafe fn resolve_unknown_gen(&self, id: u32) -> Option<Entity> {
         let meta_len = self.meta.len();
         if meta_len + self.pending.load(Ordering::Relaxed) as usize <= id as usize {
