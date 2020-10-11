@@ -23,7 +23,7 @@ use std::error::Error;
 use hashbrown::{HashMap, HashSet};
 
 use crate::archetype::Archetype;
-use crate::entities::{Entities, Location};
+use crate::entities::{Entities, Location, ReserveEntitiesIterator};
 use crate::{
     Bundle, DynamicBundle, Entity, EntityRef, MissingComponent, NoSuchEntity, Query, QueryBorrow,
     QueryOne, Ref, RefMut,
@@ -143,16 +143,23 @@ impl World {
         }
     }
 
-    /// Allocate an entity ID concurrently
+    /// Allocate many entities ID concurrently
     ///
     /// Unlike `spawn`, this can be called simultaneously to other operations on the `World` such as
-    /// queries, but does not immediately create an entity. Reserved entities are not visible to
+    /// queries, but does not immediately create the entities. Reserved entities are not visible to
     /// queries or world iteration, but can be otherwise operated on freely. Operations that
     /// uniquely borrow the world, such as `insert` or `despawn`, will cause all outstanding
     /// reserved entities to become real entities before proceeding. This can also be done
     /// explicitly by calling `flush`.
     ///
     /// Useful for reserving an ID that will later have components attached to it with `insert`.
+    pub fn reserve_entities(&self, count: u32) -> ReserveEntitiesIterator {
+        self.entities.reserve_entities(count)
+    }
+
+    /// Allocate an entity ID concurrently
+    ///
+    /// See `reserve_entities`.
     pub fn reserve_entity(&self) -> Entity {
         self.entities.reserve_entity()
     }
@@ -547,14 +554,8 @@ impl World {
     /// Invoked implicitly by `spawn`, `despawn`, `insert`, and `remove`.
     pub fn flush(&mut self) {
         let arch = &mut self.archetypes[0];
-        for id in self.entities.flush() {
-            self.entities.meta[id as usize].location.index = unsafe { arch.allocate(id) };
-        }
-        for i in 0..self.entities.reserved_len() {
-            let id = self.entities.reserved(i);
-            self.entities.meta[id as usize].location.index = unsafe { arch.allocate(id) };
-        }
-        self.entities.clear_reserved();
+        self.entities
+            .flush(|id, location| location.index = unsafe { arch.allocate(id) });
     }
 
     /// Inspect the archetypes that entities are organized into
