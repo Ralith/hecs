@@ -37,6 +37,19 @@ use crate::{
 ///
 /// The components of entities who have the same set of component types are stored in contiguous
 /// runs, allowing for extremely fast, cache-friendly iteration.
+///
+/// There is a maximum number of unique entity IDs, which means that there is a maximum number of live
+/// entities. When old entities are despawned, their IDs will be reused on a future entity, and
+/// old `Entity` values with that ID will be invalidated.
+///
+/// While using a world, spawning and despawning billions of entities may cause a rare `Entity`
+/// value collision. A newly spawned entity after this point may have an identical complete
+/// 'Entity' value as a previously despawned entity. If an extremly long-lived `Entity` value
+/// that referred to that previously despawned entity is still around by the time this happens,
+/// that long-lived `Entity` value will erroneously refer to the newly spawned entity, rather
+/// than being considered a reference to a dead entity. This is a very rare issue as an
+/// `Entity::id` needs to be reused over a billion times AND a copy of an `Entity` value with the
+/// same `Entity::id` needs to be kept around until after a new entity is spawned with that `Entity::id`.
 pub struct World {
     entities: Entities,
     index: HashMap<Box<[TypeId]>, u32>,
@@ -84,6 +97,51 @@ impl World {
         self.flush();
 
         let entity = self.entities.alloc();
+
+        self.spawn_inner(entity, components);
+
+        entity
+    }
+
+    /// Create an entity with certain components and a specific `Entity` value.
+    ///
+    /// See `spawn`.
+    ///
+    /// Despawns any existing entity with the same `Entity::id`.
+    ///
+    /// Be cautious resurrecting old `Entity` values as it vastly increases
+    /// the likelihood of `Entity` value collisions ocurring (described above).
+    ///
+    /// # Example
+    /// ```
+    /// # use hecs::*;
+    /// let mut world = World::new();
+    /// let a = world.spawn((123, "abc"));
+    /// let b = world.spawn((456, true));
+    /// world.despawn(a);
+    /// assert!(!world.contains(a));
+    /// // all previous Entity values pointing to 'a' will be live again, instead pointing to the new entity.
+    /// world.spawn_at(a, (789, "ABC"));
+    /// assert!(world.contains(a));
+    /// ```
+    pub fn spawn_at(&mut self, entity: Entity, components: impl DynamicBundle) {
+        // Ensure all entity allocations are accounted for so `self.entities` can realloc if
+        // necessary
+        self.flush();
+
+        let loc = self.entities.alloc_at(entity);
+        if let Some(loc) = loc {
+            if let Some(moved) =
+                unsafe { self.archetypes[loc.archetype as usize].remove(loc.index) }
+            {
+                self.entities.meta[moved as usize].location.index = loc.index;
+            }
+        }
+
+        self.spawn_inner(entity, components);
+    }
+
+    fn spawn_inner(&mut self, entity: Entity, components: impl DynamicBundle) {
         let archetype_id = components.with_ids(|ids| {
             self.index.get(ids).copied().unwrap_or_else(|| {
                 let x = self.archetypes.len() as u32;
@@ -105,7 +163,6 @@ impl World {
                 index,
             };
         }
-        entity
     }
 
     /// Efficiently spawn a large number of entities with the same components
@@ -811,6 +868,21 @@ mod tests {
         let b = world.spawn(());
         assert_eq!(a.id, b.id);
         assert_ne!(a.generation, b.generation);
+    }
+
+    #[test]
+    fn spawn_at() {
+        let mut world = World::new();
+        let a = world.spawn(());
+        world.despawn(a).unwrap();
+        let b = world.spawn(());
+        assert!(world.contains(b));
+        assert_eq!(a.id, b.id);
+        assert_ne!(a.generation, b.generation);
+        world.spawn_at(a, ());
+        assert!(!world.contains(b));
+        assert_eq!(b.id, a.id);
+        assert_ne!(b.generation, a.generation);
     }
 
     #[test]

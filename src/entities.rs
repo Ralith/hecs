@@ -224,6 +224,35 @@ impl Entities {
         }
     }
 
+    /// Allocate a specific entity ID, overwriting its generation
+    ///
+    /// Returns the location of the entity currently using the given ID, if any. Location should be written immediately.
+    pub fn alloc_at(&mut self, entity: Entity) -> Option<Location> {
+        self.verify_flushed();
+
+        let loc = if entity.id as usize >= self.meta.len() {
+            self.pending.extend((self.meta.len() as u32)..entity.id);
+            let new_free_cursor = self.pending.len() as i64;
+            self.free_cursor.store(new_free_cursor, Ordering::Relaxed); // Not racey due to &mut self
+            self.meta.resize(entity.id as usize + 1, EntityMeta::EMPTY);
+            None
+        } else if let Some(index) = self.pending.iter().position(|item| *item == entity.id) {
+            self.pending.swap_remove(index);
+            let new_free_cursor = self.pending.len() as i64;
+            self.free_cursor.store(new_free_cursor, Ordering::Relaxed); // Not racey due to &mut self
+            None
+        } else {
+            Some(mem::replace(
+                &mut self.meta[entity.id as usize].location,
+                EntityMeta::EMPTY.location,
+            ))
+        };
+
+        self.meta[entity.id as usize].generation = entity.generation;
+
+        loc
+    }
+
     /// Destroy an entity, allowing it to be reused
     ///
     /// Must not be called while reserved entities are awaiting `flush()`.
@@ -453,6 +482,50 @@ mod tests {
                 free_set.insert(id);
             }
         }
+    }
+
+    #[test]
+    fn alloc_at() {
+        let mut e = Entities::default();
+
+        let mut old = Vec::new();
+
+        for _ in 0..2 {
+            let entity = e.alloc();
+            old.push(entity);
+            e.free(entity).unwrap();
+        }
+
+        let id = old.first().unwrap().id();
+        assert!(old.iter().all(|entity| entity.id() == id));
+
+        let entity = *old.last().unwrap();
+        // The old ID shouldn't exist at this point, and should exist
+        // in the pending list.
+        assert!(!e.contains(entity));
+        assert!(e.pending.contains(&entity.id()));
+        // Allocating an entity at an unused location should not cause a location to be returned.
+        assert!(e.alloc_at(entity).is_none());
+        assert!(e.contains(entity));
+        // The entity in question should not exist in the free-list once allocated.
+        assert!(!e.pending.contains(&entity.id()));
+        // Allocating at the same id again should cause a location to be returned
+        // this time around.
+        assert!(e.alloc_at(entity).is_some());
+        assert!(e.contains(entity));
+
+        // Allocating an Entity should cause the new empty locations
+        // to be located in the free list.
+        assert_eq!(e.meta.len(), 1);
+        assert!(e
+            .alloc_at(Entity {
+                id: 3,
+                generation: 2,
+            })
+            .is_none());
+        assert_eq!(e.pending.len(), 2);
+        assert_eq!(&e.pending, &[1, 2]);
+        assert_eq!(e.meta.len(), 4);
     }
 
     #[test]
