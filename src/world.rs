@@ -472,21 +472,24 @@ impl World {
             let source_arch = &self.archetypes[loc.archetype as usize];
             let bundle =
                 T::get(|ty| source_arch.get_dynamic(ty.id(), ty.layout().size(), old_index))?;
-            let (source_arch, target_arch) = index2(
-                &mut self.archetypes,
-                loc.archetype as usize,
-                target as usize,
-            );
-            let target_index = target_arch.allocate(entity.id);
-            loc.archetype = target;
-            loc.index = target_index;
-            if let Some(moved) = source_arch.move_to(old_index, |src, ty, size| {
-                // Only move the components present in the target archetype, i.e. the non-removed ones.
-                if let Some(dst) = target_arch.get_dynamic(ty, size, target_index) {
-                    ptr::copy_nonoverlapping(src, dst.as_ptr(), size);
+            // If we actually removed any components, the entity needs to be moved into a new archetype
+            if loc.archetype != target {
+                let (source_arch, target_arch) = index2(
+                    &mut self.archetypes,
+                    loc.archetype as usize,
+                    target as usize,
+                );
+                let target_index = target_arch.allocate(entity.id);
+                loc.archetype = target;
+                loc.index = target_index;
+                if let Some(moved) = source_arch.move_to(old_index, |src, ty, size| {
+                    // Only move the components present in the target archetype, i.e. the non-removed ones.
+                    if let Some(dst) = target_arch.get_dynamic(ty, size, target_index) {
+                        ptr::copy_nonoverlapping(src, dst.as_ptr(), size);
+                    }
+                }) {
+                    self.entities.meta[moved as usize].location.index = old_index;
                 }
-            }) {
-                self.entities.meta[moved as usize].location.index = old_index;
             }
             Ok(bundle)
         }
@@ -819,5 +822,12 @@ mod tests {
         assert_ne!(a.generation, b.generation);
         assert!(world.get::<i32>(b).is_err());
         assert!(*world.get::<bool>(b).unwrap());
+    }
+
+    #[test]
+    fn remove_nothing() {
+        let mut world = World::new();
+        let a = world.spawn(("abc", 123));
+        world.remove::<()>(a).unwrap();
     }
 }
