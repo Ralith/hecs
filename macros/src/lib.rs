@@ -21,8 +21,10 @@ use syn::{parse_macro_input, DeriveInput};
 
 /// Implement `Bundle` for a monomorphic struct
 ///
-/// Using derived `Bundle` impls improves spawn performance and can be convenient when combined with
-/// other derives like `serde::Deserialize`.
+/// Bundles can be passed directly to `World::spawn` and `World::insert`, and obtained from
+/// `World::remove`. Monomorphic `Bundle` implementations are slightly more efficient than the
+/// polymorphic implementations for tuples, and can be convenient when combined with other derives
+/// like `serde::Deserialize`.
 #[allow(clippy::cognitive_complexity)]
 #[proc_macro_derive(Bundle)]
 pub fn derive_bundle(input: TokenStream) -> TokenStream {
