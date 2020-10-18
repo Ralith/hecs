@@ -69,6 +69,7 @@ mod entities;
 mod entity_builder;
 mod query;
 mod query_one;
+mod tracked;
 mod world;
 
 pub use archetype::Archetype;
@@ -78,6 +79,7 @@ pub use entities::{Entity, NoSuchEntity};
 pub use entity_builder::{BuiltEntity, EntityBuilder};
 pub use query::{Access, BatchedIter, Query, QueryBorrow, QueryIter, With, Without};
 pub use query_one::QueryOne;
+pub use tracked::{Modified, Tracked};
 pub use world::{ArchetypesGeneration, Component, ComponentError, Iter, SpawnBatchIter, World};
 
 // Unstable implementation details needed by the macros
