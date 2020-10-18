@@ -22,6 +22,7 @@ use std::error::Error;
 
 use hashbrown::{HashMap, HashSet};
 
+use crate::alloc::boxed::Box;
 use crate::archetype::Archetype;
 use crate::entities::{Entities, Location, ReserveEntitiesIterator};
 use crate::{
@@ -38,7 +39,7 @@ use crate::{
 /// runs, allowing for extremely fast, cache-friendly iteration.
 pub struct World {
     entities: Entities,
-    index: HashMap<Vec<TypeId>, u32>,
+    index: HashMap<Box<[TypeId]>, u32>,
     archetypes: Vec<Archetype>,
     archetype_generation: u64,
 }
@@ -50,7 +51,7 @@ impl World {
         let mut archetypes = Vec::new();
         archetypes.push(Archetype::new(Vec::new()));
         let mut index = HashMap::default();
-        index.insert(Vec::new(), 0);
+        index.insert(Box::default(), 0);
         Self {
             entities: Entities::default(),
             index,
@@ -87,7 +88,7 @@ impl World {
             self.index.get(ids).copied().unwrap_or_else(|| {
                 let x = self.archetypes.len() as u32;
                 self.archetypes.push(Archetype::new(components.type_info()));
-                self.index.insert(ids.to_vec(), x);
+                self.index.insert(ids.into(), x);
                 self.archetype_generation += 1;
                 x
             })
@@ -187,7 +188,7 @@ impl World {
             self.index.get(ids).copied().unwrap_or_else(|| {
                 let x = self.archetypes.len() as u32;
                 self.archetypes.push(Archetype::new(T::static_type_info()));
-                self.index.insert(ids.to_vec(), x);
+                self.index.insert(ids.into(), x);
                 self.archetype_generation += 1;
                 x
             })
@@ -379,7 +380,7 @@ impl World {
             info.sort();
 
             // Find the archetype it'll live in
-            let elements = info.iter().map(|x| x.id()).collect::<Vec<_>>();
+            let elements = info.iter().map(|x| x.id()).collect();
             let target = match self.index.entry(elements) {
                 Entry::Occupied(x) => *x.get(),
                 Entry::Vacant(x) => {
@@ -464,7 +465,7 @@ impl World {
                 .cloned()
                 .filter(|x| !removed.contains(&x.id()))
                 .collect::<Vec<_>>();
-            let elements = info.iter().map(|x| x.id()).collect::<Vec<_>>();
+            let elements = info.iter().map(|x| x.id()).collect();
             let target = match self.index.entry(elements) {
                 Entry::Occupied(x) => *x.get(),
                 Entry::Vacant(x) => {
