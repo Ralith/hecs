@@ -40,10 +40,7 @@ pub trait Fetch<'a>: Sized {
     /// Acquire dynamic borrows from `archetype`
     fn borrow(archetype: &Archetype);
     /// Construct a `Fetch` for `archetype` if it should be traversed
-    ///
-    /// # Safety
-    /// `offset` must be in bounds of `archetype`
-    unsafe fn get(archetype: &'a Archetype, offset: usize) -> Option<Self>;
+    fn new(archetype: &'a Archetype) -> Option<Self>;
     /// Release dynamic borrows acquired by `borrow`
     fn release(archetype: &Archetype);
 
@@ -54,7 +51,7 @@ pub trait Fetch<'a>: Sized {
     /// - `release` must not be called while `'a` is still live
     /// - Bounds-checking must be performed externally
     /// - Any resulting borrows must be legal (e.g. no &mut to something another iterator might access)
-    unsafe fn fetch(&self, n: usize) -> Self::Item;
+    unsafe fn get(&self, n: usize) -> Self::Item;
 }
 
 /// Type of access a `Query` may have to an `Archetype`
@@ -91,16 +88,14 @@ impl<'a, T: Component> Fetch<'a> for FetchRead<T> {
     fn borrow(archetype: &Archetype) {
         archetype.borrow::<T>();
     }
-    unsafe fn get(archetype: &'a Archetype, offset: usize) -> Option<Self> {
-        archetype
-            .get::<T>()
-            .map(|x| Self(NonNull::new_unchecked(x.as_ptr().add(offset))))
+    fn new(archetype: &'a Archetype) -> Option<Self> {
+        archetype.get::<T>().map(Self)
     }
     fn release(archetype: &Archetype) {
         archetype.release::<T>();
     }
 
-    unsafe fn fetch(&self, n: usize) -> Self::Item {
+    unsafe fn get(&self, n: usize) -> Self::Item {
         &*self.0.as_ptr().add(n)
     }
 }
@@ -128,16 +123,14 @@ impl<'a, T: Component> Fetch<'a> for FetchWrite<T> {
     fn borrow(archetype: &Archetype) {
         archetype.borrow_mut::<T>();
     }
-    unsafe fn get(archetype: &'a Archetype, offset: usize) -> Option<Self> {
-        archetype
-            .get::<T>()
-            .map(|x| Self(NonNull::new_unchecked(x.as_ptr().add(offset))))
+    fn new(archetype: &'a Archetype) -> Option<Self> {
+        archetype.get::<T>().map(Self)
     }
     fn release(archetype: &Archetype) {
         archetype.release_mut::<T>();
     }
 
-    unsafe fn fetch(&self, n: usize) -> Self::Item {
+    unsafe fn get(&self, n: usize) -> Self::Item {
         &mut *self.0.as_ptr().add(n)
     }
 }
@@ -161,15 +154,15 @@ impl<'a, T: Fetch<'a>> Fetch<'a> for TryFetch<T> {
     fn borrow(archetype: &Archetype) {
         T::borrow(archetype)
     }
-    unsafe fn get(archetype: &'a Archetype, offset: usize) -> Option<Self> {
-        Some(Self(T::get(archetype, offset)))
+    fn new(archetype: &'a Archetype) -> Option<Self> {
+        Some(Self(T::new(archetype)))
     }
     fn release(archetype: &Archetype) {
         T::release(archetype)
     }
 
-    unsafe fn fetch(&self, n: usize) -> Option<T::Item> {
-        Some(self.0.as_ref()?.fetch(n))
+    unsafe fn get(&self, n: usize) -> Option<T::Item> {
+        Some(self.0.as_ref()?.get(n))
     }
 }
 
@@ -215,18 +208,18 @@ impl<'a, T: Component, F: Fetch<'a>> Fetch<'a> for FetchWithout<T, F> {
     fn borrow(archetype: &Archetype) {
         F::borrow(archetype)
     }
-    unsafe fn get(archetype: &'a Archetype, offset: usize) -> Option<Self> {
+    fn new(archetype: &'a Archetype) -> Option<Self> {
         if archetype.has::<T>() {
             return None;
         }
-        Some(Self(F::get(archetype, offset)?, PhantomData))
+        Some(Self(F::new(archetype)?, PhantomData))
     }
     fn release(archetype: &Archetype) {
         F::release(archetype)
     }
 
-    unsafe fn fetch(&self, n: usize) -> F::Item {
-        self.0.fetch(n)
+    unsafe fn get(&self, n: usize) -> F::Item {
+        self.0.get(n)
     }
 }
 
@@ -274,18 +267,18 @@ impl<'a, T: Component, F: Fetch<'a>> Fetch<'a> for FetchWith<T, F> {
     fn borrow(archetype: &Archetype) {
         F::borrow(archetype)
     }
-    unsafe fn get(archetype: &'a Archetype, offset: usize) -> Option<Self> {
+    fn new(archetype: &'a Archetype) -> Option<Self> {
         if !archetype.has::<T>() {
             return None;
         }
-        Some(Self(F::get(archetype, offset)?, PhantomData))
+        Some(Self(F::new(archetype)?, PhantomData))
     }
     fn release(archetype: &Archetype) {
         F::release(archetype)
     }
 
-    unsafe fn fetch(&self, n: usize) -> F::Item {
-        self.0.fetch(n)
+    unsafe fn get(&self, n: usize) -> F::Item {
+        self.0.get(n)
     }
 }
 
@@ -455,16 +448,13 @@ impl<'q, 'w, Q: Query> Iterator for QueryIter<'q, 'w, Q> {
                 None => {
                     let archetype = self.borrow.archetypes.get(self.archetype_index as usize)?;
                     self.archetype_index += 1;
-                    unsafe {
-                        self.iter = Q::Fetch::get(archetype, 0).map_or(ChunkIter::EMPTY, |fetch| {
-                            ChunkIter {
-                                entities: archetype.entities(),
-                                fetch,
-                                position: 0,
-                                len: archetype.len(),
-                            }
+                    self.iter =
+                        Q::Fetch::new(archetype).map_or(ChunkIter::EMPTY, |fetch| ChunkIter {
+                            entities: archetype.entities(),
+                            fetch,
+                            position: 0,
+                            len: archetype.len(),
                         });
-                    }
                     continue;
                 }
                 Some((id, components)) => {
@@ -521,7 +511,7 @@ impl<Q: Query> ChunkIter<Q> {
             return None;
         }
         let entity = self.entities.as_ptr().add(self.position as usize);
-        let item = self.fetch.fetch(self.position as usize);
+        let item = self.fetch.get(self.position as usize);
         self.position += 1;
         Some((*entity, item))
     }
@@ -550,20 +540,16 @@ impl<'q, 'w, Q: Query> Iterator for BatchedIter<'q, 'w, Q> {
                 self.batch = 0;
                 continue;
             }
-            if let Some(fetch) = unsafe { Q::Fetch::get(archetype, offset as usize) } {
+            if let Some(fetch) = Q::Fetch::new(archetype) {
                 self.batch += 1;
                 return Some(Batch {
                     _marker: PhantomData,
                     meta: self.borrow.meta,
                     state: ChunkIter {
-                        entities: unsafe {
-                            NonNull::new_unchecked(
-                                archetype.entities().as_ptr().add(offset as usize),
-                            )
-                        },
+                        entities: archetype.entities(),
                         fetch,
-                        len: self.batch_size.min(archetype.len() - offset),
-                        position: 0,
+                        len: offset + self.batch_size.min(archetype.len() - offset),
+                        position: offset,
                     },
                 });
             } else {
@@ -624,8 +610,8 @@ macro_rules! tuple_impl {
                 $($name::borrow(archetype);)*
             }
             #[allow(unused_variables)]
-            unsafe fn get(archetype: &'a Archetype, offset: usize) -> Option<Self> {
-                Some(($($name::get(archetype, offset)?,)*))
+            fn new(archetype: &'a Archetype) -> Option<Self> {
+                Some(($($name::new(archetype)?,)*))
             }
             #[allow(unused_variables)]
             fn release(archetype: &Archetype) {
@@ -633,10 +619,10 @@ macro_rules! tuple_impl {
             }
 
             #[allow(unused_variables)]
-            unsafe fn fetch(&self, n: usize) -> Self::Item {
+            unsafe fn get(&self, n: usize) -> Self::Item {
                 #[allow(non_snake_case)]
                 let ($($name,)*) = self;
-                ($($name.fetch(n),)*)
+                ($($name.get(n),)*)
             }
         }
 
