@@ -37,10 +37,10 @@ impl<'a, Q: Query> QueryOne<'a, Q> {
             panic!("called QueryOnce::get twice; construct a new query instead");
         }
         unsafe {
-            let mut fetch = Q::Fetch::get(self.archetype, self.index as usize)?;
+            let fetch = Q::Fetch::get(self.archetype, self.index as usize)?;
             self.borrowed = true;
             Q::Fetch::borrow(self.archetype);
-            Some(fetch.next())
+            Some(fetch.fetch(0))
         }
     }
 

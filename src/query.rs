@@ -47,14 +47,14 @@ pub trait Fetch<'a>: Sized {
     /// Release dynamic borrows acquired by `borrow`
     fn release(archetype: &Archetype);
 
-    /// Access the next item in this archetype without bounds checking
+    /// Access the `n`th item in this archetype without bounds checking
     ///
     /// # Safety
     /// - Must only be called after `borrow`
     /// - `release` must not be called while `'a` is still live
     /// - Bounds-checking must be performed externally
     /// - Any resulting borrows must be legal (e.g. no &mut to something another iterator might access)
-    unsafe fn next(&mut self) -> Self::Item;
+    unsafe fn fetch(&self, n: usize) -> Self::Item;
 }
 
 /// Type of access a `Query` may have to an `Archetype`
@@ -100,10 +100,8 @@ impl<'a, T: Component> Fetch<'a> for FetchRead<T> {
         archetype.release::<T>();
     }
 
-    unsafe fn next(&mut self) -> &'a T {
-        let x = self.0.as_ptr();
-        self.0 = NonNull::new_unchecked(x.add(1));
-        &*x
+    unsafe fn fetch(&self, n: usize) -> Self::Item {
+        &*self.0.as_ptr().add(n)
     }
 }
 
@@ -139,10 +137,8 @@ impl<'a, T: Component> Fetch<'a> for FetchWrite<T> {
         archetype.release_mut::<T>();
     }
 
-    unsafe fn next(&mut self) -> &'a mut T {
-        let x = self.0.as_ptr();
-        self.0 = NonNull::new_unchecked(x.add(1));
-        &mut *x
+    unsafe fn fetch(&self, n: usize) -> Self::Item {
+        &mut *self.0.as_ptr().add(n)
     }
 }
 
@@ -172,8 +168,8 @@ impl<'a, T: Fetch<'a>> Fetch<'a> for TryFetch<T> {
         T::release(archetype)
     }
 
-    unsafe fn next(&mut self) -> Option<T::Item> {
-        Some(self.0.as_mut()?.next())
+    unsafe fn fetch(&self, n: usize) -> Option<T::Item> {
+        Some(self.0.as_ref()?.fetch(n))
     }
 }
 
@@ -229,8 +225,8 @@ impl<'a, T: Component, F: Fetch<'a>> Fetch<'a> for FetchWithout<T, F> {
         F::release(archetype)
     }
 
-    unsafe fn next(&mut self) -> F::Item {
-        self.0.next()
+    unsafe fn fetch(&self, n: usize) -> F::Item {
+        self.0.fetch(n)
     }
 }
 
@@ -288,8 +284,8 @@ impl<'a, T: Component, F: Fetch<'a>> Fetch<'a> for FetchWith<T, F> {
         F::release(archetype)
     }
 
-    unsafe fn next(&mut self) -> F::Item {
-        self.0.next()
+    unsafe fn fetch(&self, n: usize) -> F::Item {
+        self.0.fetch(n)
     }
 }
 
@@ -464,6 +460,7 @@ impl<'q, 'w, Q: Query> Iterator for QueryIter<'q, 'w, Q> {
                             ChunkIter {
                                 entities: archetype.entities(),
                                 fetch,
+                                position: 0,
                                 len: archetype.len(),
                             }
                         });
@@ -505,6 +502,7 @@ impl<'q, 'w, Q: Query> ExactSizeIterator for QueryIter<'q, 'w, Q> {
 struct ChunkIter<Q: Query> {
     entities: NonNull<u32>,
     fetch: Q::Fetch,
+    position: u32,
     len: u32,
 }
 
@@ -513,18 +511,19 @@ impl<Q: Query> ChunkIter<Q> {
     const EMPTY: Self = Self {
         entities: NonNull::dangling(),
         fetch: Q::Fetch::DANGLING,
+        position: 0,
         len: 0,
     };
 
     #[inline]
     unsafe fn next<'a>(&mut self) -> Option<(u32, <Q::Fetch as Fetch<'a>>::Item)> {
-        if self.len == 0 {
+        if self.position == self.len {
             return None;
         }
-        self.len -= 1;
-        let entity = self.entities.as_ptr();
-        self.entities = NonNull::new_unchecked(entity.add(1));
-        Some((*entity, self.fetch.next()))
+        let entity = self.entities.as_ptr().add(self.position as usize);
+        let item = self.fetch.fetch(self.position as usize);
+        self.position += 1;
+        Some((*entity, item))
     }
 }
 
@@ -564,6 +563,7 @@ impl<'q, 'w, Q: Query> Iterator for BatchedIter<'q, 'w, Q> {
                         },
                         fetch,
                         len: self.batch_size.min(archetype.len() - offset),
+                        position: 0,
                     },
                 });
             } else {
@@ -632,10 +632,11 @@ macro_rules! tuple_impl {
                 $($name::release(archetype);)*
             }
 
-            unsafe fn next(&mut self) -> Self::Item {
+            #[allow(unused_variables)]
+            unsafe fn fetch(&self, n: usize) -> Self::Item {
                 #[allow(non_snake_case)]
                 let ($($name,)*) = self;
-                ($($name.next(),)*)
+                ($($name.fetch(n),)*)
             }
         }
 
