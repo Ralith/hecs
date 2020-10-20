@@ -474,7 +474,9 @@ impl<'q, 'w, Q: Query> Iterator for QueryIter<'q, 'w, Q> {
                     return Some((
                         Entity {
                             id,
-                            generation: self.borrow.meta[id as usize].generation,
+                            generation: unsafe {
+                                self.borrow.meta.get_unchecked(id as usize).generation
+                            },
                         },
                         components,
                     ));
