@@ -30,7 +30,7 @@ pub trait Fetch<'a>: Sized {
     /// Type of value to be fetched
     type Item;
 
-    /// A value on which `next` may never be called
+    /// A value on which `get` may never be called
     #[allow(clippy::declare_interior_mutable_const)] // no const fn in traits
     const DANGLING: Self;
 
