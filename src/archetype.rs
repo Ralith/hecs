@@ -366,7 +366,7 @@ impl Hasher for TypeIdHasher {
 
         // This will only be called if TypeId is neither u64 nor u128, which is not anticipated.
         // In that case we'll just fall back to using a different hash implementation.
-        let mut hasher = DefaultHashBuilder::new().build_hasher();
+        let mut hasher = <DefaultHashBuilder as BuildHasher>::Hasher::default();
         hasher.write(bytes);
         self.hash = hasher.finish();
     }
