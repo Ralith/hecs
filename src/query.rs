@@ -30,6 +30,10 @@ pub trait Fetch<'a>: Sized {
     /// Type of value to be fetched
     type Item;
 
+    /// A value on which `next` may never be called
+    #[allow(clippy::declare_interior_mutable_const)] // no const fn in traits
+    const DANGLING: Self;
+
     /// How this query will access `archetype`, if at all
     fn access(archetype: &Archetype) -> Option<Access>;
 
@@ -74,6 +78,8 @@ pub struct FetchRead<T>(NonNull<T>);
 impl<'a, T: Component> Fetch<'a> for FetchRead<T> {
     type Item = &'a T;
 
+    const DANGLING: Self = Self(NonNull::dangling());
+
     fn access(archetype: &Archetype) -> Option<Access> {
         if archetype.has::<T>() {
             Some(Access::Read)
@@ -111,6 +117,8 @@ pub struct FetchWrite<T>(NonNull<T>);
 impl<'a, T: Component> Fetch<'a> for FetchWrite<T> {
     type Item = &'a mut T;
 
+    const DANGLING: Self = Self(NonNull::dangling());
+
     fn access(archetype: &Archetype) -> Option<Access> {
         if archetype.has::<T>() {
             Some(Access::Write)
@@ -147,6 +155,8 @@ pub struct TryFetch<T>(Option<T>);
 
 impl<'a, T: Fetch<'a>> Fetch<'a> for TryFetch<T> {
     type Item = Option<T::Item>;
+
+    const DANGLING: Self = Self(None);
 
     fn access(archetype: &Archetype) -> Option<Access> {
         Some(T::access(archetype).unwrap_or(Access::Iterate))
@@ -195,6 +205,8 @@ pub struct FetchWithout<T, F>(F, PhantomData<fn(T)>);
 
 impl<'a, T: Component, F: Fetch<'a>> Fetch<'a> for FetchWithout<T, F> {
     type Item = F::Item;
+
+    const DANGLING: Self = Self(F::DANGLING, PhantomData);
 
     fn access(archetype: &Archetype) -> Option<Access> {
         if archetype.has::<T>() {
@@ -253,6 +265,8 @@ pub struct FetchWith<T, F>(F, PhantomData<fn(T)>);
 impl<'a, T: Component, F: Fetch<'a>> Fetch<'a> for FetchWith<T, F> {
     type Item = F::Item;
 
+    const DANGLING: Self = Self(F::DANGLING, PhantomData);
+
     fn access(archetype: &Archetype) -> Option<Access> {
         if archetype.has::<T>() {
             F::access(archetype)
@@ -307,7 +321,7 @@ impl<'w, Q: Query> QueryBorrow<'w, Q> {
         QueryIter {
             borrow: self,
             archetype_index: 0,
-            iter: None,
+            iter: ChunkIter::EMPTY,
         }
     }
 
@@ -429,7 +443,7 @@ impl<'q, 'w, Q: Query> IntoIterator for &'q mut QueryBorrow<'w, Q> {
 pub struct QueryIter<'q, 'w, Q: Query> {
     borrow: &'q mut QueryBorrow<'w, Q>,
     archetype_index: u32,
-    iter: Option<ChunkIter<Q>>,
+    iter: ChunkIter<Q>,
 }
 
 unsafe impl<'q, 'w, Q: Query> Send for QueryIter<'q, 'w, Q> {}
@@ -441,33 +455,30 @@ impl<'q, 'w, Q: Query> Iterator for QueryIter<'q, 'w, Q> {
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         loop {
-            match self.iter {
+            match unsafe { self.iter.next() } {
                 None => {
                     let archetype = self.borrow.archetypes.get(self.archetype_index as usize)?;
                     self.archetype_index += 1;
                     unsafe {
-                        self.iter = Q::Fetch::get(archetype, 0).map(|fetch| ChunkIter {
-                            entities: archetype.entities(),
-                            fetch,
-                            len: archetype.len(),
+                        self.iter = Q::Fetch::get(archetype, 0).map_or(ChunkIter::EMPTY, |fetch| {
+                            ChunkIter {
+                                entities: archetype.entities(),
+                                fetch,
+                                len: archetype.len(),
+                            }
                         });
                     }
+                    continue;
                 }
-                Some(ref mut iter) => match unsafe { iter.next() } {
-                    None => {
-                        self.iter = None;
-                        continue;
-                    }
-                    Some((id, components)) => {
-                        return Some((
-                            Entity {
-                                id,
-                                generation: self.borrow.meta[id as usize].generation,
-                            },
-                            components,
-                        ));
-                    }
-                },
+                Some((id, components)) => {
+                    return Some((
+                        Entity {
+                            id,
+                            generation: self.borrow.meta[id as usize].generation,
+                        },
+                        components,
+                    ));
+                }
             }
         }
     }
@@ -496,6 +507,13 @@ struct ChunkIter<Q: Query> {
 }
 
 impl<Q: Query> ChunkIter<Q> {
+    #[allow(clippy::declare_interior_mutable_const)] // no trait bounds on const fns
+    const EMPTY: Self = Self {
+        entities: NonNull::dangling(),
+        fetch: Q::Fetch::DANGLING,
+        len: 0,
+    };
+
     #[inline]
     unsafe fn next<'a>(&mut self) -> Option<(u32, <Q::Fetch as Fetch<'a>>::Item)> {
         if self.len == 0 {
@@ -587,6 +605,8 @@ macro_rules! tuple_impl {
     ($($name: ident),*) => {
         impl<'a, $($name: Fetch<'a>),*> Fetch<'a> for ($($name,)*) {
             type Item = ($($name::Item,)*);
+
+            const DANGLING: Self = ($($name::DANGLING,)*);
 
             #[allow(unused_variables, unused_mut)]
             fn access(archetype: &Archetype) -> Option<Access> {
