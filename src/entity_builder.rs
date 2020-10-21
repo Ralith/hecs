@@ -19,9 +19,9 @@ use core::any::TypeId;
 use core::mem::{self, MaybeUninit};
 use core::ptr;
 
-use hashbrown::hash_map::Entry;
+use hashbrown::hash_map::{Entry, HashMap};
 
-use crate::archetype::{TypeIdMap, TypeInfo};
+use crate::archetype::TypeInfo;
 use crate::{Component, DynamicBundle};
 
 /// Helper for incrementally constructing a bundle of components with dynamic component types
@@ -42,7 +42,7 @@ pub struct EntityBuilder {
     cursor: usize,
     info: Vec<(TypeInfo, usize)>,
     ids: Vec<TypeId>,
-    indices: TypeIdMap<usize>,
+    indices: HashMap<TypeId, usize>,
 }
 
 impl EntityBuilder {
@@ -53,7 +53,7 @@ impl EntityBuilder {
             storage: Box::new([]),
             info: Vec::new(),
             ids: Vec::new(),
-            indices: Default::default(),
+            indices: HashMap::new(),
         }
     }
 
