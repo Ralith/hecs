@@ -122,10 +122,12 @@ impl Archetype {
         }
     }
 
+    #[inline]
     pub(crate) fn len(&self) -> u32 {
         self.len
     }
 
+    #[inline]
     pub(crate) fn entities(&self) -> NonNull<u32> {
         unsafe { NonNull::new_unchecked(self.entities.as_ptr() as *mut _) }
     }
