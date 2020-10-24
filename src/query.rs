@@ -431,7 +431,7 @@ impl<'q, 'w, Q: Query> IntoIterator for &'q mut QueryBorrow<'w, Q> {
 /// Iterator over the set of entities with the components in `Q`
 pub struct QueryIter<'q, 'w, Q: Query> {
     borrow: &'q mut QueryBorrow<'w, Q>,
-    archetype_index: u32,
+    archetype_index: usize,
     iter: ChunkIter<Q>,
 }
 
@@ -446,14 +446,14 @@ impl<'q, 'w, Q: Query> Iterator for QueryIter<'q, 'w, Q> {
         loop {
             match unsafe { self.iter.next() } {
                 None => {
-                    let archetype = self.borrow.archetypes.get(self.archetype_index as usize)?;
+                    let archetype = self.borrow.archetypes.get(self.archetype_index)?;
                     self.archetype_index += 1;
                     self.iter =
                         Q::Fetch::new(archetype).map_or(ChunkIter::EMPTY, |fetch| ChunkIter {
                             entities: archetype.entities(),
                             fetch,
                             position: 0,
-                            len: archetype.len(),
+                            len: archetype.len() as usize,
                         });
                     continue;
                 }
@@ -492,8 +492,8 @@ impl<'q, 'w, Q: Query> ExactSizeIterator for QueryIter<'q, 'w, Q> {
 struct ChunkIter<Q: Query> {
     entities: NonNull<u32>,
     fetch: Q::Fetch,
-    position: u32,
-    len: u32,
+    position: usize,
+    len: usize,
 }
 
 impl<Q: Query> ChunkIter<Q> {
@@ -510,8 +510,8 @@ impl<Q: Query> ChunkIter<Q> {
         if self.position == self.len {
             return None;
         }
-        let entity = self.entities.as_ptr().add(self.position as usize);
-        let item = self.fetch.get(self.position as usize);
+        let entity = self.entities.as_ptr().add(self.position);
+        let item = self.fetch.get(self.position);
         self.position += 1;
         Some((*entity, item))
     }
@@ -520,7 +520,7 @@ impl<Q: Query> ChunkIter<Q> {
 /// Batched version of `QueryIter`
 pub struct BatchedIter<'q, 'w, Q: Query> {
     borrow: &'q mut QueryBorrow<'w, Q>,
-    archetype_index: u32,
+    archetype_index: usize,
     batch_size: u32,
     batch: u32,
 }
@@ -533,7 +533,7 @@ impl<'q, 'w, Q: Query> Iterator for BatchedIter<'q, 'w, Q> {
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
-            let archetype = self.borrow.archetypes.get(self.archetype_index as usize)?;
+            let archetype = self.borrow.archetypes.get(self.archetype_index)?;
             let offset = self.batch_size * self.batch;
             if offset >= archetype.len() {
                 self.archetype_index += 1;
@@ -548,8 +548,8 @@ impl<'q, 'w, Q: Query> Iterator for BatchedIter<'q, 'w, Q> {
                     state: ChunkIter {
                         entities: archetype.entities(),
                         fetch,
-                        len: offset + self.batch_size.min(archetype.len() - offset),
-                        position: offset,
+                        len: (offset + self.batch_size.min(archetype.len() - offset)) as usize,
+                        position: offset as usize,
                     },
                 });
             } else {
