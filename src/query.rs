@@ -31,8 +31,7 @@ pub trait Fetch<'a>: Sized {
     type Item;
 
     /// A value on which `get` may never be called
-    #[allow(clippy::declare_interior_mutable_const)] // no const fn in traits
-    const DANGLING: Self;
+    fn dangling() -> Self;
 
     /// How this query will access `archetype`, if at all
     fn access(archetype: &Archetype) -> Option<Access>;
@@ -75,7 +74,9 @@ pub struct FetchRead<T>(NonNull<T>);
 impl<'a, T: Component> Fetch<'a> for FetchRead<T> {
     type Item = &'a T;
 
-    const DANGLING: Self = Self(NonNull::dangling());
+    fn dangling() -> Self {
+        Self(NonNull::dangling())
+    }
 
     fn access(archetype: &Archetype) -> Option<Access> {
         if archetype.has::<T>() {
@@ -110,7 +111,9 @@ pub struct FetchWrite<T>(NonNull<T>);
 impl<'a, T: Component> Fetch<'a> for FetchWrite<T> {
     type Item = &'a mut T;
 
-    const DANGLING: Self = Self(NonNull::dangling());
+    fn dangling() -> Self {
+        Self(NonNull::dangling())
+    }
 
     fn access(archetype: &Archetype) -> Option<Access> {
         if archetype.has::<T>() {
@@ -145,7 +148,9 @@ pub struct TryFetch<T>(Option<T>);
 impl<'a, T: Fetch<'a>> Fetch<'a> for TryFetch<T> {
     type Item = Option<T::Item>;
 
-    const DANGLING: Self = Self(None);
+    fn dangling() -> Self {
+        Self(None)
+    }
 
     fn access(archetype: &Archetype) -> Option<Access> {
         Some(T::access(archetype).unwrap_or(Access::Iterate))
@@ -195,7 +200,9 @@ pub struct FetchWithout<T, F>(F, PhantomData<fn(T)>);
 impl<'a, T: Component, F: Fetch<'a>> Fetch<'a> for FetchWithout<T, F> {
     type Item = F::Item;
 
-    const DANGLING: Self = Self(F::DANGLING, PhantomData);
+    fn dangling() -> Self {
+        Self(F::dangling(), PhantomData)
+    }
 
     fn access(archetype: &Archetype) -> Option<Access> {
         if archetype.has::<T>() {
@@ -254,7 +261,9 @@ pub struct FetchWith<T, F>(F, PhantomData<fn(T)>);
 impl<'a, T: Component, F: Fetch<'a>> Fetch<'a> for FetchWith<T, F> {
     type Item = F::Item;
 
-    const DANGLING: Self = Self(F::DANGLING, PhantomData);
+    fn dangling() -> Self {
+        Self(F::dangling(), PhantomData)
+    }
 
     fn access(archetype: &Archetype) -> Option<Access> {
         if archetype.has::<T>() {
@@ -310,7 +319,7 @@ impl<'w, Q: Query> QueryBorrow<'w, Q> {
         QueryIter {
             borrow: self,
             archetype_index: 0,
-            iter: ChunkIter::EMPTY,
+            iter: ChunkIter::empty(),
         }
     }
 
@@ -449,7 +458,7 @@ impl<'q, 'w, Q: Query> Iterator for QueryIter<'q, 'w, Q> {
                     let archetype = self.borrow.archetypes.get(self.archetype_index)?;
                     self.archetype_index += 1;
                     self.iter =
-                        Q::Fetch::new(archetype).map_or(ChunkIter::EMPTY, |fetch| ChunkIter {
+                        Q::Fetch::new(archetype).map_or(ChunkIter::empty(), |fetch| ChunkIter {
                             entities: archetype.entities(),
                             fetch,
                             position: 0,
@@ -497,13 +506,14 @@ struct ChunkIter<Q: Query> {
 }
 
 impl<Q: Query> ChunkIter<Q> {
-    #[allow(clippy::declare_interior_mutable_const)] // no trait bounds on const fns
-    const EMPTY: Self = Self {
-        entities: NonNull::dangling(),
-        fetch: Q::Fetch::DANGLING,
-        position: 0,
-        len: 0,
-    };
+    fn empty() -> Self {
+        Self {
+            entities: NonNull::dangling(),
+            fetch: Q::Fetch::dangling(),
+            position: 0,
+            len: 0,
+        }
+    }
 
     #[inline]
     unsafe fn next<'a>(&mut self) -> Option<(u32, <Q::Fetch as Fetch<'a>>::Item)> {
@@ -594,7 +604,9 @@ macro_rules! tuple_impl {
         impl<'a, $($name: Fetch<'a>),*> Fetch<'a> for ($($name,)*) {
             type Item = ($($name::Item,)*);
 
-            const DANGLING: Self = ($($name::DANGLING,)*);
+            fn dangling() -> Self {
+                ($($name::dangling(),)*)
+            }
 
             #[allow(unused_variables, unused_mut)]
             fn access(archetype: &Archetype) -> Option<Access> {
