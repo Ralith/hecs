@@ -30,6 +30,7 @@ lazy_static = { version = "1.4.0", optional = true, features = ["spin_no_std"] }
 [dev-dependencies]
 bencher = "0.1.5"
 rand = "0.7.3"
+trybuild = "1.0.23"
 
 [[bench]]
 name = "bench"
@@ -38,3 +39,6 @@ required-features = ["macros"]
 
 [profile.release]
 debug = true
+
+[workspace]
+members = ["macros"]
