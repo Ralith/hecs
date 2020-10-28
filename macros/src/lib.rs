@@ -75,19 +75,19 @@ fn gen_dynamic_bundle_impl(
 ) -> TokenStream2 {
     quote! {
         impl ::hecs::DynamicBundle for #ident {
-            fn with_ids<T>(&self, f: impl FnOnce(&[std::any::TypeId]) -> T) -> T {
-                Self::with_static_ids(f)
+            fn with_ids<T>(&self, f: impl ::std::ops::FnOnce(&[::std::any::TypeId]) -> T) -> T {
+                <Self as ::hecs::Bundle>::with_static_ids(f)
             }
 
-            fn type_info(&self) -> Vec<::hecs::TypeInfo> {
-                Self::static_type_info()
+            fn type_info(&self) -> ::std::vec::Vec<::hecs::TypeInfo> {
+                <Self as ::hecs::Bundle>::static_type_info()
             }
 
             #[allow(clippy::forget_copy)]
-            unsafe fn put(mut self, mut f: impl FnMut(*mut u8, ::hecs::TypeInfo)) {
+            unsafe fn put(mut self, mut f: impl ::std::ops::FnMut(*mut u8, ::hecs::TypeInfo)) {
                 #(
                     f((&mut self.#fields as *mut #tys).cast::<u8>(), ::hecs::TypeInfo::of::<#tys>());
-                    std::mem::forget(self.#fields);
+                    ::std::mem::forget(self.#fields);
                 )*
             }
         }
@@ -98,23 +98,25 @@ fn gen_bundle_impl(ident: &syn::Ident, fields: &[syn::Ident], tys: &[&syn::Type]
     let num_tys = tys.len();
     quote! {
         impl ::hecs::Bundle for #ident {
-            fn with_static_ids<T>(f: impl FnOnce(&[std::any::TypeId]) -> T) -> T {
-                use std::any::TypeId;
-                use std::mem;
-
+            fn with_static_ids<T>(f: impl ::std::ops::FnOnce(&[::std::any::TypeId]) -> T) -> T {
                 ::hecs::lazy_static::lazy_static! {
-                    static ref ELEMENTS: [TypeId; #num_tys] = {
-                        let mut dedup = std::collections::HashSet::new();
-                        for &(ty, name) in [#((std::any::TypeId::of::<#tys>(), std::any::type_name::<#tys>())),*].iter() {
+                    static ref ELEMENTS: [::std::any::TypeId; #num_tys] = {
+                        let mut dedup = ::std::collections::HashSet::new();
+                        for &(ty, name) in [#((::std::any::TypeId::of::<#tys>(), ::std::any::type_name::<#tys>())),*].iter() {
                             if !dedup.insert(ty) {
-                                panic!("{} has multiple {} fields; each type must occur at most once!", stringify!(#ident), name);
+                                ::std::panic!("{} has multiple {} fields; each type must occur at most once!", stringify!(#ident), name);
                             }
                         }
 
-                        let mut tys = [#((mem::align_of::<#tys>(), TypeId::of::<#tys>())),*];
-                        tys.sort_unstable_by(|x, y| x.0.cmp(&y.0).reverse().then(x.1.cmp(&y.1)));
-                        let mut ids = [TypeId::of::<()>(); #num_tys];
-                        for (id, info) in ids.iter_mut().zip(tys.iter()) {
+                        let mut tys = [#((::std::mem::align_of::<#tys>(), ::std::any::TypeId::of::<#tys>())),*];
+                        tys.sort_unstable_by(|x, y| {
+                            ::std::cmp::Ord::cmp(&x.0, &y.0)
+                                .reverse()
+                                .then(::std::cmp::Ord::cmp(&x.1, &y.1))
+                            //x.0.cmp(&y.0).reverse().then(x.1.cmp(&y.1))
+                        });
+                        let mut ids = [::std::any::TypeId::of::<()>(); #num_tys];
+                        for (id, info) in ::std::iter::Iterator::zip(ids.iter_mut(), tys.iter()) {
                             *id = info.1;
                         }
                         ids
@@ -124,35 +126,36 @@ fn gen_bundle_impl(ident: &syn::Ident, fields: &[syn::Ident], tys: &[&syn::Type]
                 f(&*ELEMENTS)
             }
 
-            fn static_type_info() -> Vec<::hecs::TypeInfo> {
-                let mut info = vec![#(::hecs::TypeInfo::of::<#tys>()),*];
+            fn static_type_info() -> ::std::vec::Vec<::hecs::TypeInfo> {
+                let mut info = ::std::vec![#(::hecs::TypeInfo::of::<#tys>()),*];
                 info.sort_unstable();
                 info
             }
 
             unsafe fn get(
-                mut f: impl FnMut(::hecs::TypeInfo) -> Option<std::ptr::NonNull<u8>>,
-            ) -> Result<Self, ::hecs::MissingComponent> {
+                mut f: impl ::std::ops::FnMut(::hecs::TypeInfo) -> ::std::option::Option<::std::ptr::NonNull<u8>>,
+            ) -> ::std::result::Result<Self, ::hecs::MissingComponent> {
                 #(
                     let #fields = f(::hecs::TypeInfo::of::<#tys>())
                             .ok_or_else(::hecs::MissingComponent::new::<#tys>)?
                             .cast::<#tys>()
-                        .as_ptr();
+                            .as_ptr();
                 )*
-                Ok(Self { #( #fields: #fields.read(), )* })
+                ::std::result::Result::Ok(Self { #( #fields: #fields.read(), )* })
             }
         }
     }
 }
 
+// no reason to generate a static for unit structs
 fn gen_unit_struct_bundle_impl(ident: syn::Ident) -> TokenStream2 {
     quote! {
         impl ::hecs::Bundle for #ident {
-            fn with_static_ids<T>(f: impl FnOnce(&[std::any::TypeId]) -> T) -> T { f(&[]) }
-            fn static_type_info() -> Vec<::hecs::TypeInfo> { Vec::new() }
+            fn with_static_ids<T>(f: impl ::std::ops::FnOnce(&[::std::any::TypeId]) -> T) -> T { f(&[]) }
+            fn static_type_info() -> ::std::vec::Vec<::hecs::TypeInfo> { ::std::vec::Vec::new() }
 
             unsafe fn get(
-                mut f: impl FnMut(::hecs::TypeInfo) -> Option<std::ptr::NonNull<u8>>,
+                mut f: impl ::std::ops::FnMut(::hecs::TypeInfo) -> Option<::std::ptr::NonNull<u8>>,
             ) -> Result<Self, ::hecs::MissingComponent> {
                 Ok(Self {/* for some reason this works for all unit struct variations */})
             }
