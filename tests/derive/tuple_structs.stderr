@@ -1,6 +1,5 @@
 thread 'rustc' panicked at '`"0"` is not a valid identifier', compiler\rustc_expand\src\proc_macro_server.rs:332:13
-stack backtrace:
-note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
 
 error: internal compiler error: unexpected panic
 
@@ -14,8 +13,6 @@ note: compiler flags: -C embed-bitcode=no -C debuginfo=2 -C incremental --crate-
 
 note: some of the compiler flags provided by cargo are hidden
 
-query stack during panic:
-end of query stack
 error: proc-macro derive panicked
  --> $DIR/tuple_structs.rs:3:10
   |
@@ -25,8 +22,6 @@ error: proc-macro derive panicked
   = help: message: `"0"` is not a valid identifier
 
 thread 'rustc' panicked at '`"0"` is not a valid identifier', compiler\rustc_expand\src\proc_macro_server.rs:332:13
-stack backtrace:
-note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
 
 error: internal compiler error: unexpected panic
 
@@ -40,8 +35,6 @@ note: compiler flags: -C embed-bitcode=no -C debuginfo=2 -C incremental --crate-
 
 note: some of the compiler flags provided by cargo are hidden
 
-query stack during panic:
-end of query stack
 error: proc-macro derive panicked
  --> $DIR/tuple_structs.rs:6:10
   |
@@ -51,8 +44,6 @@ error: proc-macro derive panicked
   = help: message: `"0"` is not a valid identifier
 
 thread 'rustc' panicked at '`"0"` is not a valid identifier', compiler\rustc_expand\src\proc_macro_server.rs:332:13
-stack backtrace:
-note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
 
 error: internal compiler error: unexpected panic
 
@@ -66,8 +57,6 @@ note: compiler flags: -C embed-bitcode=no -C debuginfo=2 -C incremental --crate-
 
 note: some of the compiler flags provided by cargo are hidden
 
-query stack during panic:
-end of query stack
 error: proc-macro derive panicked
  --> $DIR/tuple_structs.rs:9:10
   |
