@@ -16,8 +16,9 @@ extern crate proc_macro;
 
 use proc_macro::TokenStream;
 use proc_macro2::Span;
+use proc_macro2::TokenStream as TokenStream2;
 use quote::quote;
-use syn::{parse_macro_input, DeriveInput};
+use syn::{parse_macro_input, DeriveInput, Error, Result};
 
 /// Implement `Bundle` for a monomorphic struct
 ///
@@ -29,24 +30,50 @@ use syn::{parse_macro_input, DeriveInput};
 #[proc_macro_derive(Bundle)]
 pub fn derive_bundle(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
+    match derive_bundle_(input) {
+        Ok(ts) => ts,
+        Err(e) => e.to_compile_error(),
+    }
+    .into()
+}
+
+fn derive_bundle_(input: DeriveInput) -> Result<TokenStream2> {
+    let ident = input.ident;
     if !input.generics.params.is_empty() {
-        return TokenStream::from(
-            quote! { compile_error!("derive(Bundle) does not support generics"); },
-        );
+        return Err(Error::new_spanned(
+            input.generics,
+            "derive(Bundle) does not support generics",
+        ));
     }
     let data = match input.data {
         syn::Data::Struct(s) => s,
         _ => {
-            return TokenStream::from(
-                quote! { compile_error!("derive(Bundle) only supports structs"); },
-            )
+            return Err(Error::new_spanned(
+                ident,
+                "derive(Bundle) does not support enums or unions",
+            ))
         }
     };
-    let ident = input.ident;
     let (tys, fields) = struct_fields(&data.fields);
 
-    let n = tys.len();
-    let code = quote! {
+    let dyn_bundle_code = gen_dynamic_bundle_impl(&ident, &fields, &tys);
+    let num_tys = tys.len();
+    let bundle_code = if num_tys == 0 {
+        gen_unit_struct_bundle_impl(ident)
+    } else {
+        gen_bundle_impl(&ident, &fields, &tys)
+    };
+    let mut ts = dyn_bundle_code;
+    ts.extend(bundle_code);
+    Ok(ts)
+}
+
+fn gen_dynamic_bundle_impl(
+    ident: &syn::Ident,
+    fields: &[syn::Ident],
+    tys: &[&syn::Type],
+) -> TokenStream2 {
+    quote! {
         impl ::hecs::DynamicBundle for #ident {
             fn with_ids<T>(&self, f: impl FnOnce(&[std::any::TypeId]) -> T) -> T {
                 Self::with_static_ids(f)
@@ -64,14 +91,19 @@ pub fn derive_bundle(input: TokenStream) -> TokenStream {
                 )*
             }
         }
+    }
+}
 
+fn gen_bundle_impl(ident: &syn::Ident, fields: &[syn::Ident], tys: &[&syn::Type]) -> TokenStream2 {
+    let num_tys = tys.len();
+    quote! {
         impl ::hecs::Bundle for #ident {
             fn with_static_ids<T>(f: impl FnOnce(&[std::any::TypeId]) -> T) -> T {
                 use std::any::TypeId;
                 use std::mem;
 
                 ::hecs::lazy_static::lazy_static! {
-                    static ref ELEMENTS: [TypeId; #n] = {
+                    static ref ELEMENTS: [TypeId; #num_tys] = {
                         let mut dedup = std::collections::HashSet::new();
                         for &(ty, name) in [#((std::any::TypeId::of::<#tys>(), std::any::type_name::<#tys>())),*].iter() {
                             if !dedup.insert(ty) {
@@ -81,7 +113,7 @@ pub fn derive_bundle(input: TokenStream) -> TokenStream {
 
                         let mut tys = [#((mem::align_of::<#tys>(), TypeId::of::<#tys>())),*];
                         tys.sort_unstable_by(|x, y| x.0.cmp(&y.0).reverse().then(x.1.cmp(&y.1)));
-                        let mut ids = [TypeId::of::<()>(); #n];
+                        let mut ids = [TypeId::of::<()>(); #num_tys];
                         for (id, info) in ids.iter_mut().zip(tys.iter()) {
                             *id = info.1;
                         }
@@ -110,8 +142,22 @@ pub fn derive_bundle(input: TokenStream) -> TokenStream {
                 Ok(Self { #( #fields: #fields.read(), )* })
             }
         }
-    };
-    TokenStream::from(code)
+    }
+}
+
+fn gen_unit_struct_bundle_impl(ident: syn::Ident) -> TokenStream2 {
+    quote! {
+        impl ::hecs::Bundle for #ident {
+            fn with_static_ids<T>(f: impl FnOnce(&[std::any::TypeId]) -> T) -> T { f(&[]) }
+            fn static_type_info() -> Vec<::hecs::TypeInfo> { Vec::new() }
+
+            unsafe fn get(
+                mut f: impl FnMut(::hecs::TypeInfo) -> Option<std::ptr::NonNull<u8>>,
+            ) -> Result<Self, ::hecs::MissingComponent> {
+                Ok(Self {/* for some reason this works for all unit struct variations */})
+            }
+        }
+    }
 }
 
 fn struct_fields(fields: &syn::Fields) -> (Vec<&syn::Type>, Vec<syn::Ident>) {

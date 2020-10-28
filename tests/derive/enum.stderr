@@ -1,7 +1,5 @@
-error: derive(Bundle) only supports structs
- --> $DIR/enum.rs:3:10
+error: derive(Bundle) does not support enums or unions
+ --> $DIR/enum.rs:4:6
   |
-3 | #[derive(Bundle)]
-  |          ^^^^^^
-  |
-  = note: this error originates in a derive macro (in Nightly builds, run with -Z macro-backtrace for more info)
+4 | enum Foo {}
+  |      ^^^
