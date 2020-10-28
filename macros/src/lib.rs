@@ -14,6 +14,8 @@
 
 extern crate proc_macro;
 
+use std::borrow::Cow;
+
 use proc_macro::TokenStream;
 use proc_macro2::Span;
 use proc_macro2::TokenStream as TokenStream2;
@@ -54,14 +56,15 @@ fn derive_bundle_(input: DeriveInput) -> Result<TokenStream2> {
             ))
         }
     };
-    let (tys, fields) = struct_fields(&data.fields);
+    let (tys, field_members) = struct_fields(&data.fields);
+    let field_idents = member_as_idents(&field_members);
 
-    let dyn_bundle_code = gen_dynamic_bundle_impl(&ident, &fields, &tys);
+    let dyn_bundle_code = gen_dynamic_bundle_impl(&ident, &field_members, &tys);
     let num_tys = tys.len();
     let bundle_code = if num_tys == 0 {
         gen_unit_struct_bundle_impl(ident)
     } else {
-        gen_bundle_impl(&ident, &fields, &tys)
+        gen_bundle_impl(&ident, &field_members, &field_idents, &tys)
     };
     let mut ts = dyn_bundle_code;
     ts.extend(bundle_code);
@@ -70,7 +73,7 @@ fn derive_bundle_(input: DeriveInput) -> Result<TokenStream2> {
 
 fn gen_dynamic_bundle_impl(
     ident: &syn::Ident,
-    fields: &[syn::Ident],
+    field_members: &[syn::Member],
     tys: &[&syn::Type],
 ) -> TokenStream2 {
     quote! {
@@ -86,15 +89,20 @@ fn gen_dynamic_bundle_impl(
             #[allow(clippy::forget_copy)]
             unsafe fn put(mut self, mut f: impl ::std::ops::FnMut(*mut u8, ::hecs::TypeInfo)) {
                 #(
-                    f((&mut self.#fields as *mut #tys).cast::<u8>(), ::hecs::TypeInfo::of::<#tys>());
-                    ::std::mem::forget(self.#fields);
+                    f((&mut self.#field_members as *mut #tys).cast::<u8>(), ::hecs::TypeInfo::of::<#tys>());
+                    ::std::mem::forget(self.#field_members);
                 )*
             }
         }
     }
 }
 
-fn gen_bundle_impl(ident: &syn::Ident, fields: &[syn::Ident], tys: &[&syn::Type]) -> TokenStream2 {
+fn gen_bundle_impl(
+    ident: &syn::Ident,
+    field_members: &[syn::Member],
+    field_idents: &[Cow<syn::Ident>],
+    tys: &[&syn::Type],
+) -> TokenStream2 {
     let num_tys = tys.len();
     quote! {
         impl ::hecs::Bundle for #ident {
@@ -113,7 +121,6 @@ fn gen_bundle_impl(ident: &syn::Ident, fields: &[syn::Ident], tys: &[&syn::Type]
                             ::std::cmp::Ord::cmp(&x.0, &y.0)
                                 .reverse()
                                 .then(::std::cmp::Ord::cmp(&x.1, &y.1))
-                            //x.0.cmp(&y.0).reverse().then(x.1.cmp(&y.1))
                         });
                         let mut ids = [::std::any::TypeId::of::<()>(); #num_tys];
                         for (id, info) in ::std::iter::Iterator::zip(ids.iter_mut(), tys.iter()) {
@@ -136,12 +143,12 @@ fn gen_bundle_impl(ident: &syn::Ident, fields: &[syn::Ident], tys: &[&syn::Type]
                 mut f: impl ::std::ops::FnMut(::hecs::TypeInfo) -> ::std::option::Option<::std::ptr::NonNull<u8>>,
             ) -> ::std::result::Result<Self, ::hecs::MissingComponent> {
                 #(
-                    let #fields = f(::hecs::TypeInfo::of::<#tys>())
+                    let #field_idents = f(::hecs::TypeInfo::of::<#tys>())
                             .ok_or_else(::hecs::MissingComponent::new::<#tys>)?
                             .cast::<#tys>()
                             .as_ptr();
                 )*
-                ::std::result::Result::Ok(Self { #( #fields: #fields.read(), )* })
+                ::std::result::Result::Ok(Self { #( #field_members: #field_idents.read(), )* })
             }
         }
     }
@@ -163,19 +170,39 @@ fn gen_unit_struct_bundle_impl(ident: syn::Ident) -> TokenStream2 {
     }
 }
 
-fn struct_fields(fields: &syn::Fields) -> (Vec<&syn::Type>, Vec<syn::Ident>) {
+fn struct_fields(fields: &syn::Fields) -> (Vec<&syn::Type>, Vec<syn::Member>) {
     match fields {
         syn::Fields::Named(ref fields) => fields
             .named
             .iter()
-            .map(|f| (&f.ty, f.ident.clone().unwrap()))
+            .map(|f| (&f.ty, syn::Member::Named(f.ident.clone().unwrap())))
             .unzip(),
         syn::Fields::Unnamed(ref fields) => fields
             .unnamed
             .iter()
             .enumerate()
-            .map(|(i, f)| (&f.ty, syn::Ident::new(&i.to_string(), Span::call_site())))
+            .map(|(i, f)| {
+                (
+                    &f.ty,
+                    syn::Member::Unnamed(syn::Index {
+                        index: i as u32,
+                        span: Span::call_site(),
+                    }),
+                )
+            })
             .unzip(),
         syn::Fields::Unit => (Vec::new(), Vec::new()),
     }
+}
+
+fn member_as_idents<'a>(members: &'a [syn::Member]) -> Vec<Cow<'a, syn::Ident>> {
+    members
+        .iter()
+        .map(|member| match member {
+            syn::Member::Named(ident) => Cow::Borrowed(ident),
+            &syn::Member::Unnamed(syn::Index { index, span }) => {
+                Cow::Owned(syn::Ident::new(&format!("tuple_field_{}", index), span))
+            }
+        })
+        .collect()
 }
