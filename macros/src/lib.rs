@@ -41,12 +41,6 @@ pub fn derive_bundle(input: TokenStream) -> TokenStream {
 
 fn derive_bundle_(input: DeriveInput) -> Result<TokenStream2> {
     let ident = input.ident;
-    if !input.generics.params.is_empty() {
-        return Err(Error::new_spanned(
-            input.generics,
-            "derive(Bundle) does not support generics",
-        ));
-    }
     let data = match input.data {
         syn::Data::Struct(s) => s,
         _ => {
@@ -58,13 +52,13 @@ fn derive_bundle_(input: DeriveInput) -> Result<TokenStream2> {
     };
     let (tys, field_members) = struct_fields(&data.fields);
     let field_idents = member_as_idents(&field_members);
+    let generics = add_additional_bounds_to_generic_params(input.generics);
 
-    let dyn_bundle_code = gen_dynamic_bundle_impl(&ident, &field_members, &tys);
-    let num_tys = tys.len();
-    let bundle_code = if num_tys == 0 {
-        gen_unit_struct_bundle_impl(ident)
+    let dyn_bundle_code = gen_dynamic_bundle_impl(&ident, &generics, &field_members, &tys);
+    let bundle_code = if tys.is_empty() {
+        gen_unit_struct_bundle_impl(ident, &generics)
     } else {
-        gen_bundle_impl(&ident, &field_members, &field_idents, &tys)
+        gen_bundle_impl(&ident, &generics, &field_members, &field_idents, &tys)
     };
     let mut ts = dyn_bundle_code;
     ts.extend(bundle_code);
@@ -73,12 +67,14 @@ fn derive_bundle_(input: DeriveInput) -> Result<TokenStream2> {
 
 fn gen_dynamic_bundle_impl(
     ident: &syn::Ident,
+    generics: &syn::Generics,
     field_members: &[syn::Member],
     tys: &[&syn::Type],
 ) -> TokenStream2 {
+    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
     quote! {
-        impl ::hecs::DynamicBundle for #ident {
-            fn with_ids<T>(&self, f: impl ::std::ops::FnOnce(&[::std::any::TypeId]) -> T) -> T {
+        impl #impl_generics ::hecs::DynamicBundle for #ident #ty_generics #where_clause {
+            fn with_ids<__hecs__T>(&self, f: impl ::std::ops::FnOnce(&[::std::any::TypeId]) -> __hecs__T) -> __hecs__T {
                 <Self as ::hecs::Bundle>::with_static_ids(f)
             }
 
@@ -99,39 +95,59 @@ fn gen_dynamic_bundle_impl(
 
 fn gen_bundle_impl(
     ident: &syn::Ident,
+    generics: &syn::Generics,
     field_members: &[syn::Member],
     field_idents: &[Cow<syn::Ident>],
     tys: &[&syn::Type],
 ) -> TokenStream2 {
     let num_tys = tys.len();
-    quote! {
-        impl ::hecs::Bundle for #ident {
-            fn with_static_ids<T>(f: impl ::std::ops::FnOnce(&[::std::any::TypeId]) -> T) -> T {
+    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
+    let with_static_ids_inner = quote! {
+        {
+            let mut dedup = ::std::collections::HashSet::new();
+            for &(ty, name) in [#((::std::any::TypeId::of::<#tys>(), ::std::any::type_name::<#tys>())),*].iter() {
+                if !dedup.insert(ty) {
+                    ::std::panic!("{} has multiple {} fields; each type must occur at most once!", stringify!(#ident), name);
+                }
+            }
+
+            let mut tys = [#((::std::mem::align_of::<#tys>(), ::std::any::TypeId::of::<#tys>())),*];
+            tys.sort_unstable_by(|x, y| {
+                ::std::cmp::Ord::cmp(&x.0, &y.0)
+                    .reverse()
+                    .then(::std::cmp::Ord::cmp(&x.1, &y.1))
+            });
+            let mut ids = [::std::any::TypeId::of::<()>(); #num_tys];
+            for (id, info) in ::std::iter::Iterator::zip(ids.iter_mut(), tys.iter()) {
+                *id = info.1;
+            }
+            ids
+        }
+    };
+    let with_static_ids = if generics.params.is_empty() {
+        quote! {
+            #[allow(non_camel_case_types)]
+            fn with_static_ids<__hecs__T>(f: impl ::std::ops::FnOnce(&[::std::any::TypeId]) -> __hecs__T) -> __hecs__T {
                 ::hecs::lazy_static::lazy_static! {
                     static ref ELEMENTS: [::std::any::TypeId; #num_tys] = {
-                        let mut dedup = ::std::collections::HashSet::new();
-                        for &(ty, name) in [#((::std::any::TypeId::of::<#tys>(), ::std::any::type_name::<#tys>())),*].iter() {
-                            if !dedup.insert(ty) {
-                                ::std::panic!("{} has multiple {} fields; each type must occur at most once!", stringify!(#ident), name);
-                            }
-                        }
-
-                        let mut tys = [#((::std::mem::align_of::<#tys>(), ::std::any::TypeId::of::<#tys>())),*];
-                        tys.sort_unstable_by(|x, y| {
-                            ::std::cmp::Ord::cmp(&x.0, &y.0)
-                                .reverse()
-                                .then(::std::cmp::Ord::cmp(&x.1, &y.1))
-                        });
-                        let mut ids = [::std::any::TypeId::of::<()>(); #num_tys];
-                        for (id, info) in ::std::iter::Iterator::zip(ids.iter_mut(), tys.iter()) {
-                            *id = info.1;
-                        }
-                        ids
+                        #with_static_ids_inner
                     };
                 }
 
                 f(&*ELEMENTS)
             }
+        }
+    } else {
+        quote! {
+            #[allow(non_camel_case_types)]
+            fn with_static_ids<__hecs__T>(f: impl ::std::ops::FnOnce(&[::std::any::TypeId]) -> __hecs__T) -> __hecs__T {
+                f(&#with_static_ids_inner)
+            }
+        }
+    };
+    quote! {
+        impl #impl_generics ::hecs::Bundle for #ident #ty_generics #where_clause {
+            #with_static_ids
 
             fn static_type_info() -> ::std::vec::Vec<::hecs::TypeInfo> {
                 let mut info = ::std::vec![#(::hecs::TypeInfo::of::<#tys>()),*];
@@ -155,10 +171,12 @@ fn gen_bundle_impl(
 }
 
 // no reason to generate a static for unit structs
-fn gen_unit_struct_bundle_impl(ident: syn::Ident) -> TokenStream2 {
+fn gen_unit_struct_bundle_impl(ident: syn::Ident, generics: &syn::Generics) -> TokenStream2 {
+    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
     quote! {
-        impl ::hecs::Bundle for #ident {
-            fn with_static_ids<T>(f: impl ::std::ops::FnOnce(&[::std::any::TypeId]) -> T) -> T { f(&[]) }
+        impl #impl_generics ::hecs::Bundle for #ident #ty_generics #where_clause {
+            #[allow(non_camel_case_types)]
+            fn with_static_ids<__hecs__T>(f: impl ::std::ops::FnOnce(&[::std::any::TypeId]) -> __hecs__T) -> __hecs__T { f(&[]) }
             fn static_type_info() -> ::std::vec::Vec<::hecs::TypeInfo> { ::std::vec::Vec::new() }
 
             unsafe fn get(
@@ -168,6 +186,23 @@ fn gen_unit_struct_bundle_impl(ident: syn::Ident) -> TokenStream2 {
             }
         }
     }
+}
+
+fn make_component_trait_bound() -> syn::TraitBound {
+    syn::TraitBound {
+        paren_token: None,
+        modifier: syn::TraitBoundModifier::None,
+        lifetimes: None,
+        path: syn::parse_quote!(::hecs::Component),
+    }
+}
+
+fn add_additional_bounds_to_generic_params(mut generics: syn::Generics) -> syn::Generics {
+    generics.type_params_mut().for_each(|tp| {
+        tp.bounds
+            .push(syn::TypeParamBound::Trait(make_component_trait_bound()))
+    });
+    generics
 }
 
 fn struct_fields(fields: &syn::Fields) -> (Vec<&syn::Type>, Vec<syn::Member>) {

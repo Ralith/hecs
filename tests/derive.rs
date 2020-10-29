@@ -12,6 +12,7 @@ fn derive() {
         "tuple_structs.rs",
         "named_structs.rs",
         "no_prelude.rs",
+        "generics.rs",
     ];
     for &passing_test in successes {
         t.pass(&format!("{}/{}", TEST_DIR, passing_test));
