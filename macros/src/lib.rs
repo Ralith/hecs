@@ -104,13 +104,6 @@ fn gen_bundle_impl(
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
     let with_static_ids_inner = quote! {
         {
-            let mut dedup = ::std::collections::HashSet::new();
-            for &(ty, name) in [#((::std::any::TypeId::of::<#tys>(), ::std::any::type_name::<#tys>())),*].iter() {
-                if !dedup.insert(ty) {
-                    ::std::panic!("{} has multiple {} fields; each type must occur at most once!", stringify!(#ident), name);
-                }
-            }
-
             let mut tys = [#((::std::mem::align_of::<#tys>(), ::std::any::TypeId::of::<#tys>())),*];
             tys.sort_unstable_by(|x, y| {
                 ::std::cmp::Ord::cmp(&x.0, &y.0)
@@ -124,30 +117,26 @@ fn gen_bundle_impl(
             ids
         }
     };
-    let with_static_ids = if generics.params.is_empty() {
+    let with_static_ids_body = if generics.params.is_empty() {
         quote! {
-            #[allow(non_camel_case_types)]
-            fn with_static_ids<__hecs__T>(f: impl ::std::ops::FnOnce(&[::std::any::TypeId]) -> __hecs__T) -> __hecs__T {
-                ::hecs::lazy_static::lazy_static! {
-                    static ref ELEMENTS: [::std::any::TypeId; #num_tys] = {
-                        #with_static_ids_inner
-                    };
-                }
-
-                f(&*ELEMENTS)
+            ::hecs::lazy_static::lazy_static! {
+                static ref ELEMENTS: [::std::any::TypeId; #num_tys] = {
+                    #with_static_ids_inner
+                };
             }
+            f(&*ELEMENTS)
         }
     } else {
         quote! {
-            #[allow(non_camel_case_types)]
-            fn with_static_ids<__hecs__T>(f: impl ::std::ops::FnOnce(&[::std::any::TypeId]) -> __hecs__T) -> __hecs__T {
-                f(&#with_static_ids_inner)
-            }
+            f(&#with_static_ids_inner)
         }
     };
     quote! {
         impl #impl_generics ::hecs::Bundle for #ident #ty_generics #where_clause {
-            #with_static_ids
+            #[allow(non_camel_case_types)]
+            fn with_static_ids<__hecs__T>(f: impl ::std::ops::FnOnce(&[::std::any::TypeId]) -> __hecs__T) -> __hecs__T {
+                #with_static_ids_body
+            }
 
             fn static_type_info() -> ::std::vec::Vec<::hecs::TypeInfo> {
                 let mut info = ::std::vec![#(::hecs::TypeInfo::of::<#tys>()),*];
