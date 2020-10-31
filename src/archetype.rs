@@ -43,11 +43,26 @@ pub struct Archetype {
 }
 
 impl Archetype {
+    fn assert_type_info(types: &[TypeInfo]) {
+        types.windows(2).for_each(|x| match x[0].cmp(&x[1]) {
+            core::cmp::Ordering::Less => (),
+            #[cfg(debug_assertions)]
+            core::cmp::Ordering::Equal => panic!(
+                "attempted to create archetype with duplicate components; \
+                    each type must occur at most once! duplicate component type: {}",
+                x[0].type_name
+            ),
+            #[cfg(not(debug_assertions))]
+            core::cmp::Ordering::Equal => panic!(
+                "attempted to create archetype with duplicate components; \
+            each type must occur at most once!"
+            ),
+            core::cmp::Ordering::Greater => panic!("type info is unsorted"),
+        });
+    }
+
     pub(crate) fn new(types: Vec<TypeInfo>) -> Self {
-        debug_assert!(
-            types.windows(2).all(|x| x[0] < x[1]),
-            "type info unsorted or contains duplicates"
-        );
+        Self::assert_type_info(&types);
         Self {
             types,
             state: HashMap::default(),
@@ -405,6 +420,8 @@ pub struct TypeInfo {
     id: TypeId,
     layout: Layout,
     drop: unsafe fn(*mut u8),
+    #[cfg(debug_assertions)]
+    type_name: &'static str,
 }
 
 impl TypeInfo {
@@ -418,6 +435,8 @@ impl TypeInfo {
             id: TypeId::of::<T>(),
             layout: Layout::new::<T>(),
             drop: drop_ptr::<T>,
+            #[cfg(debug_assertions)]
+            type_name: core::any::type_name::<T>(),
         }
     }
 

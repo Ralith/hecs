@@ -243,7 +243,18 @@ fn derived_bundle() {
 
 #[test]
 #[cfg(feature = "macros")]
-#[should_panic(expected = "each type must occur at most once")]
+#[cfg_attr(
+    debug_assertions,
+    should_panic(
+        expected = "attempted to create archetype with duplicate components; each type must occur at most once! duplicate component type: i32"
+    )
+)]
+#[cfg_attr(
+    not(debug_assertions),
+    should_panic(
+        expected = r#"attempted to create archetype with duplicate components; each type must occur at most once!"#
+    )
+)]
 fn bad_bundle_derive() {
     #[derive(Bundle)]
     struct Foo {
@@ -367,4 +378,22 @@ fn query_one() {
     );
     world.despawn(a).unwrap();
     assert!(world.query_one::<&i32>(a).is_err());
+}
+
+#[test]
+#[cfg_attr(
+    debug_assertions,
+    should_panic(
+        expected = r#"attempted to create archetype with duplicate components; each type must occur at most once! duplicate component type: f32"#
+    )
+)]
+#[cfg_attr(
+    not(debug_assertions),
+    should_panic(
+        expected = r#"attempted to create archetype with duplicate components; each type must occur at most once!"#
+    )
+)]
+fn duplicate_components_panic() {
+    let mut world = World::new();
+    world.reserve::<(f32, i64, f32)>(1);
 }
