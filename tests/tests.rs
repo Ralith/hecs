@@ -246,13 +246,13 @@ fn derived_bundle() {
 #[cfg_attr(
     debug_assertions,
     should_panic(
-        expected = "attempted to create archetype with duplicate components; each type must occur at most once! duplicate component type: i32"
+        expected = "attempted to allocate entity with duplicate i32 components; each type must occur at most once!"
     )
 )]
 #[cfg_attr(
     not(debug_assertions),
     should_panic(
-        expected = r#"attempted to create archetype with duplicate components; each type must occur at most once!"#
+        expected = "attempted to allocate entity with duplicate components; each type must occur at most once!"
     )
 )]
 fn bad_bundle_derive() {
@@ -384,13 +384,13 @@ fn query_one() {
 #[cfg_attr(
     debug_assertions,
     should_panic(
-        expected = r#"attempted to create archetype with duplicate components; each type must occur at most once! duplicate component type: f32"#
+        expected = "attempted to allocate entity with duplicate f32 components; each type must occur at most once!"
     )
 )]
 #[cfg_attr(
     not(debug_assertions),
     should_panic(
-        expected = r#"attempted to create archetype with duplicate components; each type must occur at most once!"#
+        expected = "attempted to allocate entity with duplicate components; each type must occur at most once!"
     )
 )]
 fn duplicate_components_panic() {
