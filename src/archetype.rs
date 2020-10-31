@@ -48,14 +48,14 @@ impl Archetype {
             core::cmp::Ordering::Less => (),
             #[cfg(debug_assertions)]
             core::cmp::Ordering::Equal => panic!(
-                "attempted to create archetype with duplicate components; \
-                    each type must occur at most once! duplicate component type: {}",
+                "attempted to allocate entity with duplicate {} components; \
+                 each type must occur at most once!",
                 x[0].type_name
             ),
             #[cfg(not(debug_assertions))]
             core::cmp::Ordering::Equal => panic!(
-                "attempted to create archetype with duplicate components; \
-            each type must occur at most once!"
+                "attempted to allocate entity with duplicate components; \
+                 each type must occur at most once!"
             ),
             core::cmp::Ordering::Greater => panic!("type info is unsorted"),
         });
