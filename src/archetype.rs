@@ -25,7 +25,7 @@ use hashbrown::{hash_map::DefaultHashBuilder, HashMap};
 
 use crate::borrow::AtomicBorrow;
 use crate::query::Fetch;
-use crate::{Access, Component, Query};
+use crate::{align, Access, Component, Query};
 
 /// A collection of entities having the same component types
 ///
@@ -477,8 +477,3 @@ impl PartialEq for TypeInfo {
 }
 
 impl Eq for TypeInfo {}
-
-fn align(x: usize, alignment: usize) -> usize {
-    debug_assert!(alignment.is_power_of_two());
-    (x + alignment - 1) & (!alignment + 1)
-}
