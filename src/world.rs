@@ -42,14 +42,12 @@ use crate::{
 /// entities. When old entities are despawned, their IDs will be reused on a future entity, and
 /// old `Entity` values with that ID will be invalidated.
 ///
-/// While using a world, spawning and despawning billions of entities may cause a rare `Entity`
-/// value collision. A newly spawned entity after this point may have an identical complete
-/// 'Entity' value as a previously despawned entity. If an extremly long-lived `Entity` value
-/// that referred to that previously despawned entity is still around by the time this happens,
-/// that long-lived `Entity` value will erroneously refer to the newly spawned entity, rather
-/// than being considered a reference to a dead entity. This is a very rare issue as an
-/// `Entity::id` needs to be reused over a billion times AND a copy of an `Entity` value with the
-/// same `Entity::id` needs to be kept around until after a new entity is spawned with that `Entity::id`.
+/// ### Collisions
+///
+/// If an entity is despawned and its `Entity` handle is preserved over the course of billions of
+/// following spawns and despawns, that handle may, in rare circumstances, collide with a
+/// newly-allocated `Entity` handle. Very long-lived applications should therefore limit the period
+/// over which they may retain handles of despawned entities.
 pub struct World {
     entities: Entities,
     index: HashMap<Box<[TypeId]>, u32>,
@@ -103,14 +101,15 @@ impl World {
         entity
     }
 
-    /// Create an entity with certain components and a specific `Entity` value.
+    /// Create an entity with certain components and a specific `Entity` handle.
     ///
     /// See `spawn`.
     ///
     /// Despawns any existing entity with the same `Entity::id`.
     ///
-    /// Be cautious resurrecting old `Entity` values as it vastly increases
-    /// the likelihood of `Entity` value collisions ocurring (described above).
+    /// Can be used for easy handle-preserving deserialization in conjunction with
+    /// `Entity::from_bits`. Be cautious resurrecting old `Entity` handles in populated worlds as it
+    /// vastly increases the likelihood of collisions.
     ///
     /// # Example
     /// ```
@@ -124,12 +123,12 @@ impl World {
     /// world.spawn_at(a, (789, "ABC"));
     /// assert!(world.contains(a));
     /// ```
-    pub fn spawn_at(&mut self, entity: Entity, components: impl DynamicBundle) {
+    pub fn spawn_at(&mut self, handle: Entity, components: impl DynamicBundle) {
         // Ensure all entity allocations are accounted for so `self.entities` can realloc if
         // necessary
         self.flush();
 
-        let loc = self.entities.alloc_at(entity);
+        let loc = self.entities.alloc_at(handle);
         if let Some(loc) = loc {
             if let Some(moved) =
                 unsafe { self.archetypes[loc.archetype as usize].remove(loc.index) }
@@ -138,7 +137,7 @@ impl World {
             }
         }
 
-        self.spawn_inner(entity, components);
+        self.spawn_inner(handle, components);
     }
 
     fn spawn_inner(&mut self, entity: Entity, components: impl DynamicBundle) {

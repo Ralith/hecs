@@ -6,7 +6,7 @@ use core::{fmt, mem};
 #[cfg(feature = "std")]
 use std::error::Error;
 
-/// Lightweight unique ID of an entity
+/// Lightweight unique ID, or handle, of an entity
 ///
 /// Obtained from `World::spawn`. Can be stored to refer to an entity in the future.
 #[derive(Clone, Copy, Hash, Eq, Ord, PartialEq, PartialOrd)]
@@ -18,17 +18,19 @@ pub struct Entity {
 impl Entity {
     /// Convert to a form convenient for passing outside of rust
     ///
-    /// Only useful for identifying entities within the same instance of an application. Do not use
-    /// for serialization between runs.
-    ///
     /// No particular structure is guaranteed for the returned bits.
+    ///
+    /// Useful for storing entity IDs externally, or in conjunction with `Entity::from_bits` and
+    /// `World::spawn_at` for easy serialization. Alternatively, consider `id` for more compact
+    /// representation.
     pub fn to_bits(self) -> u64 {
         u64::from(self.generation) << 32 | u64::from(self.id)
     }
 
     /// Reconstruct an `Entity` previously destructured with `to_bits`
     ///
-    /// Only useful when applied to results from `to_bits` in the same instance of an application.
+    /// Useful for storing entity IDs externally, or in conjunction with `Entity::to_bits` and
+    /// `World::spawn_at` for easy serialization.
     pub fn from_bits(bits: u64) -> Self {
         Self {
             generation: (bits >> 32) as u32,
@@ -41,6 +43,8 @@ impl Entity {
     /// No two simultaneously-live entities share the same ID, but dead entities' IDs may collide
     /// with both live and dead entities. Useful for compactly representing entities within a
     /// specific snapshot of the world, such as when serializing.
+    ///
+    /// See also `World::find_entity_from_id`.
     pub fn id(self) -> u32 {
         self.id
     }
