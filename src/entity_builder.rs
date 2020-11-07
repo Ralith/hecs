@@ -13,16 +13,14 @@
 // limitations under the License.
 
 use crate::alloc::alloc::{alloc, dealloc, Layout};
-use crate::alloc::boxed::Box;
-use crate::alloc::{vec, vec::Vec};
+use crate::alloc::vec::Vec;
 use core::any::TypeId;
-use core::mem::{self, MaybeUninit};
-use core::ptr;
+use core::ptr::{self, NonNull};
 
 use hashbrown::hash_map::Entry;
 
 use crate::archetype::{TypeIdMap, TypeInfo};
-use crate::{Component, DynamicBundle};
+use crate::{align, Component, DynamicBundle};
 
 /// Helper for incrementally constructing a bundle of components with dynamic component types
 ///
@@ -38,22 +36,27 @@ use crate::{Component, DynamicBundle};
 /// assert_eq!(*world.get::<&str>(e).unwrap(), "abc");
 /// ```
 pub struct EntityBuilder {
-    storage: Box<[MaybeUninit<u8>]>,
+    storage: NonNull<u8>,
+    layout: Layout,
     cursor: usize,
     info: Vec<(TypeInfo, usize)>,
     ids: Vec<TypeId>,
     indices: TypeIdMap<usize>,
+    // Stored separately from `layout` in case `grow`'s `alloc` call panics
+    max_align: usize,
 }
 
 impl EntityBuilder {
     /// Create a builder representing an entity with no components
     pub fn new() -> Self {
         Self {
+            storage: NonNull::dangling(),
+            layout: Layout::from_size_align(0, 1).unwrap(),
             cursor: 0,
-            storage: Box::new([]),
             info: Vec::new(),
             ids: Vec::new(),
             indices: Default::default(),
+            max_align: 8,
         }
     }
 
@@ -62,43 +65,7 @@ impl EntityBuilder {
     /// If the bundle already contains a component of type `T`, it will
     /// be dropped and replaced with the most recently added one.
     pub fn add<T: Component>(&mut self, component: T) -> &mut Self {
-        match self.indices.entry(TypeId::of::<T>()) {
-            Entry::Occupied(occupied) => {
-                let index = *occupied.get();
-                let (_, offset) = self.info[index];
-                unsafe {
-                    let storage_ptr = self
-                        .storage
-                        .as_mut_ptr()
-                        .cast::<u8>()
-                        .add(offset)
-                        .cast::<T>();
-
-                    // Drop the old value.
-                    let _ = storage_ptr.read_unaligned();
-                    // Overwrite the old value with our new one.
-                    storage_ptr.write_unaligned(component);
-                }
-                self
-            }
-            Entry::Vacant(vacant) => {
-                let end = self.cursor + mem::size_of::<T>();
-                if end > self.storage.len() {
-                    Self::grow(end, self.cursor, &mut self.storage);
-                }
-                unsafe {
-                    self.storage
-                        .as_mut_ptr()
-                        .add(self.cursor)
-                        .cast::<T>()
-                        .write_unaligned(component);
-                }
-                vacant.insert(self.info.len());
-                self.info.push((TypeInfo::of::<T>(), self.cursor));
-                self.cursor += mem::size_of::<T>();
-                self
-            }
-        }
+        self.add_bundle((component,))
     }
 
     /// Add all components in `bundle` to the entity.
@@ -113,32 +80,38 @@ impl EntityBuilder {
                     Entry::Occupied(occupied) => {
                         let index = *occupied.get();
                         let (ty, offset) = self.info[index];
+                        let storage = self.storage.as_ptr().cast::<u8>().add(offset);
 
-                        let storage_ptr = self.storage.as_mut_ptr().cast::<u8>().add(offset);
-                        // alloc a properly aligned tmp buffer and copy in the old value
-                        // so we can drop it safely
-                        let tmp = alloc(ty.layout());
-                        ptr::copy_nonoverlapping(storage_ptr, tmp, ty.layout().size());
-                        ty.drop(tmp);
-                        dealloc(tmp, ty.layout());
+                        // Drop the existing value
+                        ty.drop(storage);
+
                         // Overwrite the old value with our new one.
-                        ptr::copy_nonoverlapping(ptr, storage_ptr, ty.layout().size());
+                        ptr::copy_nonoverlapping(ptr, storage, ty.layout().size());
                     }
                     Entry::Vacant(vacant) => {
-                        let end = self.cursor + ty.layout().size();
-                        if end > self.storage.len() {
-                            Self::grow(end, self.cursor, &mut self.storage);
+                        let end = self.cursor + ty.layout().size() + ty.layout().align() - 1;
+                        self.max_align = self.max_align.max(ty.layout().align());
+                        if end > self.layout.size() {
+                            let (new_storage, new_layout) =
+                                Self::grow(end, self.cursor, self.max_align, self.storage);
+                            if self.layout.size() != 0 {
+                                dealloc(self.storage.as_ptr(), self.layout);
+                            }
+                            self.storage = new_storage;
+                            self.layout = new_layout;
                         }
 
-                        ptr::copy_nonoverlapping(
-                            ptr,
-                            self.storage.as_mut_ptr().add(self.cursor).cast(),
-                            ty.layout().size(),
-                        );
+                        let addr = align(
+                            self.storage.as_ptr().add(self.cursor) as usize,
+                            ty.layout().align(),
+                        ) as *mut u8;
+
+                        ptr::copy_nonoverlapping(ptr, addr, ty.layout().size());
 
                         vacant.insert(self.info.len());
-                        self.info.push((ty, self.cursor));
-                        self.cursor += ty.layout().size();
+                        let offset = addr as usize - self.storage.as_ptr() as usize;
+                        self.info.push((ty, offset));
+                        self.cursor = offset + ty.layout().size();
                     }
                 }
             });
@@ -146,11 +119,16 @@ impl EntityBuilder {
         self
     }
 
-    fn grow(min_size: usize, cursor: usize, storage: &mut Box<[MaybeUninit<u8>]>) {
-        let new_len = min_size.next_power_of_two().max(64);
-        let mut new_storage = vec![MaybeUninit::uninit(); new_len].into_boxed_slice();
-        new_storage[..cursor].copy_from_slice(&storage[..cursor]);
-        *storage = new_storage;
+    unsafe fn grow(
+        min_size: usize,
+        cursor: usize,
+        align: usize,
+        storage: NonNull<u8>,
+    ) -> (NonNull<u8>, Layout) {
+        let layout = Layout::from_size_align(min_size.next_power_of_two().max(64), align).unwrap();
+        let new_storage = NonNull::new_unchecked(alloc(layout).cast());
+        ptr::copy_nonoverlapping(storage.as_ptr(), new_storage.as_ptr(), cursor);
+        (new_storage, layout)
     }
 
     /// Construct a `Bundle` suitable for spawning
@@ -168,37 +146,9 @@ impl EntityBuilder {
         self.ids.clear();
         self.indices.clear();
         self.cursor = 0;
-        let max_size = self
-            .info
-            .iter()
-            .map(|x| x.0.layout().size())
-            .max()
-            .unwrap_or(0);
-        let max_align = self
-            .info
-            .iter()
-            .map(|x| x.0.layout().align())
-            .max()
-            .unwrap_or(0);
         unsafe {
-            // Suitably aligned storage for drop
-            let tmp = if max_size > 0 {
-                alloc(Layout::from_size_align(max_size, max_align).unwrap()).cast()
-            } else {
-                max_align as *mut _
-            };
             for (ty, offset) in self.info.drain(..) {
-                ptr::copy_nonoverlapping(
-                    self.storage[offset..offset + ty.layout().size()]
-                        .as_ptr()
-                        .cast(),
-                    tmp,
-                    ty.layout().size(),
-                );
-                ty.drop(tmp);
-            }
-            if max_size > 0 {
-                dealloc(tmp, Layout::from_size_align(max_size, max_align).unwrap())
+                ty.drop(self.storage.as_ptr().add(offset).cast());
             }
         }
     }
@@ -211,6 +161,11 @@ impl Drop for EntityBuilder {
     fn drop(&mut self) {
         // Ensure buffered components aren't leaked
         self.clear();
+        if self.layout.size() != 0 {
+            unsafe {
+                dealloc(self.storage.as_ptr(), self.layout);
+            }
+        }
     }
 }
 
@@ -237,7 +192,7 @@ impl DynamicBundle for BuiltEntity<'_> {
 
     unsafe fn put(self, mut f: impl FnMut(*mut u8, TypeInfo)) {
         for (ty, offset) in self.builder.info.drain(..) {
-            let ptr = self.builder.storage.as_mut_ptr().add(offset).cast();
+            let ptr = self.builder.storage.as_ptr().add(offset).cast();
             f(ptr, ty);
         }
     }
