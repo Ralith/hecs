@@ -464,7 +464,7 @@ unsafe impl<'q, Q: Query> Sync for QueryIter<'q, Q> {}
 impl<'q, Q: Query> Iterator for QueryIter<'q, Q> {
     type Item = (Entity, QueryItem<'q, Q>);
 
-    #[inline]
+    #[inline(always)]
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             match unsafe { self.iter.next() } {
