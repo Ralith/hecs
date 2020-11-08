@@ -14,6 +14,7 @@ fn derive() {
         "no_prelude.rs",
         "generics.rs",
         "nested_query.rs",
+        "export.rs",
     ];
     for &passing_test in successes {
         t.pass(&format!("{}/{}", TEST_DIR, passing_test));
