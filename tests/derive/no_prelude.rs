@@ -5,6 +5,14 @@ struct Foo {
     foo: (),
 }
 
+#[derive(::hecs::Bundle)]
+struct Bar<T> {
+    foo: T,
+}
+
+#[derive(::hecs::Bundle)]
+struct Baz;
+
 #[derive(::hecs::Query)]
 struct Quux<'a> {
     foo: &'a (),

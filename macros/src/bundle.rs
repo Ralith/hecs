@@ -135,9 +135,9 @@ fn gen_unit_struct_bundle_impl(ident: syn::Ident, generics: &syn::Generics) -> T
             fn static_type_info() -> ::std::vec::Vec<::hecs::TypeInfo> { ::std::vec::Vec::new() }
 
             unsafe fn get(
-                mut f: impl ::std::ops::FnMut(::hecs::TypeInfo) -> Option<::std::ptr::NonNull<u8>>,
-            ) -> Result<Self, ::hecs::MissingComponent> {
-                Ok(Self {/* for some reason this works for all unit struct variations */})
+                mut f: impl ::std::ops::FnMut(::hecs::TypeInfo) -> ::std::option::Option<::std::ptr::NonNull<u8>>,
+            ) -> ::std::result::Result<Self, ::hecs::MissingComponent> {
+                ::std::result::Result::Ok(Self {/* for some reason this works for all unit struct variations */})
             }
         }
     }
