@@ -1,6 +1,6 @@
-use hecs::Bundle;
+use hecs::{Bundle, Query};
 
-#[derive(Bundle)]
+#[derive(Bundle, Query)]
 union Foo {
     u8: u8,
 }

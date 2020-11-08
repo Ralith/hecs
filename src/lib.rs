@@ -90,4 +90,4 @@ pub use lazy_static;
 pub use query::Fetch;
 
 #[cfg(feature = "macros")]
-pub use hecs_macros::Bundle;
+pub use hecs_macros::{Bundle, Query};
