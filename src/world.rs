@@ -26,8 +26,8 @@ use crate::alloc::boxed::Box;
 use crate::archetype::Archetype;
 use crate::entities::{Entities, Location, ReserveEntitiesIterator};
 use crate::{
-    Bundle, DynamicBundle, Entity, EntityRef, MissingComponent, NoSuchEntity, Query, QueryBorrow,
-    QueryOne, Ref, RefMut,
+    Bundle, DynamicBundle, Entity, EntityRef, Fetch, MissingComponent, NoSuchEntity, Query,
+    QueryBorrow, QueryItem, QueryMut, QueryOne, Ref, RefMut,
 };
 
 /// An unordered collection of entities, each having any number of distinctly typed components
@@ -269,7 +269,8 @@ impl World {
         self.entities.contains(entity)
     }
 
-    /// Efficiently iterate over all entities that have certain components
+    /// Efficiently iterate over all entities that have certain components, using dynamic borrow
+    /// checking
     ///
     /// Calling `iter` on the returned value yields `(Entity, Q)` tuples, where `Q` is some query
     /// type. A query type is `&T`, `&mut T`, a tuple of query types, or an `Option` wrapping a
@@ -312,7 +313,15 @@ impl World {
         QueryBorrow::new(&self.entities.meta, &self.archetypes)
     }
 
-    /// Prepare a query against a single entity
+    /// Query a uniquely borrowed world
+    ///
+    /// Like `query`, but faster because dynamic borrow checks can be skipped. Note that, unlike
+    /// `query`, this returns an `IntoIterator` which can be passed directly to a `for` loop.
+    pub fn query_mut<Q: Query>(&mut self) -> QueryMut<'_, Q> {
+        QueryMut::new(&self.entities.meta, &mut self.archetypes)
+    }
+
+    /// Prepare a query against a single entity, using dynamic borrow checking
     ///
     /// Call `get` on the resulting `QueryOne` to actually execute the query. The `QueryOne` value
     /// is responsible for releasing the dynamically-checked borrow made by `get`, so it can't be
@@ -334,6 +343,22 @@ impl World {
     pub fn query_one<Q: Query>(&self, entity: Entity) -> Result<QueryOne<'_, Q>, NoSuchEntity> {
         let loc = self.entities.get(entity)?;
         Ok(unsafe { QueryOne::new(&self.archetypes[loc.archetype as usize], loc.index) })
+    }
+
+    /// Query a single entity in a uniquely borrow world
+    ///
+    /// Like `query_one`, but faster because dynamic borrow checks can be skipped. Note that, unlike
+    /// `query_one`, on success this returns the query's results directly.
+    pub fn query_one_mut<Q: Query>(
+        &mut self,
+        entity: Entity,
+    ) -> Result<QueryItem<'_, Q>, QueryOneError> {
+        let loc = self.entities.get(entity)?;
+        unsafe {
+            let fetch = Q::Fetch::new(&self.archetypes[loc.archetype as usize])
+                .ok_or(QueryOneError::Unsatisfied)?;
+            Ok(fetch.get(loc.index as usize))
+        }
     }
 
     /// Borrow the `T` component of `entity`
@@ -705,6 +730,34 @@ impl From<NoSuchEntity> for ComponentError {
 impl From<MissingComponent> for ComponentError {
     fn from(x: MissingComponent) -> Self {
         ComponentError::MissingComponent(x)
+    }
+}
+
+/// Errors that arise when querying a single entity
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+pub enum QueryOneError {
+    /// The entity was already despawned
+    NoSuchEntity,
+    /// The entity exists but does not satisfy the query
+    Unsatisfied,
+}
+
+#[cfg(feature = "std")]
+impl Error for QueryOneError {}
+
+impl fmt::Display for QueryOneError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use QueryOneError::*;
+        match *self {
+            NoSuchEntity => f.write_str("no such entity"),
+            Unsatisfied => f.write_str("unsatisfied"),
+        }
+    }
+}
+
+impl From<NoSuchEntity> for QueryOneError {
+    fn from(NoSuchEntity: NoSuchEntity) -> Self {
+        QueryOneError::NoSuchEntity
     }
 }
 
