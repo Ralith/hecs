@@ -314,26 +314,19 @@ impl<'w, Q: Query> QueryBorrow<'w, Q> {
     /// Execute the query
     ///
     /// Must be called only once per query.
-    pub fn iter<'q>(&'q mut self) -> QueryIter<'q, 'w, Q> {
+    // The lifetime narrowing here is required for soundness.
+    pub fn iter(&mut self) -> QueryIter<'_, Q> {
         self.borrow();
-        QueryIter {
-            borrow: self,
-            archetype_index: 0,
-            iter: ChunkIter::empty(),
-        }
+        unsafe { QueryIter::new(self.meta, self.archetypes) }
     }
 
     /// Like `iter`, but returns child iterators of at most `batch_size` elements
     ///
     /// Useful for distributing work over a threadpool.
-    pub fn iter_batched<'q>(&'q mut self, batch_size: u32) -> BatchedIter<'q, 'w, Q> {
+    // The lifetime narrowing here is required for soundness.
+    pub fn iter_batched(&mut self, batch_size: u32) -> BatchedIter<'_, Q> {
         self.borrow();
-        BatchedIter {
-            borrow: self,
-            archetype_index: 0,
-            batch_size,
-            batch: 0,
-        }
+        unsafe { BatchedIter::new(self.meta, self.archetypes, batch_size) }
     }
 
     fn borrow(&mut self) {
@@ -430,7 +423,7 @@ impl<'w, Q: Query> Drop for QueryBorrow<'w, Q> {
 
 impl<'q, 'w, Q: Query> IntoIterator for &'q mut QueryBorrow<'w, Q> {
     type Item = (Entity, <Q::Fetch as Fetch<'q>>::Item);
-    type IntoIter = QueryIter<'q, 'w, Q>;
+    type IntoIter = QueryIter<'q, Q>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
@@ -438,16 +431,32 @@ impl<'q, 'w, Q: Query> IntoIterator for &'q mut QueryBorrow<'w, Q> {
 }
 
 /// Iterator over the set of entities with the components in `Q`
-pub struct QueryIter<'q, 'w, Q: Query> {
-    borrow: &'q mut QueryBorrow<'w, Q>,
+pub struct QueryIter<'q, Q: Query> {
+    meta: &'q [EntityMeta],
+    archetypes: &'q [Archetype],
     archetype_index: usize,
     iter: ChunkIter<Q>,
 }
 
-unsafe impl<'q, 'w, Q: Query> Send for QueryIter<'q, 'w, Q> {}
-unsafe impl<'q, 'w, Q: Query> Sync for QueryIter<'q, 'w, Q> {}
+impl<'q, Q: Query> QueryIter<'q, Q> {
+    /// # Safety
+    ///
+    /// `'q` must be sufficient to guarantee that `Q` cannot violate borrow safety, either with
+    /// dynamic borrow checks or by representing exclusive access to the `World`.
+    pub(crate) unsafe fn new(meta: &'q [EntityMeta], archetypes: &'q [Archetype]) -> Self {
+        Self {
+            meta,
+            archetypes,
+            archetype_index: 0,
+            iter: ChunkIter::empty(),
+        }
+    }
+}
 
-impl<'q, 'w, Q: Query> Iterator for QueryIter<'q, 'w, Q> {
+unsafe impl<'q, Q: Query> Send for QueryIter<'q, Q> {}
+unsafe impl<'q, Q: Query> Sync for QueryIter<'q, Q> {}
+
+impl<'q, Q: Query> Iterator for QueryIter<'q, Q> {
     type Item = (Entity, <Q::Fetch as Fetch<'q>>::Item);
 
     #[inline]
@@ -455,7 +464,7 @@ impl<'q, 'w, Q: Query> Iterator for QueryIter<'q, 'w, Q> {
         loop {
             match unsafe { self.iter.next() } {
                 None => {
-                    let archetype = self.borrow.archetypes.get(self.archetype_index)?;
+                    let archetype = self.archetypes.get(self.archetype_index)?;
                     self.archetype_index += 1;
                     self.iter =
                         Q::Fetch::new(archetype).map_or(ChunkIter::empty(), |fetch| ChunkIter {
@@ -470,9 +479,7 @@ impl<'q, 'w, Q: Query> Iterator for QueryIter<'q, 'w, Q> {
                     return Some((
                         Entity {
                             id,
-                            generation: unsafe {
-                                self.borrow.meta.get_unchecked(id as usize).generation
-                            },
+                            generation: unsafe { self.meta.get_unchecked(id as usize).generation },
                         },
                         components,
                     ));
@@ -487,10 +494,9 @@ impl<'q, 'w, Q: Query> Iterator for QueryIter<'q, 'w, Q> {
     }
 }
 
-impl<'q, 'w, Q: Query> ExactSizeIterator for QueryIter<'q, 'w, Q> {
+impl<'q, Q: Query> ExactSizeIterator for QueryIter<'q, Q> {
     fn len(&self) -> usize {
-        self.borrow
-            .archetypes
+        self.archetypes
             .iter()
             .filter(|&x| Q::Fetch::access(x).is_some())
             .map(|x| x.len() as usize)
@@ -528,22 +534,45 @@ impl<Q: Query> ChunkIter<Q> {
 }
 
 /// Batched version of `QueryIter`
-pub struct BatchedIter<'q, 'w, Q: Query> {
-    borrow: &'q mut QueryBorrow<'w, Q>,
+pub struct BatchedIter<'q, Q: Query> {
+    _marker: PhantomData<&'q Q>,
+    meta: &'q [EntityMeta],
+    archetypes: &'q [Archetype],
     archetype_index: usize,
     batch_size: u32,
     batch: u32,
 }
 
-unsafe impl<'q, 'w, Q: Query> Send for BatchedIter<'q, 'w, Q> {}
-unsafe impl<'q, 'w, Q: Query> Sync for BatchedIter<'q, 'w, Q> {}
+impl<'q, Q: Query> BatchedIter<'q, Q> {
+    /// # Safety
+    ///
+    /// `'q` must be sufficient to guarantee that `Q` cannot violate borrow safety, either with
+    /// dynamic borrow checks or by representing exclusive access to the `World`.
+    pub(crate) unsafe fn new(
+        meta: &'q [EntityMeta],
+        archetypes: &'q [Archetype],
+        batch_size: u32,
+    ) -> Self {
+        Self {
+            _marker: PhantomData,
+            meta,
+            archetypes,
+            archetype_index: 0,
+            batch_size,
+            batch: 0,
+        }
+    }
+}
 
-impl<'q, 'w, Q: Query> Iterator for BatchedIter<'q, 'w, Q> {
-    type Item = Batch<'q, 'w, Q>;
+unsafe impl<'q, Q: Query> Send for BatchedIter<'q, Q> {}
+unsafe impl<'q, Q: Query> Sync for BatchedIter<'q, Q> {}
+
+impl<'q, Q: Query> Iterator for BatchedIter<'q, Q> {
+    type Item = Batch<'q, Q>;
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
-            let archetype = self.borrow.archetypes.get(self.archetype_index)?;
+            let archetype = self.archetypes.get(self.archetype_index)?;
             let offset = self.batch_size * self.batch;
             if offset >= archetype.len() {
                 self.archetype_index += 1;
@@ -553,8 +582,7 @@ impl<'q, 'w, Q: Query> Iterator for BatchedIter<'q, 'w, Q> {
             if let Some(fetch) = Q::Fetch::new(archetype) {
                 self.batch += 1;
                 return Some(Batch {
-                    _marker: PhantomData,
-                    meta: self.borrow.meta,
+                    meta: self.meta,
                     state: ChunkIter {
                         entities: archetype.entities(),
                         fetch,
@@ -575,13 +603,12 @@ impl<'q, 'w, Q: Query> Iterator for BatchedIter<'q, 'w, Q> {
 }
 
 /// A sequence of entities yielded by `BatchedIter`
-pub struct Batch<'q, 'w, Q: Query> {
-    _marker: PhantomData<&'q ()>,
-    meta: &'w [EntityMeta],
+pub struct Batch<'q, Q: Query> {
+    meta: &'q [EntityMeta],
     state: ChunkIter<Q>,
 }
 
-impl<'q, 'w, Q: Query> Iterator for Batch<'q, 'w, Q> {
+impl<'q, Q: Query> Iterator for Batch<'q, Q> {
     type Item = (Entity, <Q::Fetch as Fetch<'q>>::Item);
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -596,8 +623,8 @@ impl<'q, 'w, Q: Query> Iterator for Batch<'q, 'w, Q> {
     }
 }
 
-unsafe impl<'q, 'w, Q: Query> Send for Batch<'q, 'w, Q> {}
-unsafe impl<'q, 'w, Q: Query> Sync for Batch<'q, 'w, Q> {}
+unsafe impl<'q, Q: Query> Send for Batch<'q, Q> {}
+unsafe impl<'q, Q: Query> Sync for Batch<'q, Q> {}
 
 macro_rules! tuple_impl {
     ($($name: ident),*) => {
