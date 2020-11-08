@@ -272,6 +272,8 @@ impl World {
     /// Efficiently iterate over all entities that have certain components, using dynamic borrow
     /// checking
     ///
+    /// Prefer `query_mut` when concurrent access to the `World` is not required.
+    ///
     /// Calling `iter` on the returned value yields `(Entity, Q)` tuples, where `Q` is some query
     /// type. A query type is `&T`, `&mut T`, a tuple of query types, or an `Option` wrapping a
     /// query type, where `T` is any component type. Components queried with `&mut` must only appear
@@ -322,6 +324,8 @@ impl World {
     }
 
     /// Prepare a query against a single entity, using dynamic borrow checking
+    ///
+    /// Prefer `query_one_mut` when concurrent access to the `World` is not required.
     ///
     /// Call `get` on the resulting `QueryOne` to actually execute the query. The `QueryOne` value
     /// is responsible for releasing the dynamically-checked borrow made by `get`, so it can't be
