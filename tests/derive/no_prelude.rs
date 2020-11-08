@@ -5,4 +5,9 @@ struct Foo {
     foo: (),
 }
 
+#[derive(::hecs::Query)]
+struct Quux<'a> {
+    foo: &'a (),
+}
+
 fn main() {}

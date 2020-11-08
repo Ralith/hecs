@@ -1,6 +1,6 @@
-use hecs::Bundle;
+use hecs::{Bundle, Query};
 
-#[derive(Bundle)]
+#[derive(Bundle, Query)]
 enum Foo {}
 
 fn main() {}

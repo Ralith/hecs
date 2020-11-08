@@ -6,13 +6,14 @@
 fn derive() {
     const TEST_DIR: &str = "tests/derive";
     let t = trybuild::TestCases::new();
-    let failures = &["enum.rs", "union.rs"];
+    let failures = &["enum.rs", "union.rs", "wrong_lifetime.rs"];
     let successes = &[
         "unit_structs.rs",
         "tuple_structs.rs",
         "named_structs.rs",
         "no_prelude.rs",
         "generics.rs",
+        "nested_query.rs",
     ];
     for &passing_test in successes {
         t.pass(&format!("{}/{}", TEST_DIR, passing_test));

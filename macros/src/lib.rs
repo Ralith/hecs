@@ -15,6 +15,7 @@
 extern crate proc_macro;
 
 mod bundle;
+mod query;
 
 use proc_macro::TokenStream;
 use syn::{parse_macro_input, DeriveInput};
@@ -29,6 +30,21 @@ use syn::{parse_macro_input, DeriveInput};
 pub fn derive_bundle(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     match bundle::derive(input) {
+        Ok(ts) => ts,
+        Err(e) => e.to_compile_error(),
+    }
+    .into()
+}
+
+/// Implement `Query` for a struct
+///
+/// Queries structs can be passed to the type parameter of `World::query`. They must have exactly
+/// one lifetime parameter, and all of their fields must be queries (e.g. references) using that
+/// lifetime.
+#[proc_macro_derive(Query)]
+pub fn derive_query(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    match query::derive(input) {
         Ok(ts) => ts,
         Err(e) => e.to_compile_error(),
     }

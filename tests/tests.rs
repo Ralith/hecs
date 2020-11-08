@@ -63,6 +63,25 @@ fn query_all() {
 }
 
 #[test]
+#[cfg(feature = "macros")]
+fn derived_query() {
+    #[derive(Query)]
+    struct Foo<'a> {
+        x: &'a i32,
+        y: &'a mut bool,
+    }
+
+    let mut world = World::new();
+    let e = world.spawn((42, false));
+    let ents = world
+        .query::<Foo>()
+        .iter()
+        .map(|(e, q)| (e, *q.x, *q.y))
+        .collect::<Vec<_>>();
+    assert_eq!(ents, &[(e, 42, false)]);
+}
+
+#[test]
 fn query_single_component() {
     let mut world = World::new();
     let e = world.spawn(("abc", 123));
