@@ -72,6 +72,18 @@ fn iterate_100k(b: &mut Bencher) {
     })
 }
 
+fn iterate_mut_100k(b: &mut Bencher) {
+    let mut world = World::new();
+    for i in 0..100_000 {
+        world.spawn((Position(-(i as f32)), Velocity(i as f32)));
+    }
+    b.iter(|| {
+        for (_, (pos, vel)) in world.query_mut::<(&mut Position, &Velocity)>() {
+            pos.0 += vel.0;
+        }
+    })
+}
+
 fn build(b: &mut Bencher) {
     let mut world = World::new();
     let mut builder = EntityBuilder::new();
@@ -87,6 +99,7 @@ benchmark_group!(
     spawn_static,
     spawn_batch,
     iterate_100k,
+    iterate_mut_100k,
     build
 );
 benchmark_main!(benches);

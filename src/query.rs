@@ -509,6 +509,50 @@ impl<'q, Q: Query> ExactSizeIterator for QueryIter<'q, Q> {
     }
 }
 
+/// A query builder that's convertible directly into an iterator
+pub struct QueryMut<'q, Q: Query> {
+    iter: QueryIter<'q, Q>,
+}
+
+impl<'q, Q: Query> QueryMut<'q, Q> {
+    pub(crate) fn new(meta: &'q [EntityMeta], archetypes: &'q mut [Archetype]) -> Self {
+        Self {
+            iter: unsafe { QueryIter::new(meta, archetypes) },
+        }
+    }
+
+    /// Transform the query into one that requires a certain component without borrowing it
+    ///
+    /// See `QueryBorrow::with`
+    pub fn with<T: Component>(self) -> QueryMut<'q, With<T, Q>> {
+        self.transform()
+    }
+
+    /// Transform the query into one that skips entities having a certain component
+    ///
+    /// See `QueryBorrow::without`
+    pub fn without<T: Component>(self) -> QueryMut<'q, Without<T, Q>> {
+        self.transform()
+    }
+
+    /// Helper to change the type of the query
+    fn transform<R: Query>(self) -> QueryMut<'q, R> {
+        QueryMut {
+            iter: unsafe { QueryIter::new(self.iter.meta, self.iter.archetypes) },
+        }
+    }
+}
+
+impl<'q, Q: Query> IntoIterator for QueryMut<'q, Q> {
+    type Item = <QueryIter<'q, Q> as Iterator>::Item;
+    type IntoIter = QueryIter<'q, Q>;
+
+    #[inline]
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter
+    }
+}
+
 struct ChunkIter<Q: Query> {
     entities: NonNull<u32>,
     fetch: Q::Fetch,
