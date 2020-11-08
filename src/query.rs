@@ -25,6 +25,11 @@ pub trait Query {
     type Fetch: for<'a> Fetch<'a>;
 }
 
+/// Type of values yielded by a query
+///
+/// Once rust offers generic associated types, this will be moved into `Query`.
+pub type QueryItem<'a, Q> = <<Q as Query>::Fetch as Fetch<'a>>::Item;
+
 /// Streaming iterators over contiguous homogeneous ranges of components
 pub trait Fetch<'a>: Sized {
     /// Type of value to be fetched
@@ -422,7 +427,7 @@ impl<'w, Q: Query> Drop for QueryBorrow<'w, Q> {
 }
 
 impl<'q, 'w, Q: Query> IntoIterator for &'q mut QueryBorrow<'w, Q> {
-    type Item = (Entity, <Q::Fetch as Fetch<'q>>::Item);
+    type Item = (Entity, QueryItem<'q, Q>);
     type IntoIter = QueryIter<'q, Q>;
 
     fn into_iter(self) -> Self::IntoIter {
@@ -457,7 +462,7 @@ unsafe impl<'q, Q: Query> Send for QueryIter<'q, Q> {}
 unsafe impl<'q, Q: Query> Sync for QueryIter<'q, Q> {}
 
 impl<'q, Q: Query> Iterator for QueryIter<'q, Q> {
-    type Item = (Entity, <Q::Fetch as Fetch<'q>>::Item);
+    type Item = (Entity, QueryItem<'q, Q>);
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
@@ -609,7 +614,7 @@ pub struct Batch<'q, Q: Query> {
 }
 
 impl<'q, Q: Query> Iterator for Batch<'q, Q> {
-    type Item = (Entity, <Q::Fetch as Fetch<'q>>::Item);
+    type Item = (Entity, QueryItem<'q, Q>);
 
     fn next(&mut self) -> Option<Self::Item> {
         let (id, components) = unsafe { self.state.next()? };
