@@ -53,12 +53,12 @@ extern crate alloc;
 /// where m is any macro, for any number of parameters.
 macro_rules! smaller_tuples_too {
     ($m: ident, $ty: ident) => {
-        $m!{$ty}
         $m!{}
+        $m!{$ty}
     };
     ($m: ident, $ty: ident, $($tt: ident),*) => {
-        $m!{$ty, $($tt),*}
         smaller_tuples_too!{$m, $($tt),*}
+        $m!{$ty, $($tt),*}
     };
 }
 
