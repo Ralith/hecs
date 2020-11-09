@@ -65,7 +65,7 @@ fn query_all() {
 #[test]
 #[cfg(feature = "macros")]
 fn derived_query() {
-    #[derive(Query)]
+    #[derive(Query, Debug, PartialEq)]
     struct Foo<'a> {
         x: &'a i32,
         y: &'a mut bool,
@@ -73,12 +73,13 @@ fn derived_query() {
 
     let mut world = World::new();
     let e = world.spawn((42, false));
-    let ents = world
-        .query::<Foo>()
-        .iter()
-        .map(|(e, q)| (e, *q.x, *q.y))
-        .collect::<Vec<_>>();
-    assert_eq!(ents, &[(e, 42, false)]);
+    assert_eq!(
+        world.query_one_mut::<Foo>(e).unwrap(),
+        Foo {
+            x: &42,
+            y: &mut false
+        }
+    );
 }
 
 #[test]
