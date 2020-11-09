@@ -180,7 +180,7 @@ pub struct BuiltEntity<'a> {
     builder: &'a mut EntityBuilder,
 }
 
-impl DynamicBundle for BuiltEntity<'_> {
+unsafe impl DynamicBundle for BuiltEntity<'_> {
     fn with_ids<T>(&self, f: impl FnOnce(&[TypeId]) -> T) -> T {
         f(&self.builder.ids)
     }

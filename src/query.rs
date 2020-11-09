@@ -31,7 +31,7 @@ pub trait Query {
 pub type QueryItem<'a, Q> = <<Q as Query>::Fetch as Fetch<'a>>::Item;
 
 /// Streaming iterators over contiguous homogeneous ranges of components
-pub trait Fetch<'a>: Sized {
+pub unsafe trait Fetch<'a>: Sized {
     /// Type of value to be fetched
     type Item;
 
@@ -76,7 +76,7 @@ impl<'a, T: Component> Query for &'a T {
 #[doc(hidden)]
 pub struct FetchRead<T>(NonNull<T>);
 
-impl<'a, T: Component> Fetch<'a> for FetchRead<T> {
+unsafe impl<'a, T: Component> Fetch<'a> for FetchRead<T> {
     type Item = &'a T;
 
     fn dangling() -> Self {
@@ -113,7 +113,7 @@ impl<'a, T: Component> Query for &'a mut T {
 #[doc(hidden)]
 pub struct FetchWrite<T>(NonNull<T>);
 
-impl<'a, T: Component> Fetch<'a> for FetchWrite<T> {
+unsafe impl<'a, T: Component> Fetch<'a> for FetchWrite<T> {
     type Item = &'a mut T;
 
     fn dangling() -> Self {
@@ -150,7 +150,7 @@ impl<T: Query> Query for Option<T> {
 #[doc(hidden)]
 pub struct TryFetch<T>(Option<T>);
 
-impl<'a, T: Fetch<'a>> Fetch<'a> for TryFetch<T> {
+unsafe impl<'a, T: Fetch<'a>> Fetch<'a> for TryFetch<T> {
     type Item = Option<T::Item>;
 
     fn dangling() -> Self {
@@ -202,7 +202,7 @@ impl<T: Component, Q: Query> Query for Without<T, Q> {
 #[doc(hidden)]
 pub struct FetchWithout<T, F>(F, PhantomData<fn(T)>);
 
-impl<'a, T: Component, F: Fetch<'a>> Fetch<'a> for FetchWithout<T, F> {
+unsafe impl<'a, T: Component, F: Fetch<'a>> Fetch<'a> for FetchWithout<T, F> {
     type Item = F::Item;
 
     fn dangling() -> Self {
@@ -263,7 +263,7 @@ impl<T: Component, Q: Query> Query for With<T, Q> {
 #[doc(hidden)]
 pub struct FetchWith<T, F>(F, PhantomData<fn(T)>);
 
-impl<'a, T: Component, F: Fetch<'a>> Fetch<'a> for FetchWith<T, F> {
+unsafe impl<'a, T: Component, F: Fetch<'a>> Fetch<'a> for FetchWith<T, F> {
     type Item = F::Item;
 
     fn dangling() -> Self {
@@ -677,7 +677,7 @@ unsafe impl<'q, Q: Query> Sync for Batch<'q, Q> {}
 
 macro_rules! tuple_impl {
     ($($name: ident),*) => {
-        impl<'a, $($name: Fetch<'a>),*> Fetch<'a> for ($($name,)*) {
+        unsafe impl<'a, $($name: Fetch<'a>),*> Fetch<'a> for ($($name,)*) {
             type Item = ($($name::Item,)*);
 
             fn dangling() -> Self {

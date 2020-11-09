@@ -89,7 +89,7 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream2> {
         #[doc(hidden)]
         #fetch
 
-        impl<'a> ::hecs::Fetch<'a> for #fetch_ident {
+        unsafe impl<'a> ::hecs::Fetch<'a> for #fetch_ident {
             type Item = #ident<'a>;
 
             fn dangling() -> Self {

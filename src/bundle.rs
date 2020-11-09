@@ -21,7 +21,7 @@ use crate::archetype::TypeInfo;
 use crate::Component;
 
 /// A dynamically typed collection of components
-pub trait DynamicBundle {
+pub unsafe trait DynamicBundle {
     /// Invoke a callback on the fields' type IDs, sorted by descending alignment then id
     #[doc(hidden)]
     fn with_ids<T>(&self, f: impl FnOnce(&[TypeId]) -> T) -> T;
@@ -37,7 +37,7 @@ pub trait DynamicBundle {
 }
 
 /// A statically typed collection of components
-pub trait Bundle: DynamicBundle {
+pub unsafe trait Bundle: DynamicBundle {
     #[doc(hidden)]
     fn with_static_ids<T>(f: impl FnOnce(&[TypeId]) -> T) -> T;
 
@@ -79,7 +79,7 @@ impl std::error::Error for MissingComponent {}
 
 macro_rules! tuple_impl {
     ($($name: ident),*) => {
-        impl<$($name: Component),*> DynamicBundle for ($($name,)*) {
+        unsafe impl<$($name: Component),*> DynamicBundle for ($($name,)*) {
             fn with_ids<T>(&self, f: impl FnOnce(&[TypeId]) -> T) -> T {
                 Self::with_static_ids(f)
             }
@@ -102,7 +102,7 @@ macro_rules! tuple_impl {
             }
         }
 
-        impl<$($name: Component),*> Bundle for ($($name,)*) {
+        unsafe impl<$($name: Component),*> Bundle for ($($name,)*) {
             fn with_static_ids<T>(f: impl FnOnce(&[TypeId]) -> T) -> T {
                 const N: usize = count!($($name),*);
                 let mut xs: [(usize, TypeId); N] = [$((mem::align_of::<$name>(), TypeId::of::<$name>())),*];
