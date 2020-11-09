@@ -26,6 +26,19 @@ use syn::{parse_macro_input, DeriveInput};
 /// `World::remove`. Monomorphic `Bundle` implementations are slightly more efficient than the
 /// polymorphic implementations for tuples, and can be convenient when combined with other derives
 /// like `serde::Deserialize`.
+///
+/// # Example
+/// ```ignore
+/// #[derive(Bundle)]
+/// struct Foo {
+///     x: i32,
+///     y: char,
+/// }
+///
+/// let mut world = World::new();
+/// let e = world.spawn(Foo { x: 42, y: 'a' });
+/// assert_eq!(*world.get::<i32>(e).unwrap(), 42);
+/// ```
 #[proc_macro_derive(Bundle)]
 pub fn derive_bundle(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
@@ -41,6 +54,25 @@ pub fn derive_bundle(input: TokenStream) -> TokenStream {
 /// Queries structs can be passed to the type parameter of `World::query`. They must have exactly
 /// one lifetime parameter, and all of their fields must be queries (e.g. references) using that
 /// lifetime.
+///
+/// # Example
+/// ```ignore
+/// #[derive(Query, Debug, PartialEq)]
+/// struct Foo<'a> {
+///     x: &'a i32,
+///     y: &'a mut bool,
+/// }
+///
+/// let mut world = World::new();
+/// let e = world.spawn((42, false));
+/// assert_eq!(
+///     world.query_one_mut::<Foo>(e).unwrap(),
+///     Foo {
+///         x: &42,
+///         y: &mut false
+///     }
+/// );
+/// ```
 #[proc_macro_derive(Query)]
 pub fn derive_query(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
