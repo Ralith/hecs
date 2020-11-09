@@ -39,7 +39,7 @@ fn gen_dynamic_bundle_impl(
 ) -> TokenStream2 {
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
     quote! {
-        impl #impl_generics ::hecs::DynamicBundle for #ident #ty_generics #where_clause {
+        unsafe impl #impl_generics ::hecs::DynamicBundle for #ident #ty_generics #where_clause {
             fn with_ids<__hecs__T>(&self, f: impl ::std::ops::FnOnce(&[::std::any::TypeId]) -> __hecs__T) -> __hecs__T {
                 <Self as ::hecs::Bundle>::with_static_ids(f)
             }
@@ -98,7 +98,7 @@ fn gen_bundle_impl(
         }
     };
     quote! {
-        impl #impl_generics ::hecs::Bundle for #ident #ty_generics #where_clause {
+        unsafe impl #impl_generics ::hecs::Bundle for #ident #ty_generics #where_clause {
             #[allow(non_camel_case_types)]
             fn with_static_ids<__hecs__T>(f: impl ::std::ops::FnOnce(&[::std::any::TypeId]) -> __hecs__T) -> __hecs__T {
                 #with_static_ids_body
@@ -129,7 +129,7 @@ fn gen_bundle_impl(
 fn gen_unit_struct_bundle_impl(ident: syn::Ident, generics: &syn::Generics) -> TokenStream2 {
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
     quote! {
-        impl #impl_generics ::hecs::Bundle for #ident #ty_generics #where_clause {
+        unsafe impl #impl_generics ::hecs::Bundle for #ident #ty_generics #where_clause {
             #[allow(non_camel_case_types)]
             fn with_static_ids<__hecs__T>(f: impl ::std::ops::FnOnce(&[::std::any::TypeId]) -> __hecs__T) -> __hecs__T { f(&[]) }
             fn static_type_info() -> ::std::vec::Vec<::hecs::TypeInfo> { ::std::vec::Vec::new() }
