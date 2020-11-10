@@ -77,7 +77,7 @@ impl EntityBuilder {
                     Entry::Occupied(occupied) => {
                         let index = *occupied.get();
                         let (ty, offset) = self.info[index];
-                        let storage = self.storage.as_ptr().cast::<u8>().add(offset);
+                        let storage = self.storage.as_ptr().add(offset);
 
                         // Drop the existing value
                         ty.drop(storage);
@@ -119,7 +119,7 @@ impl EntityBuilder {
         storage: NonNull<u8>,
     ) -> (NonNull<u8>, Layout) {
         let layout = Layout::from_size_align(min_size.next_power_of_two().max(64), align).unwrap();
-        let new_storage = NonNull::new_unchecked(alloc(layout).cast());
+        let new_storage = NonNull::new_unchecked(alloc(layout));
         ptr::copy_nonoverlapping(storage.as_ptr(), new_storage.as_ptr(), cursor);
         (new_storage, layout)
     }
@@ -141,7 +141,7 @@ impl EntityBuilder {
         self.cursor = 0;
         unsafe {
             for (ty, offset) in self.info.drain(..) {
-                ty.drop(self.storage.as_ptr().add(offset).cast());
+                ty.drop(self.storage.as_ptr().add(offset));
             }
         }
     }
@@ -185,7 +185,7 @@ unsafe impl DynamicBundle for BuiltEntity<'_> {
 
     unsafe fn put(self, mut f: impl FnMut(*mut u8, TypeInfo)) {
         for (ty, offset) in self.builder.info.drain(..) {
-            let ptr = self.builder.storage.as_ptr().add(offset).cast();
+            let ptr = self.builder.storage.as_ptr().add(offset);
             f(ptr, ty);
         }
     }
