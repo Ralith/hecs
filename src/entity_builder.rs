@@ -42,8 +42,6 @@ pub struct EntityBuilder {
     info: Vec<(TypeInfo, usize)>,
     ids: Vec<TypeId>,
     indices: TypeIdMap<usize>,
-    // Stored separately from `layout` in case `grow`'s `alloc` call panics
-    max_align: usize,
 }
 
 impl EntityBuilder {
@@ -51,12 +49,11 @@ impl EntityBuilder {
     pub fn new() -> Self {
         Self {
             storage: NonNull::dangling(),
-            layout: Layout::from_size_align(0, 1).unwrap(),
+            layout: Layout::from_size_align(0, 8).unwrap(),
             cursor: 0,
             info: Vec::new(),
             ids: Vec::new(),
             indices: Default::default(),
-            max_align: 8,
         }
     }
 
@@ -89,11 +86,12 @@ impl EntityBuilder {
                         ptr::copy_nonoverlapping(ptr, storage, ty.layout().size());
                     }
                     Entry::Vacant(vacant) => {
-                        let end = self.cursor + ty.layout().size() + ty.layout().align() - 1;
-                        self.max_align = self.max_align.max(ty.layout().align());
-                        if end > self.layout.size() {
+                        let offset = align(self.cursor, ty.layout().align());
+                        let end = offset + ty.layout().size();
+                        if end > self.layout.size() || ty.layout().align() > self.layout.align() {
+                            let new_align = self.layout.align().max(ty.layout().align());
                             let (new_storage, new_layout) =
-                                Self::grow(end, self.cursor, self.max_align, self.storage);
+                                Self::grow(end, self.cursor, new_align, self.storage);
                             if self.layout.size() != 0 {
                                 dealloc(self.storage.as_ptr(), self.layout);
                             }
@@ -101,17 +99,12 @@ impl EntityBuilder {
                             self.layout = new_layout;
                         }
 
-                        let addr = align(
-                            self.storage.as_ptr().add(self.cursor) as usize,
-                            ty.layout().align(),
-                        ) as *mut u8;
-
+                        let addr = self.storage.as_ptr().add(offset);
                         ptr::copy_nonoverlapping(ptr, addr, ty.layout().size());
 
                         vacant.insert(self.info.len());
-                        let offset = addr as usize - self.storage.as_ptr() as usize;
                         self.info.push((ty, offset));
-                        self.cursor = offset + ty.layout().size();
+                        self.cursor = end;
                     }
                 }
             });

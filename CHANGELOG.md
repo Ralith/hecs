@@ -1,3 +1,8 @@
+# 0.3.1 (November 9, 2020)
+
+### Fixed
+- Incorrect alignment handling in `EntityBuilder`
+
 # 0.3.0 (November 8, 2020)
 
 This release includes API extensions and many optimizations, particularly to query
