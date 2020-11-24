@@ -100,9 +100,8 @@ impl World {
     ///
     /// Despawns any existing entity with the same `Entity::id`.
     ///
-    /// Can be used for easy handle-preserving deserialization in conjunction with
-    /// `Entity::from_bits`. Be cautious resurrecting old `Entity` handles in populated worlds as it
-    /// vastly increases the likelihood of collisions.
+    /// Useful for easy handle-preserving deserialization. Be cautious resurrecting old `Entity`
+    /// handles in already-populated worlds as it vastly increases the likelihood of collisions.
     ///
     /// # Example
     /// ```

@@ -32,6 +32,8 @@ serde = { version = "1.0.117", default-features = false, optional = true }
 bencher = "0.1.5"
 rand = "0.7.3"
 trybuild = "1.0.23"
+serde = { version = "1.0.117", features = ["derive"] }
+serde_test = "1.0.117"
 
 [[bench]]
 name = "bench"
