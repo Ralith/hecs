@@ -9,6 +9,9 @@ use std::error::Error;
 /// Lightweight unique ID, or handle, of an entity
 ///
 /// Obtained from `World::spawn`. Can be stored to refer to an entity in the future.
+///
+/// Enable the `serde` feature on the crate to make this `Serialize`able. Some applications may be
+/// able to save space by only serializing the output of `Entity::id`.
 #[derive(Clone, Copy, Hash, Eq, Ord, PartialEq, PartialOrd)]
 pub struct Entity {
     pub(crate) generation: u32,
@@ -53,6 +56,27 @@ impl Entity {
 impl fmt::Debug for Entity {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}v{}", self.id, self.generation)
+    }
+}
+
+#[cfg(feature = "serde")]
+impl serde::Serialize for Entity {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.to_bits().serialize(serializer)
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'de> serde::Deserialize<'de> for Entity {
+    fn deserialize<D>(deserializer: D) -> Result<Entity, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let bits = u64::deserialize(deserializer)?;
+        Ok(Entity::from_bits(bits))
     }
 }
 
