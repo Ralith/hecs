@@ -1,3 +1,9 @@
+# 0.3.2 (Unreleased)
+
+### Added
+- The `serde` feature, enabling serialization of `Entity` handles, and a `serialization` module to
+  simplify (de)serializing worlds
+
 # 0.3.1 (November 9, 2020)
 
 ### Fixed

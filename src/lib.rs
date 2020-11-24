@@ -69,6 +69,8 @@ mod entities;
 mod entity_builder;
 mod query;
 mod query_one;
+#[cfg(feature = "serde")]
+pub mod serialize;
 mod world;
 
 pub use archetype::Archetype;
