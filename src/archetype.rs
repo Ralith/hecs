@@ -157,15 +157,15 @@ impl Archetype {
 
     /// Enumerate the types of the components of entities stored in this archetype.
     ///
-    /// Convenient for dispatching logic which needs to be performed on sets of type ids.
-    /// For example, suppose you're building a scripting system, and you want to integrate
-    /// the scripting language with your ECS. This functionality allows you to iterate
-    /// through all of the archetypes of the world with [`World::archetypes`] and extract
+    /// Convenient for dispatching logic which needs to be performed on sets of type ids.  For
+    /// example, suppose you're building a scripting system, and you want to integrate the scripting
+    /// language with your ECS. This functionality allows you to iterate through all of the
+    /// archetypes of the world with [`World::archetypes()`](crate::World::archetypes()) and extract
     /// all possible combinations of component types which are currently stored in the `World`.
     /// From there, you can then create a mapping of archetypes to wrapper objects for your
-    /// scripting language that provide functionality based off of the components of any
-    /// given `Entity`, and bind them onto an `Entity` when passed into your scripting
-    /// language by looking up the `Entity`'s archetype using `EntityRef::component_types`.
+    /// scripting language that provide functionality based off of the components of any given
+    /// `Entity`, and bind them onto an `Entity` when passed into your scripting language by looking
+    /// up the `Entity`'s archetype using `EntityRef::component_types`.
     pub fn component_types(&self) -> impl Iterator<Item = TypeId> + '_ {
         self.types.iter().map(|typeinfo| typeinfo.id)
     }
