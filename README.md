@@ -63,11 +63,19 @@ accesses, bypassing unneeded data, maximizing cache use and minimizing latency.
 
 ### Why Not ECS?
 
-An ECS world is not a be-all end-all data structure. Most games will store
-significant amounts of state in other structures. For example, many games
-maintain a spatial index structure (e.g. a tile map or bounding volume
-hierarchy) used to find entities and obstacles near a certain location for
-efficient collision detection without searching the entire world.
+hecs strives to be lightweight and unobtrusive so it can be useful in
+a wide range of applications. Even so, it's not appropriate for every
+game. If your game will have few types of entities, consider a simpler
+architecture such as storing each type of entity in a separate plain
+`Vec`. Similarly, ECS may be overkill for games that don't call for
+batch processing of entities.
+
+Even for games that benefit, an ECS world is not a be-all end-all data
+structure. Most games will store significant amounts of state in other
+structures. For example, many games maintain a spatial index structure
+(e.g. a tile map or bounding volume hierarchy) used to find entities
+and obstacles near a certain location for efficient collision
+detection without searching the entire world.
 
 If you need to search for specific entities using criteria other than the types
 of their components, consider maintaining a specialized index beside your world,
