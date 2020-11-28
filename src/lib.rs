@@ -73,7 +73,7 @@ pub use query::{
     Access, BatchedIter, Query, QueryBorrow, QueryItem, QueryIter, QueryMut, With, Without,
 };
 pub use query_one::QueryOne;
-pub use world::{ArchetypesGeneration, Component, ComponentError, Iter, SpawnBatchIter, World};
+pub use world::{ArchetypesGeneration, Component, ComponentError, Iter, QueryOneError, SpawnBatchIter, World};
 
 // Unstable implementation details needed by the macros
 #[doc(hidden)]
