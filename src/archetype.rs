@@ -144,6 +144,11 @@ impl Archetype {
         self.entities[index as usize]
     }
 
+    #[inline]
+    pub(crate) fn set_entity_id(&mut self, index: usize, id: u32) {
+        self.entities[index] = id;
+    }
+
     pub(crate) fn types(&self) -> &[TypeInfo] {
         &self.types
     }
@@ -163,14 +168,14 @@ impl Archetype {
         self.types.iter().map(|typeinfo| typeinfo.id)
     }
 
-    /// `index` must be in-bounds
+    /// `index` must be in-bounds or just past the end
     pub(crate) unsafe fn get_dynamic(
         &self,
         ty: TypeId,
         size: usize,
         index: u32,
     ) -> Option<NonNull<u8>> {
-        debug_assert!(index < self.len);
+        debug_assert!(index <= self.len);
         Some(NonNull::new_unchecked(
             (*self.data.get())
                 .as_ptr()
@@ -188,6 +193,11 @@ impl Archetype {
         self.entities[self.len as usize] = id;
         self.len += 1;
         self.len - 1
+    }
+
+    pub(crate) unsafe fn set_len(&mut self, len: u32) {
+        debug_assert!(len <= self.capacity());
+        self.len = len;
     }
 
     pub(crate) fn reserve(&mut self, additional: u32) {
@@ -329,6 +339,26 @@ impl Archetype {
     /// How, if at all, `Q` will access entities in this archetype
     pub fn access<Q: Query>(&self) -> Option<Access> {
         Q::Fetch::access(self)
+    }
+
+    /// Add components from another archetype with identical components
+    ///
+    /// # Safety
+    ///
+    /// Component types must match exactly.
+    pub(crate) unsafe fn merge(&mut self, mut other: Archetype) {
+        self.reserve(other.len);
+        for info in &self.types {
+            let src_off = other.state.get(&info.id()).unwrap().offset;
+            let src = (*other.data.get()).as_ptr().add(src_off);
+            let dst_off = self.state.get(&info.id()).unwrap().offset;
+            let dst = (*self.data.get())
+                .as_ptr()
+                .add(dst_off + self.len as usize * info.layout.size());
+            dst.copy_from_nonoverlapping(src, other.len as usize * info.layout.size())
+        }
+        self.len += other.len;
+        other.len = 0;
     }
 }
 

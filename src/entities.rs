@@ -1,6 +1,8 @@
 use alloc::vec::Vec;
 use core::cmp;
 use core::convert::TryFrom;
+use core::iter::ExactSizeIterator;
+use core::ops::Range;
 use core::sync::atomic::{AtomicI64, Ordering};
 use core::{fmt, mem};
 #[cfg(feature = "std")]
@@ -111,7 +113,7 @@ impl<'a> Iterator for ReserveEntitiesIterator<'a> {
     }
 }
 
-impl<'a> core::iter::ExactSizeIterator for ReserveEntitiesIterator<'a> {}
+impl<'a> ExactSizeIterator for ReserveEntitiesIterator<'a> {}
 
 #[derive(Default)]
 pub(crate) struct Entities {
@@ -252,6 +254,49 @@ impl Entities {
             self.meta.push(EntityMeta::EMPTY);
             Entity { generation: 0, id }
         }
+    }
+
+    /// Allocate and set locations for many entity IDs laid out contiguously in an archetype
+    ///
+    /// `self.finish_alloc_many()` must be called after!
+    pub fn alloc_many(&mut self, n: u32, archetype: u32, mut first_index: u32) -> AllocManyState {
+        self.verify_flushed();
+
+        let fresh = (n as usize).saturating_sub(self.pending.len()) as u32;
+        assert!(
+            (self.meta.len() + fresh as usize) < u32::MAX as usize,
+            "too many entities"
+        );
+        let pending_end = self.pending.len().saturating_sub(n as usize);
+        for &id in &self.pending[pending_end..] {
+            self.meta[id as usize].location = Location {
+                archetype,
+                index: first_index,
+            };
+            first_index += 1;
+        }
+
+        let fresh_start = self.meta.len() as u32;
+        self.meta.extend(
+            (first_index..(first_index + fresh)).map(|index| EntityMeta {
+                generation: 0,
+                location: Location { archetype, index },
+            }),
+        );
+
+        self.len += n;
+
+        AllocManyState {
+            fresh: fresh_start..(fresh_start + fresh),
+            pending_end,
+        }
+    }
+
+    /// Remove entities used by `alloc_many` from the freelist
+    ///
+    /// This is an awkward separate function to avoid borrowck issues in `SpawnColumnBatchIter`.
+    pub fn finish_alloc_many(&mut self, pending_end: usize) {
+        self.pending.truncate(pending_end);
     }
 
     /// Allocate a specific entity ID, overwriting its generation
@@ -466,6 +511,28 @@ impl fmt::Display for NoSuchEntity {
 
 #[cfg(feature = "std")]
 impl Error for NoSuchEntity {}
+
+#[derive(Clone)]
+pub(crate) struct AllocManyState {
+    pub pending_end: usize,
+    fresh: Range<u32>,
+}
+
+impl AllocManyState {
+    pub fn next(&mut self, entities: &Entities) -> Option<u32> {
+        if self.pending_end < entities.pending.len() {
+            let id = entities.pending[self.pending_end];
+            self.pending_end += 1;
+            Some(id)
+        } else {
+            self.fresh.next()
+        }
+    }
+
+    pub fn len(&self, entities: &Entities) -> usize {
+        self.fresh.len() + (entities.pending.len() - self.pending_end)
+    }
+}
 
 #[cfg(test)]
 mod tests {
