@@ -68,7 +68,7 @@ impl<'a, T: Component> Ref<'a, T> {
     ) -> Result<Self, MissingComponent> {
         let target = NonNull::new_unchecked(
             archetype
-                .get::<T>()
+                .get_base::<T>()
                 .ok_or_else(MissingComponent::new::<T>)?
                 .as_ptr()
                 .add(index as usize),
@@ -107,7 +107,7 @@ impl<'a, T: Component> RefMut<'a, T> {
     ) -> Result<Self, MissingComponent> {
         let target = NonNull::new_unchecked(
             archetype
-                .get::<T>()
+                .get_base::<T>()
                 .ok_or_else(MissingComponent::new::<T>)?
                 .as_ptr()
                 .add(index as usize),

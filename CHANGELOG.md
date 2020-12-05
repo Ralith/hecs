@@ -4,6 +4,7 @@
 - The `serde` feature, enabling serialization of `Entity` handles, and a `serialization` module to
   simplify (de)serializing worlds
 - `World::len()` exposing the number of live entities
+- Access to component data inside `Archetypes` to allow custom column-major operations
 - `ColumnBatch` for efficiently spawning collections of entities with the same components when those
   components' types are not statically known
 

@@ -11,8 +11,9 @@ use crate::alloc::{vec, vec::Vec};
 use core::any::{type_name, TypeId};
 use core::cell::UnsafeCell;
 use core::hash::{BuildHasher, BuildHasherDefault, Hasher};
-use core::mem;
+use core::ops::Deref;
 use core::ptr::{self, NonNull};
+use core::{fmt, mem, slice};
 
 use hashbrown::{hash_map::DefaultHashBuilder, HashMap};
 
@@ -81,20 +82,35 @@ impl Archetype {
         self.len = 0;
     }
 
-    pub(crate) fn has<T: Component>(&self) -> bool {
+    /// Whether this archetype contains `T` components
+    pub fn has<T: Component>(&self) -> bool {
         self.has_dynamic(TypeId::of::<T>())
     }
 
-    pub(crate) fn has_dynamic(&self, id: TypeId) -> bool {
+    /// Whether this archetype contains components with the type identified by `id`
+    pub fn has_dynamic(&self, id: TypeId) -> bool {
         self.state.contains_key(&id)
     }
 
-    pub(crate) fn get<T: Component>(&self) -> Option<NonNull<T>> {
+    pub(crate) fn get_base<T: Component>(&self) -> Option<NonNull<T>> {
         let state = self.state.get(&TypeId::of::<T>())?;
         Some(unsafe {
             NonNull::new_unchecked(
                 (*self.data.get()).as_ptr().add(state.offset).cast::<T>() as *mut T
             )
+        })
+    }
+
+    /// Get the `T` components of these entities, if present
+    ///
+    /// Useful for efficient serialization.
+    pub fn get<T: Component>(&self) -> Option<ColumnRef<'_, T>> {
+        let ptr = self.get_base::<T>()?;
+        let column = unsafe { slice::from_raw_parts_mut(ptr.as_ptr(), self.len as usize) };
+        self.borrow::<T>();
+        Some(ColumnRef {
+            archetype: self,
+            column,
         })
     }
 
@@ -130,9 +146,16 @@ impl Archetype {
         }
     }
 
+    /// Number of entities in this archetype
     #[inline]
-    pub(crate) fn len(&self) -> u32 {
+    pub fn len(&self) -> u32 {
         self.len
+    }
+
+    /// Whether this archetype contains no entities
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
     }
 
     #[inline]
@@ -164,7 +187,7 @@ impl Archetype {
     /// scripting language that provide functionality based off of the components of any given
     /// `Entity`, and bind them onto an `Entity` when passed into your scripting language by looking
     /// up the `Entity`'s archetype using `EntityRef::component_types`.
-    pub fn component_types(&self) -> impl Iterator<Item = TypeId> + '_ {
+    pub fn component_types(&self) -> impl ExactSizeIterator<Item = TypeId> + '_ {
         self.types.iter().map(|typeinfo| typeinfo.id)
     }
 
@@ -360,6 +383,16 @@ impl Archetype {
         self.len += other.len;
         other.len = 0;
     }
+
+    /// Raw IDs of the entities in this archetype
+    ///
+    /// Convertible into [`Entity`](crate::Entity)s with
+    /// [`World::find_entity_from_id()`](crate::World::find_entity_from_id). Useful for efficient
+    /// serialization.
+    #[inline]
+    pub fn ids(&self) -> &[u32] {
+        &self.entities[0..self.len as usize]
+    }
 }
 
 impl Drop for Archetype {
@@ -500,3 +533,38 @@ impl PartialEq for TypeInfo {
 }
 
 impl Eq for TypeInfo {}
+
+/// Shared reference to a single column of component data in an [`Archetype`]
+pub struct ColumnRef<'a, T: Component> {
+    archetype: &'a Archetype,
+    column: &'a [T],
+}
+
+impl<T: Component> Deref for ColumnRef<'_, T> {
+    type Target = [T];
+    fn deref(&self) -> &[T] {
+        self.column
+    }
+}
+
+impl<T: Component> Drop for ColumnRef<'_, T> {
+    fn drop(&mut self) {
+        self.archetype.release::<T>();
+    }
+}
+
+impl<T: Component> Clone for ColumnRef<'_, T> {
+    fn clone(&self) -> Self {
+        self.archetype.borrow::<T>();
+        Self {
+            archetype: self.archetype,
+            column: self.column,
+        }
+    }
+}
+
+impl<T: Component + fmt::Debug> fmt::Debug for ColumnRef<'_, T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.column.fmt(f)
+    }
+}

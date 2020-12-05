@@ -695,7 +695,7 @@ impl World {
             return Err(MissingComponent::new::<T>().into());
         }
         Ok(&*self.archetypes[loc.archetype as usize]
-            .get::<T>()
+            .get_base::<T>()
             .ok_or_else(MissingComponent::new::<T>)?
             .as_ptr()
             .add(loc.index as usize))
@@ -718,7 +718,7 @@ impl World {
             return Err(MissingComponent::new::<T>().into());
         }
         Ok(&mut *self.archetypes[loc.archetype as usize]
-            .get::<T>()
+            .get_base::<T>()
             .ok_or_else(MissingComponent::new::<T>)?
             .as_ptr()
             .add(loc.index as usize))
@@ -735,8 +735,8 @@ impl World {
 
     /// Inspect the archetypes that entities are organized into
     ///
-    /// Useful for dynamically scheduling concurrent queries by checking borrows in advance. Does
-    /// not provide access to entities.
+    /// Useful for dynamically scheduling concurrent queries by checking borrows in advance, and for
+    /// efficient serialization.
     pub fn archetypes(&self) -> impl ExactSizeIterator<Item = &'_ Archetype> + '_ {
         self.archetypes.iter()
     }

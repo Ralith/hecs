@@ -88,7 +88,7 @@ unsafe impl<'a, T: Component> Fetch<'a> for FetchRead<T> {
         archetype.borrow::<T>();
     }
     fn new(archetype: &'a Archetype) -> Option<Self> {
-        archetype.get::<T>().map(Self)
+        archetype.get_base::<T>().map(Self)
     }
     fn release(archetype: &Archetype) {
         archetype.release::<T>();
@@ -125,7 +125,7 @@ unsafe impl<'a, T: Component> Fetch<'a> for FetchWrite<T> {
         archetype.borrow_mut::<T>();
     }
     fn new(archetype: &'a Archetype) -> Option<Self> {
-        archetype.get::<T>().map(Self)
+        archetype.get_base::<T>().map(Self)
     }
     fn release(archetype: &Archetype) {
         archetype.release_mut::<T>();
