@@ -203,8 +203,8 @@ impl Archetype {
     fn grow(&mut self, increment: u32) {
         unsafe {
             let old_count = self.len as usize;
-            let count = old_count + increment as usize;
-            let mut new_entities = vec![!0; count].into_boxed_slice();
+            let new_cap = self.entities.len() + increment as usize;
+            let mut new_entities = vec![!0; new_cap].into_boxed_slice();
             new_entities[0..old_count].copy_from_slice(&self.entities[0..old_count]);
             self.entities = new_entities;
 
@@ -213,7 +213,7 @@ impl Archetype {
             for ty in &self.types {
                 self.data_size = align(self.data_size, ty.layout.align());
                 state.insert(ty.id, TypeState::new(self.data_size));
-                self.data_size += ty.layout.size() * count;
+                self.data_size += ty.layout.size() * new_cap;
             }
             let new_data = if self.data_size == 0 {
                 NonNull::dangling()
