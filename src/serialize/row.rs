@@ -1,15 +1,13 @@
-//! Convenience tools for serializing [`World`]s; requires the `serde` feature
+//! Row-major serialization
 //!
-//! [`Component`]s are not necessarily serializable, so we cannot directly implement [`Serialize`]
-//! for [`World`]. The helper functions defined in this module allow serialization and
-//! deserialization to rely on purpose-defined traits to control the procedures explicitly.
+//! Stores each entity's components together. Preferred for data that will be read/written by
+//! humans. Less efficient than column-major serialization.
 //!
 //! This module builds on the public [`World::iter()`] and [`World::spawn_at()`] APIs, and are
 //! somewhat opinionated. For some applications, a more custom approach may be preferable.
 //!
 //! In terms of the serde data model, we treat a [`World`] as a map of entity IDs to user-controlled
-//! maps of component IDs to data. Backwards-incompatible changes to this model are subject to the
-//! same semantic versioning stability guarantees as the hecs API.
+//! maps of component IDs to data.
 
 use core::{cell::RefCell, fmt};
 
@@ -34,7 +32,7 @@ use crate::{Component, EntityBuilder, EntityRef, World};
 /// # struct Position([f32; 3]);
 /// # #[derive(Serialize)]
 /// # struct Velocity([f32; 3]);
-/// use hecs::{*, serialize::*};
+/// use hecs::{*, serialize::row::*};
 ///
 /// // Could include references to external state for use by `serialize_entity`
 /// struct Context;
@@ -142,7 +140,7 @@ where
 /// # struct Position([f32; 3]);
 /// # #[derive(Deserialize)]
 /// # struct Velocity([f32; 3]);
-/// use hecs::{*, serialize::*};
+/// use hecs::{*, serialize::row::*};
 ///
 /// // Could include references to external state for use by `deserialize_entity`
 /// struct Context;
@@ -307,10 +305,10 @@ mod tests {
     mod helpers {
         use super::*;
         pub fn serialize<S: Serializer>(x: &World, s: S) -> Result<S::Ok, S::Error> {
-            crate::serialize::serialize(x, &mut Context, s)
+            crate::serialize::row::serialize(x, &mut Context, s)
         }
         pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<World, D::Error> {
-            crate::serialize::deserialize(&mut Context, d)
+            crate::serialize::row::deserialize(&mut Context, d)
         }
     }
 
