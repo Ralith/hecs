@@ -8,4 +8,5 @@
 //! Backwards-incompatible changes to the serde data models herein are subject to the same semantic
 //! versioning stability guarantees as the hecs API.
 
+pub mod column;
 pub mod row;
