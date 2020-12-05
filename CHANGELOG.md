@@ -1,8 +1,9 @@
-# 0.3.3 (Unreleased)
+# 0.4.0 (Unreleased)
 
 ### Added
 - `EntityRef::len` to query how many components an entity has
 - Support for serializers that require maps to be of known length
+- An alternative column-major serialization layout for better performance and compressibility
 
 # 0.3.2
 
