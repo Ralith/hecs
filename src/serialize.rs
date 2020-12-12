@@ -86,7 +86,7 @@ where
     C: SerializeContext,
     S: Serializer,
 {
-    let mut seq = serializer.serialize_map(None)?;
+    let mut seq = serializer.serialize_map(Some(world.len() as usize))?;
     for (id, components) in world {
         seq.serialize_key(&id)?;
         seq.serialize_value(&SerializeComponents(RefCell::new((
@@ -357,7 +357,7 @@ mod tests {
 
         assert_tokens(&SerWorld(world), &[
             Token::NewtypeStruct { name: "SerWorld" },
-            Token::Map { len: None },
+            Token::Map { len: Some(2) },
 
             Token::U64(e0.to_bits()),
             Token::Map { len: None },
