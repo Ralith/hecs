@@ -154,6 +154,7 @@ pub(crate) struct Entities {
     // Once `flush()` is done, `free_cursor` will equal `pending.len()`.
     pending: Vec<u32>,
     free_cursor: AtomicI64,
+    len: u32,
 }
 
 impl Entities {
@@ -238,6 +239,7 @@ impl Entities {
     pub fn alloc(&mut self) -> Entity {
         self.verify_flushed();
 
+        self.len += 1;
         if let Some(id) = self.pending.pop() {
             let new_free_cursor = self.pending.len() as i64;
             self.free_cursor.store(new_free_cursor, Ordering::Relaxed); // Not racey due to &mut self
@@ -263,11 +265,13 @@ impl Entities {
             let new_free_cursor = self.pending.len() as i64;
             self.free_cursor.store(new_free_cursor, Ordering::Relaxed); // Not racey due to &mut self
             self.meta.resize(entity.id as usize + 1, EntityMeta::EMPTY);
+            self.len += 1;
             None
         } else if let Some(index) = self.pending.iter().position(|item| *item == entity.id) {
             self.pending.swap_remove(index);
             let new_free_cursor = self.pending.len() as i64;
             self.free_cursor.store(new_free_cursor, Ordering::Relaxed); // Not racey due to &mut self
+            self.len += 1;
             None
         } else {
             Some(mem::replace(
@@ -299,6 +303,7 @@ impl Entities {
 
         let new_free_cursor = self.pending.len() as i64;
         self.free_cursor.store(new_free_cursor, Ordering::Relaxed); // Not racey due to &mut self
+        self.len -= 1;
 
         Ok(loc)
     }
@@ -414,9 +419,15 @@ impl Entities {
             0
         };
 
+        self.len += (self.pending.len() - new_free_cursor) as u32;
         for id in self.pending.drain(new_free_cursor..) {
             init(id, &mut self.meta[id as usize].location);
         }
+    }
+
+    #[inline]
+    pub fn len(&self) -> u32 {
+        self.len
     }
 }
 
@@ -478,11 +489,13 @@ mod tests {
         let mut first_unused = 0u32;
         let mut id_to_gen: HashMap<u32, u32> = Default::default();
         let mut free_set: HashSet<u32> = Default::default();
+        let mut len = 0;
 
         for _ in 0..100 {
             let alloc = rng.gen_bool(0.7);
             if alloc || first_unused == 0 {
                 let entity = e.alloc();
+                len += 1;
 
                 let id = entity.id;
                 if !free_set.is_empty() {
@@ -506,9 +519,13 @@ mod tests {
                 };
 
                 assert_eq!(e.free(entity).is_ok(), generation.is_some());
+                if generation.is_some() {
+                    len -= 1;
+                }
 
                 free_set.insert(id);
             }
+            assert_eq!(e.len(), len);
         }
     }
 
@@ -524,6 +541,8 @@ mod tests {
             e.free(entity).unwrap();
         }
 
+        assert_eq!(e.len(), 0);
+
         let id = old.first().unwrap().id();
         assert!(old.iter().all(|entity| entity.id() == id));
 
@@ -537,10 +556,12 @@ mod tests {
         assert!(e.contains(entity));
         // The entity in question should not exist in the free-list once allocated.
         assert!(!e.pending.contains(&entity.id()));
+        assert_eq!(e.len(), 1);
         // Allocating at the same id again should cause a location to be returned
         // this time around.
         assert!(e.alloc_at(entity).is_some());
         assert!(e.contains(entity));
+        assert_eq!(e.len(), 1);
 
         // Allocating an Entity should cause the new empty locations
         // to be located in the free list.

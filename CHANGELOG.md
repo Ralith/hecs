@@ -3,6 +3,7 @@
 ### Added
 - The `serde` feature, enabling serialization of `Entity` handles, and a `serialization` module to
   simplify (de)serializing worlds
+- `World::len()` exposing the number of live entities
 
 # 0.3.1 (November 9, 2020)
 

@@ -668,6 +668,18 @@ impl World {
     pub fn archetypes_generation(&self) -> ArchetypesGeneration {
         ArchetypesGeneration(self.archetype_generation)
     }
+
+    /// Number of currently live entities
+    #[inline]
+    pub fn len(&self) -> u32 {
+        self.entities.len()
+    }
+
+    /// Whether no entities are live
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
 }
 
 unsafe impl Send for World {}
@@ -816,7 +828,14 @@ impl<'a> Iterator for Iter<'a> {
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        (0, Some(self.entities.meta.len()))
+        (self.len(), Some(self.len()))
+    }
+}
+
+impl ExactSizeIterator for Iter<'_> {
+    #[inline]
+    fn len(&self) -> usize {
+        self.entities.len() as usize
     }
 }
 
