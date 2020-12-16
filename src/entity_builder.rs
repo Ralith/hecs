@@ -105,6 +105,36 @@ impl EntityBuilder {
         self
     }
 
+    /// Checks to see if the component of type `T` exists
+    pub fn has<T: Component>(&self) -> bool {
+        self.indices.contains_key(&TypeId::of::<T>())
+    }
+
+    /// Borrow the component of type `T`, if it exists
+    pub fn get<T: Component>(&self) -> Option<&T> {
+        let index = self.indices.get(&TypeId::of::<T>())?;
+        let (_, offset) = self.info[*index];
+        unsafe {
+            let storage = self.storage.as_ptr().add(offset).cast::<T>();
+            Some(&*storage)
+        }
+    }
+
+    /// Uniquely borrow the component of type `T`, if it exists
+    pub fn get_mut<T: Component>(&mut self) -> Option<&mut T> {
+        let index = self.indices.get(&TypeId::of::<T>())?;
+        let (_, offset) = self.info[*index];
+        unsafe {
+            let storage = self.storage.as_ptr().add(offset).cast::<T>();
+            Some(&mut *storage)
+        }
+    }
+
+    /// Enumerate the types of the entity builder's components
+    pub fn component_types(&self) -> impl Iterator<Item = TypeId> + '_ {
+        self.info.iter().map(|(info, _)| info.id())
+    }
+
     unsafe fn grow(
         min_size: usize,
         cursor: usize,
