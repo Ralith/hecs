@@ -86,6 +86,8 @@ pub use lazy_static;
 #[doc(hidden)]
 pub use query::Fetch;
 
+#[cfg(feature = "clone")]
+pub use archetype::clone::CloneRegistry;
 #[cfg(feature = "macros")]
 pub use hecs_macros::{Bundle, Query};
 

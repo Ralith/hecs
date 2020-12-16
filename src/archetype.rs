@@ -332,6 +332,120 @@ impl Archetype {
     }
 }
 
+#[cfg(feature = "clone")]
+pub(crate) mod clone {
+    use super::TypeIdMap;
+    use crate::Archetype;
+    use core::any::TypeId;
+
+    unsafe fn clone_ptr<T: Clone>(src: *mut u8, dest: *mut u8) {
+        let value = src.cast::<T>().as_ref().unwrap().clone();
+        std::ptr::write(dest.cast::<T>().as_mut().unwrap(), value);
+    }
+
+    /// A registry of types to clone function pointers.  Only allows types that implement Clone to be registered.
+    #[derive(Clone)]
+    pub struct CloneRegistry {
+        funcs: TypeIdMap<unsafe fn(*mut u8, *mut u8)>,
+    }
+
+    impl CloneRegistry {
+        /// Registers the clone function pointer for the given type.
+        pub fn register<T: Clone + 'static>(mut self) -> Self {
+            self.funcs.insert(TypeId::of::<T>(), clone_ptr::<T>);
+            self
+        }
+    }
+
+    impl Default for CloneRegistry {
+        /// Create a blank registry.
+        fn default() -> Self {
+            Self {
+                funcs: TypeIdMap::default(),
+            }
+        }
+    }
+
+    // write!(f,
+    // write!(f, "{} is already uniquely borrowed", name)
+
+    impl Archetype {
+        pub(crate) fn clone_with(&self, clone_funcs: &CloneRegistry) -> Self {
+            if let Some(_info) = self
+                .types
+                .iter()
+                .find(|info| !clone_funcs.funcs.contains_key(&info.id))
+            {
+                #[cfg(debug_assertions)]
+                {
+                    panic!("missing {}'s clone function pointer", _info.type_name)
+                }
+
+                #[cfg(not(debug_assertions))]
+                {
+                    panic!("missing a clone function pointer")
+                }
+            }
+
+            for (_id, borrow) in self.state.iter() {
+                if !borrow.borrow.borrow() {
+                    #[cfg(debug_assertions)]
+                    {
+                        panic!(
+                            "{} is already uniquely borrowed",
+                            self.types
+                                .iter()
+                                .find(|info| info.id == *_id)
+                                .unwrap()
+                                .type_name
+                        )
+                    }
+
+                    #[cfg(not(debug_assertions))]
+                    {
+                        panic!("this archetype is already uniquely borrowed")
+                    }
+                }
+            }
+
+            let mut new_archetype = Self::new(self.types.clone());
+
+            for index in 0..self.len {
+                unsafe {
+                    new_archetype.allocate(self.entities[index as usize]);
+                }
+            }
+
+            for index in 0..self.len {
+                for ty in &self.types {
+                    let clone_func = clone_funcs.funcs[&ty.id];
+                    unsafe {
+                        let src = self
+                            .get_dynamic(ty.id, ty.layout.size(), index)
+                            .unwrap()
+                            .as_ptr();
+
+                        let dest = new_archetype
+                            .get_dynamic(ty.id, ty.layout.size(), index)
+                            .unwrap()
+                            .as_ptr();
+
+                        (clone_func)(src, dest);
+                    }
+                }
+            }
+
+            debug_assert!(self.len == new_archetype.len);
+
+            for (_, borrow) in self.state.iter() {
+                borrow.borrow.release()
+            }
+
+            new_archetype
+        }
+    }
+}
+
 impl Drop for Archetype {
     fn drop(&mut self) {
         self.clear();

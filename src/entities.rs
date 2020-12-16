@@ -431,6 +431,18 @@ impl Entities {
     }
 }
 
+#[cfg(feature = "clone")]
+impl Clone for Entities {
+    fn clone(&self) -> Self {
+        Self {
+            meta: self.meta.clone(),
+            pending: self.pending.clone(),
+            free_cursor: AtomicI64::new(self.free_cursor.load(Ordering::SeqCst)),
+            len: self.len,
+        }
+    }
+}
+
 #[derive(Copy, Clone)]
 pub(crate) struct EntityMeta {
     pub generation: u32,

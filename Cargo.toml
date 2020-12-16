@@ -19,6 +19,7 @@ maintenance = { status = "actively-developed" }
 [features]
 default = ["std"]
 std = []
+clone = []
 # Enables derive(Bundle)
 macros = ["hecs-macros", "lazy_static"]
 

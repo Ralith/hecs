@@ -10,6 +10,8 @@ use core::any::TypeId;
 use core::convert::TryFrom;
 use core::{fmt, mem, ptr};
 
+#[cfg(feature = "clone")]
+use crate::CloneRegistry;
 #[cfg(feature = "std")]
 use std::error::Error;
 
@@ -46,6 +48,8 @@ pub struct World {
     index: HashMap<Box<[TypeId]>, u32>,
     archetypes: Vec<Archetype>,
     archetype_generation: u64,
+    #[cfg(feature = "clone")]
+    clone_registry: Option<CloneRegistry>,
 }
 
 impl World {
@@ -61,6 +65,24 @@ impl World {
             index,
             archetypes,
             archetype_generation: 0,
+            #[cfg(feature = "clone")]
+            clone_registry: None,
+        }
+    }
+    #[cfg(feature = "clone")]
+    /// Create an empty world with the specified registry of clone functions
+    pub fn new_with(clone_registry: CloneRegistry) -> Self {
+        // `flush` assumes archetype 0 always exists, representing entities with no components.
+        let mut archetypes = Vec::new();
+        archetypes.push(Archetype::new(Vec::new()));
+        let mut index = HashMap::default();
+        index.insert(Box::default(), 0);
+        Self {
+            entities: Entities::default(),
+            index,
+            archetypes,
+            archetype_generation: 0,
+            clone_registry: Some(clone_registry),
         }
     }
 
@@ -691,6 +713,29 @@ impl Default for World {
     }
 }
 
+#[cfg(feature = "clone")]
+impl Clone for World {
+    fn clone(&self) -> Self {
+        Self {
+            entities: self.entities.clone(),
+            index: self.index.clone(),
+            archetype_generation: self.archetype_generation,
+            archetypes: self
+                .archetypes()
+                .map(|item| {
+                    item.clone_with(
+                        &self
+                            .clone_registry
+                            .as_ref()
+                            .expect("cannot clone without a clone registry"),
+                    )
+                })
+                .collect(),
+            clone_registry: self.clone_registry.clone(),
+        }
+    }
+}
+
 impl<'a> IntoIterator for &'a World {
     type IntoIter = Iter<'a>;
     type Item = (Entity, EntityRef<'a>);
@@ -970,5 +1015,94 @@ mod tests {
         let mut world = World::new();
         let a = world.spawn(("abc", 123));
         world.remove::<()>(a).unwrap();
+    }
+
+    #[test]
+    #[cfg(feature = "clone")]
+    fn clone() {
+        use crate::CloneRegistry;
+
+        let mut world = World::new_with(
+            CloneRegistry::default()
+                .register::<usize>()
+                .register::<&str>(),
+        );
+        for x in 0..100usize {
+            let test = if x % 3 == 0 {
+                world.spawn((x,))
+            } else if x % 3 == 1 {
+                world.spawn((x, "str"))
+            } else {
+                world.spawn(("str",))
+            };
+
+            if x % 5 == 0 {
+                world.despawn(test).unwrap();
+            }
+        }
+
+        // clone twice so that cloning is still correct no matter how many times its applied
+        let other_world = world.clone().clone();
+
+        for (lhs, rhs) in other_world.iter().zip(world.iter()) {
+            assert_eq!(lhs.0, rhs.0);
+        }
+
+        for (lhs, rhs) in other_world
+            .query::<&usize>()
+            .iter()
+            .zip(world.query::<&usize>().iter())
+        {
+            assert_eq!(lhs.0, rhs.0);
+            assert_eq!(lhs.1, rhs.1);
+        }
+        for (lhs, rhs) in other_world
+            .query::<&&str>()
+            .iter()
+            .zip(world.query::<&&str>().iter())
+        {
+            assert_eq!(lhs.0, rhs.0);
+            assert_eq!(lhs.1, rhs.1);
+        }
+    }
+
+    #[test]
+    #[cfg(feature = "clone")]
+    #[should_panic(expected = "cannot clone without a clone registry")]
+    #[allow(clippy::redundant_clone)]
+    fn clone_missing_clone_registry() {
+        let mut world = World::new();
+        world.spawn((0usize,));
+
+        let _ = world.clone();
+    }
+
+    #[test]
+    #[cfg(feature = "clone")]
+    #[should_panic(expected = "missing usize's clone function pointer")]
+    #[allow(clippy::redundant_clone)]
+    fn clone_missing_clone_function_pointer() {
+        use crate::CloneRegistry;
+
+        let mut world = World::new_with(CloneRegistry::default());
+        world.spawn((0usize,));
+
+        let _ = world.clone();
+    }
+
+    #[test]
+    #[cfg(feature = "clone")]
+    #[should_panic(expected = "usize is already uniquely borrowed")]
+    #[allow(clippy::redundant_clone)]
+    fn clone_already_borrowed() {
+        use crate::CloneRegistry;
+        let mut world = World::new_with(CloneRegistry::default().register::<usize>());
+        world.spawn((0usize,));
+
+        {
+            let mut x = world.query::<&mut usize>();
+            let _ = x.iter();
+            let _ = world.clone();
+        }
     }
 }
