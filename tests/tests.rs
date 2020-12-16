@@ -145,6 +145,31 @@ fn build_entity() {
 }
 
 #[test]
+fn access_builder_components() {
+    let mut world = World::new();
+    let mut entity = EntityBuilder::new();
+
+    entity.add("abc");
+    entity.add(123);
+
+    assert!(entity.has::<&str>());
+    assert!(entity.has::<i32>());
+    assert!(!entity.has::<usize>());
+
+    assert_eq!(*entity.get::<&str>().unwrap(), "abc");
+    assert_eq!(*entity.get::<i32>().unwrap(), 123);
+    assert_eq!(entity.get::<usize>(), None);
+
+    *entity.get_mut::<i32>().unwrap() = 456;
+    assert_eq!(*entity.get::<i32>().unwrap(), 456);
+
+    let g = world.spawn(entity.build());
+
+    assert_eq!(*world.get::<&str>(g).unwrap(), "abc");
+    assert_eq!(*world.get::<i32>(g).unwrap(), 456);
+}
+
+#[test]
 fn build_entity_bundle() {
     let mut world = World::new();
     let mut entity = EntityBuilder::new();
