@@ -411,6 +411,7 @@ impl Entities {
             let new_meta_len = old_meta_len + -free_cursor as usize;
             self.meta.resize(new_meta_len, EntityMeta::EMPTY);
 
+            self.len += -free_cursor as u32;
             for (id, meta) in self.meta.iter_mut().enumerate().skip(old_meta_len) {
                 init(id as u32, &mut meta.location);
             }
@@ -648,5 +649,24 @@ mod tests {
     #[test]
     fn reserve_entities() {
         reserve_test_helper(|e, n| e.reserve_entities(n).collect())
+    }
+
+    #[test]
+    fn reserve_grows() {
+        let mut e = Entities::default();
+        let _ = e.reserve_entity();
+        e.flush(|_, _| {});
+        assert_eq!(e.len(), 1);
+    }
+
+    #[test]
+    fn reserve_grows_mixed() {
+        let mut e = Entities::default();
+        let a = e.alloc();
+        e.alloc();
+        e.free(a).unwrap();
+        let _ = e.reserve_entities(3);
+        e.flush(|_, _| {});
+        assert_eq!(e.len(), 4);
     }
 }
