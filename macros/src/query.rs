@@ -143,7 +143,7 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream2> {
 fn query_fetch_ty(lifetime: &Lifetime, ty: &Type) -> Result<TokenStream2> {
     struct Visitor<'a> {
         replace: &'a Lifetime,
-    };
+    }
     impl syn::visit_mut::VisitMut for Visitor<'_> {
         fn visit_lifetime_mut(&mut self, l: &mut Lifetime) {
             if l == self.replace {
