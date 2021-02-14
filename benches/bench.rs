@@ -23,7 +23,7 @@ fn spawn_static(b: &mut Bencher) {
     struct Bundle {
         pos: Position,
         vel: Velocity,
-    };
+    }
 
     let mut world = World::new();
     b.iter(|| {
@@ -39,7 +39,7 @@ fn spawn_batch(b: &mut Bencher) {
     struct Bundle {
         pos: Position,
         vel: Velocity,
-    };
+    }
 
     let mut world = World::new();
     b.iter(|| {
