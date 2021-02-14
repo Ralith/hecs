@@ -578,7 +578,7 @@ mod tests {
                 assert!(id_to_gen.insert(id, entity.generation).is_none());
             } else {
                 // Free a random ID, whether or not it's in use, and check for errors.
-                let id = rng.gen_range(0, first_unused);
+                let id = rng.gen_range(0..first_unused);
 
                 let generation = id_to_gen.remove(&id);
                 let entity = Entity {
