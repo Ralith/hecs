@@ -1,4 +1,6 @@
-# 0.3.2 (Unreleased)
+# 0.3.3 (Unreleased)
+
+# 0.3.2
 
 ### Added
 - The `serde` feature, enabling serialization of `Entity` handles, and a `serialization` module to
