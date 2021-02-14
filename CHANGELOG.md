@@ -8,6 +8,10 @@
 - `ColumnBatch` for efficiently spawning collections of entities with the same components when those
   components' types are not statically known
 
+### Fixed
+
+- Inconsistent state after reserving an unallocated entity
+
 # 0.3.1 (November 9, 2020)
 
 ### Fixed
