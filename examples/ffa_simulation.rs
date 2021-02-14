@@ -43,12 +43,12 @@ fn batch_spawn_entities(world: &mut World, n: usize) {
 
     let to_spawn = (0..n).map(|_| {
         let pos = Position {
-            x: rng.gen_range(-10, 10),
-            y: rng.gen_range(-10, 10),
+            x: rng.gen_range(-10..10),
+            y: rng.gen_range(-10..10),
         };
-        let s = Speed(rng.gen_range(1, 5));
-        let hp = Health(rng.gen_range(30, 50));
-        let dmg = Damage(rng.gen_range(1, 10));
+        let s = Speed(rng.gen_range(1..5));
+        let hp = Health(rng.gen_range(30..50));
+        let dmg = Damage(rng.gen_range(1..10));
         let kc = KillCount(0);
 
         (pos, s, hp, dmg, kc)
@@ -63,7 +63,7 @@ fn system_integrate_motion(world: &mut World) {
     let mut rng = thread_rng();
 
     for (id, (pos, s)) in &mut world.query::<(&mut Position, &Speed)>() {
-        let change = (rng.gen_range(-s.0, s.0), rng.gen_range(-s.0, s.0));
+        let change = (rng.gen_range(-s.0..s.0), rng.gen_range(-s.0..s.0));
         pos.x += change.0;
         pos.y += change.1;
         println!("Unit {:?} moved to {:?}", id, pos);
