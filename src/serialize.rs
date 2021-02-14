@@ -63,6 +63,15 @@ pub trait SerializeContext {
     fn serialize_entity<S>(&mut self, entity: EntityRef<'_>, map: &mut S) -> Result<(), S::Error>
     where
         S: SerializeMap;
+
+    /// Number of entries that [`serialize_entry`] will produce for `entity`, if known
+    ///
+    /// Defaults to `None`. Must be overridden to return `Some` to support certain serializers, such
+    /// as bincode.
+    fn component_count(&self, entity: EntityRef<'_>) -> Option<usize> {
+        let _ = entity;
+        None
+    }
 }
 
 /// If `entity` has component `T`, serialize it under `key` in `map`
@@ -106,7 +115,7 @@ impl<'a, C: SerializeContext> Serialize for SerializeComponents<'a, C> {
     {
         let mut this = self.0.borrow_mut();
         let entity = this.1.take().unwrap();
-        let mut map = serializer.serialize_map(None)?;
+        let mut map = serializer.serialize_map(this.0.component_count(entity))?;
         this.0.serialize_entity(entity, &mut map)?;
         map.end()
     }
