@@ -1,5 +1,8 @@
 # 0.3.3 (Unreleased)
 
+### Added
+- `EntityRef::len` to query how many components an entity has
+
 # 0.3.2
 
 ### Added

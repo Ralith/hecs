@@ -188,6 +188,16 @@ impl<'a> EntityRef<'a> {
             .into_iter()
             .flat_map(|arch| arch.types().iter().map(|ty| ty.id()))
     }
+
+    /// Number of components in this entity
+    pub fn len(&self) -> usize {
+        self.archetype.map_or(0, |a| a.types().len())
+    }
+
+    /// Shorthand for `self.len() == 0`
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
 }
 
 unsafe impl<'a> Send for EntityRef<'a> {}
