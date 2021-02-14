@@ -1,10 +1,10 @@
-//! Row-major serialization
+//! Human-friendly row-major serialization
 //!
 //! Stores each entity's components together. Preferred for data that will be read/written by
 //! humans. Less efficient than column-major serialization.
 //!
 //! This module builds on the public [`World::iter()`] and [`World::spawn_at()`] APIs, and are
-//! somewhat opinionated. For some applications, a more custom approach may be preferable.
+//! somewhat opinionated. For some applications, a custom approach may be preferable.
 //!
 //! In terms of the serde data model, we treat a [`World`] as a map of entity IDs to user-controlled
 //! maps of component IDs to data.
@@ -34,10 +34,11 @@ use crate::{Component, EntityBuilder, EntityRef, World};
 /// # struct Velocity([f32; 3]);
 /// use hecs::{*, serialize::row::*};
 ///
-/// // Could include references to external state for use by `serialize_entity`
-/// struct Context;
 /// #[derive(Serialize, Deserialize)]
 /// enum ComponentId { Position, Velocity }
+///
+/// // Could include references to external state for use by `serialize_entity`
+/// struct Context;
 ///
 /// impl SerializeContext for Context {
 ///     fn serialize_entity<S>(
@@ -142,10 +143,11 @@ where
 /// # struct Velocity([f32; 3]);
 /// use hecs::{*, serialize::row::*};
 ///
-/// // Could include references to external state for use by `deserialize_entity`
-/// struct Context;
 /// #[derive(Serialize, Deserialize)]
 /// enum ComponentId { Position, Velocity }
+///
+/// // Could include references to external state for use by `deserialize_entity`
+/// struct Context;
 ///
 /// impl DeserializeContext for Context {
 ///     fn deserialize_entity<'de, M>(
