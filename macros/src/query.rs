@@ -63,7 +63,7 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream2> {
             .unzip(),
         syn::Fields::Unit => (Vec::new(), Vec::new()),
     };
-    let fetches = fetches.into_iter().collect::<Result<Vec<_>>>()?;
+    let fetches = fetches.into_iter().collect::<Vec<_>>();
     let fetch_ident = Ident::new(&format!("__HecsInternal{}Fetch", ident), Span::call_site());
     let fetch = match data.fields {
         syn::Fields::Named(_) => quote! {
@@ -140,7 +140,7 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream2> {
     })
 }
 
-fn query_fetch_ty(lifetime: &Lifetime, ty: &Type) -> Result<TokenStream2> {
+fn query_fetch_ty(lifetime: &Lifetime, ty: &Type) -> TokenStream2 {
     struct Visitor<'a> {
         replace: &'a Lifetime,
     };
@@ -154,7 +154,7 @@ fn query_fetch_ty(lifetime: &Lifetime, ty: &Type) -> Result<TokenStream2> {
 
     let mut ty = ty.clone();
     syn::visit_mut::visit_type_mut(&mut Visitor { replace: lifetime }, &mut ty);
-    Ok(quote! {
+    quote! {
         <#ty as ::hecs::Query>::Fetch
-    })
+    }
 }
