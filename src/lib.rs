@@ -34,6 +34,7 @@
 
 #![warn(missing_docs)]
 #![no_std]
+#![cfg_attr(docsrs, feature(doc_cfg))]
 
 #[cfg(feature = "std")]
 extern crate std;
@@ -63,7 +64,7 @@ mod entities;
 mod entity_builder;
 mod query;
 mod query_one;
-#[cfg(feature = "serde")]
+#[cfg(any(feature = "row-serialize", feature = "column-serialize"))]
 pub mod serialize;
 mod world;
 

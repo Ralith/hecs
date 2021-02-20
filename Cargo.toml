@@ -21,6 +21,10 @@ default = ["std"]
 std = []
 # Enables derive(Bundle)
 macros = ["hecs-macros", "lazy_static"]
+# Enables the serialize::column module
+column-serialize = ["serde"]
+# Enables the serialize::row module
+row-serialize = ["serde"]
 
 [dependencies]
 hecs-macros = { path = "macros", version = "0.4.0", optional = true }
