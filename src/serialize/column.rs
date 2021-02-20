@@ -503,7 +503,7 @@ where
     type Value = World;
 
     fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-        formatter.write_str("a world")
+        formatter.write_str("a sequence of archetypes")
     }
 
     fn visit_seq<A>(self, mut seq: A) -> Result<World, A::Error>
@@ -547,7 +547,7 @@ where
     type Value = ColumnBatch;
 
     fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-        formatter.write_str("an archetype")
+        formatter.write_str("a 4-tuple of an entity count, a component count, a component ID list, and a component value list")
     }
 
     fn visit_seq<A>(self, mut seq: A) -> Result<ColumnBatch, A::Error>
@@ -594,11 +594,11 @@ where
     where
         D: Deserializer<'de>,
     {
-        deserializer.deserialize_tuple(self.1 as usize, ComponentIdVisitor(self.0))
+        deserializer.deserialize_tuple(self.1 as usize, ComponentIdVisitor(self.0, self.1))
     }
 }
 
-struct ComponentIdVisitor<'a, C>(&'a mut C);
+struct ComponentIdVisitor<'a, C>(&'a mut C, u32);
 
 impl<'de, 'a, C> Visitor<'de> for ComponentIdVisitor<'a, C>
 where
@@ -606,8 +606,8 @@ where
 {
     type Value = ColumnBatchType;
 
-    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-        formatter.write_str("a set of component IDs")
+    fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "a set of {} component IDs", self.1)
     }
 
     fn visit_seq<A>(self, seq: A) -> Result<ColumnBatchType, A::Error>
@@ -661,8 +661,8 @@ where
 {
     type Value = ();
 
-    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-        formatter.write_str("a set of component IDs")
+    fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "a set of {} components", self.entity_count)
     }
 
     fn visit_seq<A>(self, mut seq: A) -> Result<(), A::Error>
