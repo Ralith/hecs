@@ -534,7 +534,7 @@ where
     where
         D: Deserializer<'de>,
     {
-        deserializer.deserialize_tuple(3, ArchetypeVisitor(self.0, self.1))
+        deserializer.deserialize_tuple(4, ArchetypeVisitor(self.0, self.1))
     }
 }
 
@@ -637,7 +637,7 @@ where
         D: Deserializer<'de>,
     {
         deserializer.deserialize_tuple(
-            self.component_count as usize,
+            self.component_count as usize + 1,
             ComponentsVisitor {
                 ctx: self.ctx,
                 entity_count: self.entity_count,
