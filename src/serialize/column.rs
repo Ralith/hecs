@@ -7,7 +7,7 @@
 //! This module builds on the public archetype-related APIs and [`World::spawn_column_batch_at()`],
 //! and is somewhat opinionated. For some applications, a custom approach may be preferable.
 //!
-//! In terms of the serde data model, we treat a [`World`] as a tuple of archetypes, where each
+//! In terms of the serde data model, we treat a [`World`] as a sequence of archetypes, where each
 //! archetype is a 4-tuple of an entity count `n`, component count `k`, a `k`-tuple of
 //! user-controlled component IDs, and a `k+1`-tuple of `n`-tuples of components, such that the
 //! first `n`-tuple contains `Entity` values and the remainder each contain components of the type
@@ -18,7 +18,7 @@ use core::{any::type_name, cell::RefCell, fmt, marker::PhantomData};
 
 use serde::{
     de::{self, DeserializeSeed, SeqAccess, Unexpected, Visitor},
-    ser::SerializeTuple,
+    ser::{SerializeSeq, SerializeTuple},
     Deserialize, Deserializer, Serialize, Serializer,
 };
 
@@ -281,7 +281,7 @@ where
     }
 
     let mut seq =
-        serializer.serialize_tuple(world.archetypes().filter(|x| !x.is_empty()).count())?;
+        serializer.serialize_seq(Some(world.archetypes().filter(|x| !x.is_empty()).count()))?;
     for archetype in world.archetypes().filter(|x| !x.is_empty()) {
         seq.serialize_element(&SerializeArchetype {
             world,
@@ -491,7 +491,7 @@ where
     C: DeserializeContext,
     D: Deserializer<'de>,
 {
-    deserializer.deserialize_map(WorldVisitor(context))
+    deserializer.deserialize_seq(WorldVisitor(context))
 }
 
 struct WorldVisitor<'a, C>(&'a mut C);
@@ -900,7 +900,7 @@ mod tests {
 
         assert_tokens(&SerWorld(world), &[
             Token::NewtypeStruct { name: "SerWorld" },
-            Token::Tuple { len: 3 },
+            Token::Seq { len: Some(3) },
 
             Token::Tuple { len: 4 },
             Token::U32(1),
@@ -965,7 +965,7 @@ mod tests {
             Token::TupleEnd,
             Token::TupleEnd,
 
-            Token::TupleEnd,
+            Token::SeqEnd,
         ])
     }
 }
