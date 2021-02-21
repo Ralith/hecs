@@ -1,9 +1,16 @@
 # 0.4.0 (Unreleased)
 
+### Changed
+- Row-major serialization moved under `serialize::row` and behind the `row-serialize` cargo feature
+
 ### Added
 - `EntityRef::len` to query how many components an entity has
 - Support for serializers that require maps to be of known length
-- An alternative column-major serialization layout for better performance and compressibility
+- An alternative column-major serialization layout for better performance and compressibility, in
+  the `serialize::column` module behind the `column-serialize` feature
+
+### Fixed
+- Incorrect behavior when building a `ColumnBatch` of zero entities
 
 # 0.3.2
 
