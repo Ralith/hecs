@@ -56,13 +56,14 @@ impl Archetype {
     }
 
     pub(crate) fn new(types: Vec<TypeInfo>) -> Self {
+        let max_align = types.first().map_or(1, |ty| ty.layout.align());
         Self::assert_type_info(&types);
         Self {
+            state: types.iter().map(|ty| (ty.id, TypeState::new(0))).collect(),
             types,
-            state: HashMap::default(),
             entities: Box::new([]),
             len: 0,
-            data: UnsafeCell::new(NonNull::dangling()),
+            data: UnsafeCell::new(NonNull::new(max_align as *mut u8).unwrap()),
             data_size: 0,
         }
     }
@@ -248,15 +249,12 @@ impl Archetype {
                 state.insert(ty.id, TypeState::new(self.data_size));
                 self.data_size += ty.layout.size() * new_cap;
             }
+            let max_align = self.types.first().map_or(1, |x| x.layout.align());
             let new_data = if self.data_size == 0 {
-                NonNull::dangling()
+                NonNull::new(max_align as *mut u8).unwrap()
             } else {
                 NonNull::new(alloc(
-                    Layout::from_size_align(
-                        self.data_size,
-                        self.types.first().map_or(1, |x| x.layout.align()),
-                    )
-                    .unwrap(),
+                    Layout::from_size_align(self.data_size, max_align).unwrap(),
                 ))
                 .unwrap()
             };

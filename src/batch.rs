@@ -142,3 +142,17 @@ impl fmt::Display for BatchIncomplete {
         f.write_str("batch incomplete")
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn empty_batch() {
+        let mut types = ColumnBatchType::new();
+        types.add::<usize>();
+        let mut builder = types.into_batch(0);
+        let mut writer = builder.writer::<usize>().unwrap();
+        assert!(writer.push(42).is_err());
+    }
+}
