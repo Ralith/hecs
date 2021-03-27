@@ -92,6 +92,8 @@ pub use archetype::TypeInfo;
 pub use lazy_static;
 #[doc(hidden)]
 pub use query::Fetch;
+#[doc(hidden)]
+pub use world::ArchetypeSet;
 
 #[cfg(feature = "macros")]
 pub use hecs_macros::{Bundle, Query};
