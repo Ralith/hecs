@@ -197,7 +197,7 @@ impl World {
         let archetype = batch.0;
         let entity_count = archetype.len();
         // Store component data
-        let (archetype_id, base) = self.insert_archetype(archetype);
+        let (archetype_id, base) = self.archetypes.insert_batch(archetype);
 
         let archetype = &mut self.archetypes.archetypes[archetype_id as usize];
         let id_alloc = self.entities.alloc_many(entity_count, archetype_id, base);
@@ -242,42 +242,12 @@ impl World {
         }
 
         // Store components
-        let (archetype_id, base) = self.insert_archetype(archetype);
+        let (archetype_id, base) = self.archetypes.insert_batch(archetype);
 
         // Fix up entity IDs
         let archetype = &mut self.archetypes.archetypes[archetype_id as usize];
         for (&handle, index) in handles.iter().zip(base as usize..) {
             archetype.set_entity_id(index, handle.id());
-        }
-    }
-
-    /// Returns archetype ID and starting location index
-    fn insert_archetype(&mut self, archetype: Archetype) -> (u32, u32) {
-        use hashbrown::hash_map::Entry;
-
-        let ids = archetype
-            .types()
-            .iter()
-            .map(|info| info.id())
-            .collect::<Box<_>>();
-
-        match self.archetypes.index.entry(ids) {
-            Entry::Occupied(x) => {
-                // Duplicate of existing archetype
-                let existing = &mut self.archetypes.archetypes[*x.get() as usize];
-                let base = existing.len();
-                unsafe {
-                    existing.merge(archetype);
-                }
-                (*x.get(), base)
-            }
-            Entry::Vacant(x) => {
-                // Brand new archetype
-                let id = self.archetypes.archetypes.len() as u32;
-                self.archetypes.archetypes.push(archetype);
-                x.insert(id);
-                (id, 0)
-            }
         }
     }
 
@@ -1082,8 +1052,43 @@ impl ArchetypeSet {
         self.archetypes.push(Archetype::new(info));
         let old = self.index.insert(components, x);
         debug_assert!(old.is_none(), "inserted duplicate archetype");
-        self.generation += 1;
+        self.post_insert();
         x
+    }
+
+    /// Returns archetype ID and starting location index
+    fn insert_batch(&mut self, archetype: Archetype) -> (u32, u32) {
+        use hashbrown::hash_map::Entry;
+
+        let ids = archetype
+            .types()
+            .iter()
+            .map(|info| info.id())
+            .collect::<Box<_>>();
+
+        match self.index.entry(ids) {
+            Entry::Occupied(x) => {
+                // Duplicate of existing archetype
+                let existing = &mut self.archetypes[*x.get() as usize];
+                let base = existing.len();
+                unsafe {
+                    existing.merge(archetype);
+                }
+                (*x.get(), base)
+            }
+            Entry::Vacant(x) => {
+                // Brand new archetype
+                let id = self.archetypes.len() as u32;
+                self.archetypes.push(archetype);
+                x.insert(id);
+                self.post_insert();
+                (id, 0)
+            }
+        }
+    }
+
+    fn post_insert(&mut self) {
+        self.generation += 1;
     }
 }
 
