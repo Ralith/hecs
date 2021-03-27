@@ -68,6 +68,21 @@ fn remove(b: &mut Bencher) {
     });
 }
 
+fn insert(b: &mut Bencher) {
+    let mut world = World::new();
+    b.iter(|| {
+        // This really shouldn't be counted as part of the benchmark, but bencher doesn't seem to
+        // support that.
+        let entities = world
+            .spawn_batch((0..1_000).map(|_| (Position(0.0),)))
+            .collect::<Vec<_>>();
+        for e in entities {
+            world.insert_one(e, Velocity(0.0)).unwrap();
+        }
+        world.clear();
+    });
+}
+
 fn iterate_100k(b: &mut Bencher) {
     let mut world = World::new();
     for i in 0..100_000 {
@@ -107,6 +122,7 @@ benchmark_group!(
     spawn_static,
     spawn_batch,
     remove,
+    insert,
     iterate_100k,
     iterate_mut_100k,
     build
