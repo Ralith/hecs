@@ -39,8 +39,8 @@ impl<'a, Q: Query> QueryOne<'a, Q> {
         }
         unsafe {
             let fetch = Q::Fetch::new(self.archetype)?;
-            self.borrowed = true;
             Q::Fetch::borrow(self.archetype);
+            self.borrowed = true;
             Some(fetch.get(self.index as usize))
         }
     }
