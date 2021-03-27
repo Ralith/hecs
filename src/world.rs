@@ -438,32 +438,20 @@ impl World {
     /// Panics if the component is already uniquely borrowed from another entity with the same
     /// components.
     pub fn get<T: Component>(&self, entity: Entity) -> Result<Ref<'_, T>, ComponentError> {
-        let loc = self.entities.get(entity)?;
-        if loc.archetype == 0 {
-            return Err(MissingComponent::new::<T>().into());
-        }
-        Ok(unsafe {
-            Ref::new(
-                &self.archetypes.archetypes[loc.archetype as usize],
-                loc.index,
-            )?
-        })
+        Ok(self
+            .entity(entity)?
+            .get()
+            .ok_or_else(MissingComponent::new::<T>)?)
     }
 
     /// Uniquely borrow the `T` component of `entity`
     ///
     /// Panics if the component is already borrowed from another entity with the same components.
     pub fn get_mut<T: Component>(&self, entity: Entity) -> Result<RefMut<'_, T>, ComponentError> {
-        let loc = self.entities.get(entity)?;
-        if loc.archetype == 0 {
-            return Err(MissingComponent::new::<T>().into());
-        }
-        Ok(unsafe {
-            RefMut::new(
-                &self.archetypes.archetypes[loc.archetype as usize],
-                loc.index,
-            )?
-        })
+        Ok(self
+            .entity(entity)?
+            .get_mut()
+            .ok_or_else(MissingComponent::new::<T>)?)
     }
 
     /// Access an entity regardless of its component types
