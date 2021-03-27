@@ -1,4 +1,4 @@
-# Unreleased
+# 0.5.0
 
 ### Changed
 - Improved performance for spawning, inserting, or removing statically-typed component bundles
