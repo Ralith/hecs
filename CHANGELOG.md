@@ -1,3 +1,8 @@
+# Unreleased
+
+### Fixed
+- `World::archetypes_generation` not updated when a column batch spawn introduces a new archetype
+
 # 0.4.0
 
 ### Changed
