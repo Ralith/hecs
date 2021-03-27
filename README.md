@@ -85,16 +85,16 @@ efficiently removing them from the index when despawning.
 
 ### Other Libraries
 
-hecs would not exist if not for the great work done by others to introduce and
-develop the ECS paradigm in the Rust ecosystem. In particular:
+hecs owes a great deal to the free exchange of ideas in Rust's ECS library
+ecosystem. Particularly influential examples include:
 
-- [specs] played a key role in popularizing ECS in Rust
-- [legion] reduced boilerplate and improved cache locality with sparse
+- [bevy], which continually pushes the envelope for performance and ergonomics
+  in the context of a batteries-included framework
+- [specs], which was key in popularizing ECS in Rust
+- [legion], which demonstrated archetypal memory layout and trait-less
   components
 
-hecs builds on these successes by focusing on further simplification, boiling
-the paradigm down to a minimal, light-weight and ergonomic core, without
-compromising on performance or flexibility.
+If hecs doesn't suit you, one of those might do the trick!
 
 ## License
 
@@ -117,5 +117,6 @@ additional terms or conditions.
 This is not an official Google product (experimental or otherwise), it is just
 code that happens to be owned by Google.
 
+[bevy]: https://github.com/bevyengine/bevy
 [specs]: https://github.com/amethyst/specs
 [legion]: https://github.com/TomGillen/legion
