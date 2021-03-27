@@ -11,13 +11,19 @@ use core::ptr::NonNull;
 use core::{fmt, mem};
 
 use crate::archetype::TypeInfo;
-use crate::{ArchetypeSet, Component};
+use crate::Component;
 
 /// A dynamically typed collection of components
 pub unsafe trait DynamicBundle {
-    /// Find the archetype to spawn in
+    /// Returns a `TypeId` uniquely identifying the set of components, if known
     #[doc(hidden)]
-    fn find_archetype(&self, archetypes: &mut ArchetypeSet) -> u32;
+    fn key(&self) -> Option<TypeId> {
+        None
+    }
+
+    /// Invoke a callback on the fields' type IDs, sorted by descending alignment then id
+    #[doc(hidden)]
+    fn with_ids<T>(&self, f: impl FnOnce(&[TypeId]) -> T) -> T;
 
     /// Obtain the fields' TypeInfos, sorted by descending alignment then id
     #[doc(hidden)]
@@ -32,10 +38,6 @@ pub unsafe trait DynamicBundle {
 
 /// A statically typed collection of components
 pub unsafe trait Bundle: DynamicBundle {
-    /// Find the archetype to spawn in
-    #[doc(hidden)]
-    fn find_static_archetype(archetypes: &mut ArchetypeSet) -> u32;
-
     #[doc(hidden)]
     fn with_static_ids<T>(f: impl FnOnce(&[TypeId]) -> T) -> T;
 
@@ -78,8 +80,12 @@ impl std::error::Error for MissingComponent {}
 macro_rules! tuple_impl {
     ($($name: ident),*) => {
         unsafe impl<$($name: Component),*> DynamicBundle for ($($name,)*) {
-            fn find_archetype(&self, archetypes: &mut ArchetypeSet) -> u32 {
-                Self::find_static_archetype(archetypes)
+            fn key(&self) -> Option<TypeId> {
+                Some(TypeId::of::<Self>())
+            }
+
+            fn with_ids<T>(&self, f: impl FnOnce(&[TypeId]) -> T) -> T {
+                Self::with_static_ids(f)
             }
 
             fn type_info(&self) -> Vec<TypeInfo> {
@@ -101,14 +107,6 @@ macro_rules! tuple_impl {
         }
 
         unsafe impl<$($name: Component),*> Bundle for ($($name,)*) {
-            fn find_static_archetype(archetypes: &mut ArchetypeSet) -> u32 {
-                archetypes.get_cached(TypeId::of::<Self>(), &|| {
-                    let mut xs = vec![$(TypeInfo::of::<$name>()),*];
-                    xs.sort_unstable();
-                    xs
-                })
-            }
-
             fn with_static_ids<T>(f: impl FnOnce(&[TypeId]) -> T) -> T {
                 const N: usize = count!($($name),*);
                 let mut xs: [(usize, TypeId); N] = [$((mem::align_of::<$name>(), TypeId::of::<$name>())),*];
