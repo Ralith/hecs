@@ -16,7 +16,7 @@ use std::error::Error;
 use hashbrown::{HashMap, HashSet};
 
 use crate::alloc::boxed::Box;
-use crate::archetype::Archetype;
+use crate::archetype::{Archetype, TypeInfo};
 use crate::entities::{Entities, Location, ReserveEntitiesIterator};
 use crate::{
     Bundle, ColumnBatch, DynamicBundle, Entity, EntityRef, Fetch, MissingComponent, NoSuchEntity,
@@ -43,22 +43,15 @@ use crate::{
 /// over which they may retain handles of despawned entities.
 pub struct World {
     entities: Entities,
-    index: HashMap<Box<[TypeId]>, u32>,
-    archetypes: Vec<Archetype>,
-    archetype_generation: u64,
+    archetypes: ArchetypeSet,
 }
 
 impl World {
     /// Create an empty world
     pub fn new() -> Self {
-        // `flush` assumes archetype 0 always exists, representing entities with no components.
-        let mut index = HashMap::default();
-        index.insert(Box::default(), 0);
         Self {
             entities: Entities::default(),
-            index,
-            archetypes: alloc::vec![Archetype::new(Vec::new())],
-            archetype_generation: 0,
+            archetypes: ArchetypeSet::new(),
         }
     }
 
@@ -121,7 +114,7 @@ impl World {
         let loc = self.entities.alloc_at(handle);
         if let Some(loc) = loc {
             if let Some(moved) =
-                unsafe { self.archetypes[loc.archetype as usize].remove(loc.index) }
+                unsafe { self.archetypes.archetypes[loc.archetype as usize].remove(loc.index) }
             {
                 self.entities.meta[moved as usize].location.index = loc.index;
             }
@@ -132,16 +125,18 @@ impl World {
 
     fn spawn_inner(&mut self, entity: Entity, components: impl DynamicBundle) {
         let archetype_id = components.with_ids(|ids| {
-            self.index.get(ids).copied().unwrap_or_else(|| {
-                let x = self.archetypes.len() as u32;
-                self.archetypes.push(Archetype::new(components.type_info()));
-                self.index.insert(ids.into(), x);
-                self.archetype_generation += 1;
+            self.archetypes.index.get(ids).copied().unwrap_or_else(|| {
+                let x = self.archetypes.archetypes.len() as u32;
+                self.archetypes
+                    .archetypes
+                    .push(Archetype::new(components.type_info()));
+                self.archetypes.index.insert(ids.into(), x);
+                self.archetypes.generation += 1;
                 x
             })
         });
 
-        let archetype = &mut self.archetypes[archetype_id as usize];
+        let archetype = &mut self.archetypes.archetypes[archetype_id as usize];
         unsafe {
             let index = archetype.allocate(entity.id);
             components.put(|ptr, ty| {
@@ -186,7 +181,7 @@ impl World {
             inner: iter,
             entities: &mut self.entities,
             archetype_id,
-            archetype: &mut self.archetypes[archetype_id as usize],
+            archetype: &mut self.archetypes.archetypes[archetype_id as usize],
         }
     }
 
@@ -202,7 +197,7 @@ impl World {
         // Store component data
         let (archetype_id, base) = self.insert_archetype(archetype);
 
-        let archetype = &mut self.archetypes[archetype_id as usize];
+        let archetype = &mut self.archetypes.archetypes[archetype_id as usize];
         let id_alloc = self.entities.alloc_many(entity_count, archetype_id, base);
 
         // Fix up entity IDs
@@ -237,7 +232,7 @@ impl World {
             let loc = self.entities.alloc_at(handle);
             if let Some(loc) = loc {
                 if let Some(moved) =
-                    unsafe { self.archetypes[loc.archetype as usize].remove(loc.index) }
+                    unsafe { self.archetypes.archetypes[loc.archetype as usize].remove(loc.index) }
                 {
                     self.entities.meta[moved as usize].location.index = loc.index;
                 }
@@ -248,7 +243,7 @@ impl World {
         let (archetype_id, base) = self.insert_archetype(archetype);
 
         // Fix up entity IDs
-        let archetype = &mut self.archetypes[archetype_id as usize];
+        let archetype = &mut self.archetypes.archetypes[archetype_id as usize];
         for (&handle, index) in handles.iter().zip(base as usize..) {
             archetype.set_entity_id(index, handle.id());
         }
@@ -264,10 +259,10 @@ impl World {
             .map(|info| info.id())
             .collect::<Box<_>>();
 
-        match self.index.entry(ids) {
+        match self.archetypes.index.entry(ids) {
             Entry::Occupied(x) => {
                 // Duplicate of existing archetype
-                let existing = &mut self.archetypes[*x.get() as usize];
+                let existing = &mut self.archetypes.archetypes[*x.get() as usize];
                 let base = existing.len();
                 unsafe {
                     existing.merge(archetype);
@@ -276,8 +271,8 @@ impl World {
             }
             Entry::Vacant(x) => {
                 // Brand new archetype
-                let id = self.archetypes.len() as u32;
-                self.archetypes.push(archetype);
+                let id = self.archetypes.archetypes.len() as u32;
+                self.archetypes.archetypes.push(archetype);
                 x.insert(id);
                 (id, 0)
             }
@@ -309,7 +304,9 @@ impl World {
     pub fn despawn(&mut self, entity: Entity) -> Result<(), NoSuchEntity> {
         self.flush();
         let loc = self.entities.free(entity)?;
-        if let Some(moved) = unsafe { self.archetypes[loc.archetype as usize].remove(loc.index) } {
+        if let Some(moved) =
+            unsafe { self.archetypes.archetypes[loc.archetype as usize].remove(loc.index) }
+        {
             self.entities.meta[moved as usize].location.index = loc.index;
         }
         Ok(())
@@ -325,16 +322,18 @@ impl World {
         self.entities.reserve(additional);
 
         let archetype_id = T::with_static_ids(|ids| {
-            self.index.get(ids).copied().unwrap_or_else(|| {
-                let x = self.archetypes.len() as u32;
-                self.archetypes.push(Archetype::new(T::static_type_info()));
-                self.index.insert(ids.into(), x);
-                self.archetype_generation += 1;
+            self.archetypes.index.get(ids).copied().unwrap_or_else(|| {
+                let x = self.archetypes.archetypes.len() as u32;
+                self.archetypes
+                    .archetypes
+                    .push(Archetype::new(T::static_type_info()));
+                self.archetypes.index.insert(ids.into(), x);
+                self.archetypes.generation += 1;
                 x
             })
         });
 
-        self.archetypes[archetype_id as usize].reserve(additional);
+        self.archetypes.archetypes[archetype_id as usize].reserve(additional);
         archetype_id
     }
 
@@ -342,7 +341,7 @@ impl World {
     ///
     /// Preserves allocated storage for reuse.
     pub fn clear(&mut self) {
-        for x in &mut self.archetypes {
+        for x in &mut self.archetypes.archetypes {
             x.clear();
         }
         self.entities.clear();
@@ -396,7 +395,7 @@ impl World {
     /// assert!(entities.contains(&(b, 456, false)));
     /// ```
     pub fn query<Q: Query>(&self) -> QueryBorrow<'_, Q> {
-        QueryBorrow::new(&self.entities.meta, &self.archetypes)
+        QueryBorrow::new(&self.entities.meta, &self.archetypes.archetypes)
     }
 
     /// Query a uniquely borrowed world
@@ -404,7 +403,7 @@ impl World {
     /// Like `query`, but faster because dynamic borrow checks can be skipped. Note that, unlike
     /// `query`, this returns an `IntoIterator` which can be passed directly to a `for` loop.
     pub fn query_mut<Q: Query>(&mut self) -> QueryMut<'_, Q> {
-        QueryMut::new(&self.entities.meta, &mut self.archetypes)
+        QueryMut::new(&self.entities.meta, &mut self.archetypes.archetypes)
     }
 
     /// Prepare a query against a single entity, using dynamic borrow checking
@@ -430,7 +429,12 @@ impl World {
     /// ```
     pub fn query_one<Q: Query>(&self, entity: Entity) -> Result<QueryOne<'_, Q>, NoSuchEntity> {
         let loc = self.entities.get(entity)?;
-        Ok(unsafe { QueryOne::new(&self.archetypes[loc.archetype as usize], loc.index) })
+        Ok(unsafe {
+            QueryOne::new(
+                &self.archetypes.archetypes[loc.archetype as usize],
+                loc.index,
+            )
+        })
     }
 
     /// Query a single entity in a uniquely borrow world
@@ -443,7 +447,7 @@ impl World {
     ) -> Result<QueryItem<'_, Q>, QueryOneError> {
         let loc = self.entities.get(entity)?;
         unsafe {
-            let fetch = Q::Fetch::new(&self.archetypes[loc.archetype as usize])
+            let fetch = Q::Fetch::new(&self.archetypes.archetypes[loc.archetype as usize])
                 .ok_or(QueryOneError::Unsatisfied)?;
             Ok(fetch.get(loc.index as usize))
         }
@@ -458,7 +462,12 @@ impl World {
         if loc.archetype == 0 {
             return Err(MissingComponent::new::<T>().into());
         }
-        Ok(unsafe { Ref::new(&self.archetypes[loc.archetype as usize], loc.index)? })
+        Ok(unsafe {
+            Ref::new(
+                &self.archetypes.archetypes[loc.archetype as usize],
+                loc.index,
+            )?
+        })
     }
 
     /// Uniquely borrow the `T` component of `entity`
@@ -469,7 +478,12 @@ impl World {
         if loc.archetype == 0 {
             return Err(MissingComponent::new::<T>().into());
         }
-        Ok(unsafe { RefMut::new(&self.archetypes[loc.archetype as usize], loc.index)? })
+        Ok(unsafe {
+            RefMut::new(
+                &self.archetypes.archetypes[loc.archetype as usize],
+                loc.index,
+            )?
+        })
     }
 
     /// Access an entity regardless of its component types
@@ -479,7 +493,7 @@ impl World {
         let loc = self.entities.get(entity)?;
         unsafe {
             Ok(EntityRef::new(
-                &self.archetypes[loc.archetype as usize],
+                &self.archetypes.archetypes[loc.archetype as usize],
                 loc.index,
             ))
         }
@@ -510,7 +524,7 @@ impl World {
     /// assert!(ids.contains(&b));
     /// ```
     pub fn iter(&self) -> Iter<'_> {
-        Iter::new(&self.archetypes, &self.entities)
+        Iter::new(&self.archetypes.archetypes, &self.entities)
     }
 
     /// Add `components` to `entity`
@@ -540,7 +554,7 @@ impl World {
         let loc = self.entities.get_mut(entity)?;
         unsafe {
             // Assemble Vec<TypeInfo> for the final entity
-            let arch = &mut self.archetypes[loc.archetype as usize];
+            let arch = &mut self.archetypes.archetypes[loc.archetype as usize];
             let mut info = arch.types().to_vec();
             for ty in components.type_info() {
                 if let Some(ptr) = arch.get_dynamic(ty.id(), ty.layout().size(), loc.index) {
@@ -553,20 +567,20 @@ impl World {
 
             // Find the archetype it'll live in
             let elements = info.iter().map(|x| x.id()).collect();
-            let target = match self.index.entry(elements) {
+            let target = match self.archetypes.index.entry(elements) {
                 Entry::Occupied(x) => *x.get(),
                 Entry::Vacant(x) => {
-                    let index = self.archetypes.len() as u32;
-                    self.archetypes.push(Archetype::new(info));
+                    let index = self.archetypes.archetypes.len() as u32;
+                    self.archetypes.archetypes.push(Archetype::new(info));
                     x.insert(index);
-                    self.archetype_generation += 1;
+                    self.archetypes.generation += 1;
                     index
                 }
             };
 
             if target == loc.archetype {
                 // Update components in the current archetype
-                let arch = &mut self.archetypes[loc.archetype as usize];
+                let arch = &mut self.archetypes.archetypes[loc.archetype as usize];
                 components.put(|ptr, ty| {
                     arch.put_dynamic(ptr, ty.id(), ty.layout().size(), loc.index);
                 });
@@ -575,7 +589,7 @@ impl World {
 
             // Move into a new archetype
             let (source_arch, target_arch) = index2(
-                &mut self.archetypes,
+                &mut self.archetypes.archetypes,
                 loc.archetype as usize,
                 target as usize,
             );
@@ -631,31 +645,31 @@ impl World {
         let loc = self.entities.get_mut(entity)?;
         unsafe {
             let removed = T::with_static_ids(|ids| ids.iter().copied().collect::<HashSet<_>>());
-            let info = self.archetypes[loc.archetype as usize]
+            let info = self.archetypes.archetypes[loc.archetype as usize]
                 .types()
                 .iter()
                 .cloned()
                 .filter(|x| !removed.contains(&x.id()))
                 .collect::<Vec<_>>();
             let elements = info.iter().map(|x| x.id()).collect();
-            let target = match self.index.entry(elements) {
+            let target = match self.archetypes.index.entry(elements) {
                 Entry::Occupied(x) => *x.get(),
                 Entry::Vacant(x) => {
-                    self.archetypes.push(Archetype::new(info));
-                    let index = (self.archetypes.len() - 1) as u32;
+                    self.archetypes.archetypes.push(Archetype::new(info));
+                    let index = (self.archetypes.archetypes.len() - 1) as u32;
                     x.insert(index);
-                    self.archetype_generation += 1;
+                    self.archetypes.generation += 1;
                     index
                 }
             };
             let old_index = loc.index;
-            let source_arch = &self.archetypes[loc.archetype as usize];
+            let source_arch = &self.archetypes.archetypes[loc.archetype as usize];
             let bundle =
                 T::get(|ty| source_arch.get_dynamic(ty.id(), ty.layout().size(), old_index))?;
             // If we actually removed any components, the entity needs to be moved into a new archetype
             if loc.archetype != target {
                 let (source_arch, target_arch) = index2(
-                    &mut self.archetypes,
+                    &mut self.archetypes.archetypes,
                     loc.archetype as usize,
                     target as usize,
                 );
@@ -695,7 +709,7 @@ impl World {
         if loc.archetype == 0 {
             return Err(MissingComponent::new::<T>().into());
         }
-        Ok(&*self.archetypes[loc.archetype as usize]
+        Ok(&*self.archetypes.archetypes[loc.archetype as usize]
             .get_base::<T>()
             .ok_or_else(MissingComponent::new::<T>)?
             .as_ptr()
@@ -718,7 +732,7 @@ impl World {
         if loc.archetype == 0 {
             return Err(MissingComponent::new::<T>().into());
         }
-        Ok(&mut *self.archetypes[loc.archetype as usize]
+        Ok(&mut *self.archetypes.archetypes[loc.archetype as usize]
             .get_base::<T>()
             .ok_or_else(MissingComponent::new::<T>)?
             .as_ptr()
@@ -729,7 +743,7 @@ impl World {
     ///
     /// Invoked implicitly by `spawn`, `despawn`, `insert`, and `remove`.
     pub fn flush(&mut self) {
-        let arch = &mut self.archetypes[0];
+        let arch = &mut self.archetypes.archetypes[0];
         self.entities
             .flush(|id, location| location.index = unsafe { arch.allocate(id) });
     }
@@ -739,7 +753,7 @@ impl World {
     /// Useful for dynamically scheduling concurrent queries by checking borrows in advance, and for
     /// efficient serialization.
     pub fn archetypes(&self) -> impl ExactSizeIterator<Item = &'_ Archetype> + '_ {
-        self.archetypes.iter()
+        self.archetypes.archetypes.iter()
     }
 
     /// Returns a distinct value after `archetypes` is changed
@@ -761,7 +775,7 @@ impl World {
     /// assert_ne!(initial_gen, world.archetypes_generation());
     /// ```
     pub fn archetypes_generation(&self) -> ArchetypesGeneration {
-        ArchetypesGeneration(self.archetype_generation)
+        ArchetypesGeneration(self.archetypes.generation)
     }
 
     /// Number of currently live entities
@@ -1048,6 +1062,27 @@ impl Drop for SpawnColumnBatchIter<'_> {
     fn drop(&mut self) {
         // Consume used freelist entries
         self.entities.finish_alloc_many(self.pending_end);
+    }
+}
+
+struct ArchetypeSet {
+    /// Maps sorted component type sets to archetypes
+    index: HashMap<Box<[TypeId]>, u32>,
+    /// Maps statically-typed bundle types to archetypes
+    bundle_to_archetype: HashMap<TypeId, u32>,
+    archetypes: Vec<Archetype>,
+    generation: u64,
+}
+
+impl ArchetypeSet {
+    fn new() -> Self {
+        // `flush` assumes archetype 0 always exists, representing entities with no components.
+        Self {
+            index: Some((Box::default(), 0)).into_iter().collect(),
+            bundle_to_archetype: HashMap::new(),
+            archetypes: alloc::vec![Archetype::new(Vec::new())],
+            generation: 0,
+        }
     }
 }
 
