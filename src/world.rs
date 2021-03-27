@@ -531,7 +531,7 @@ impl World {
                     info.push(ty);
                 }
             }
-            info.sort();
+            info.sort_unstable();
 
             // Find the archetype it'll live in
             let elements = info.iter().map(|x| x.id()).collect();
