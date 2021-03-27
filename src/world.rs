@@ -476,10 +476,13 @@ impl World {
     ///
     /// Does not immediately borrow any component.
     pub fn entity(&self, entity: Entity) -> Result<EntityRef<'_>, NoSuchEntity> {
-        Ok(match self.entities.get(entity)? {
-            Location { archetype: 0, .. } => EntityRef::empty(),
-            loc => unsafe { EntityRef::new(&self.archetypes[loc.archetype as usize], loc.index) },
-        })
+        let loc = self.entities.get(entity)?;
+        unsafe {
+            Ok(EntityRef::new(
+                &self.archetypes[loc.archetype as usize],
+                loc.index,
+            ))
+        }
     }
 
     /// Given an id obtained from `Entity::id`, reconstruct the still-live `Entity`.

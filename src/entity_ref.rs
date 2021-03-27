@@ -8,24 +8,13 @@ use crate::{Component, MissingComponent};
 /// Handle to an entity with any component types
 #[derive(Copy, Clone)]
 pub struct EntityRef<'a> {
-    archetype: Option<&'a Archetype>,
+    archetype: &'a Archetype,
     index: u32,
 }
 
 impl<'a> EntityRef<'a> {
-    /// Construct a `Ref` for an entity with no components
-    pub(crate) fn empty() -> Self {
-        Self {
-            archetype: None,
-            index: 0,
-        }
-    }
-
     pub(crate) unsafe fn new(archetype: &'a Archetype, index: u32) -> Self {
-        Self {
-            archetype: Some(archetype),
-            index,
-        }
+        Self { archetype, index }
     }
 
     /// Borrow the component of type `T`, if it exists
@@ -33,14 +22,14 @@ impl<'a> EntityRef<'a> {
     /// Panics if the component is already uniquely borrowed from another entity with the same
     /// components.
     pub fn get<T: Component>(&self) -> Option<Ref<'a, T>> {
-        Some(unsafe { Ref::new(self.archetype?, self.index).ok()? })
+        Some(unsafe { Ref::new(self.archetype, self.index).ok()? })
     }
 
     /// Uniquely borrow the component of type `T`, if it exists
     ///
     /// Panics if the component is already borrowed from another entity with the same components.
     pub fn get_mut<T: Component>(&self) -> Option<RefMut<'a, T>> {
-        Some(unsafe { RefMut::new(self.archetype?, self.index).ok()? })
+        Some(unsafe { RefMut::new(self.archetype, self.index).ok()? })
     }
 
     /// Enumerate the types of the entity's components
@@ -50,14 +39,12 @@ impl<'a> EntityRef<'a> {
     /// user-defined trait with methods for serialization, or to be called after spawning or before
     /// despawning to maintain secondary indices.
     pub fn component_types(&self) -> impl Iterator<Item = TypeId> + 'a {
-        self.archetype
-            .into_iter()
-            .flat_map(|arch| arch.types().iter().map(|ty| ty.id()))
+        self.archetype.types().iter().map(|ty| ty.id())
     }
 
     /// Number of components in this entity
     pub fn len(&self) -> usize {
-        self.archetype.map_or(0, |a| a.types().len())
+        self.archetype.types().len()
     }
 
     /// Shorthand for `self.len() == 0`
