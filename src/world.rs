@@ -124,7 +124,10 @@ impl World {
     }
 
     fn spawn_inner(&mut self, entity: Entity, components: impl DynamicBundle) {
-        let archetype_id = components.find_archetype(&mut self.archetypes);
+        let archetype_id = match components.key() {
+            Some(k) => self.archetypes.get_cached(k, &|| components.type_info()),
+            None => components.with_ids(|ids| self.archetypes.get(ids, &|| components.type_info())),
+        };
 
         let archetype = &mut self.archetypes.archetypes[archetype_id as usize];
         unsafe {
@@ -155,7 +158,7 @@ impl World {
     pub fn spawn_batch<I>(&mut self, iter: I) -> SpawnBatchIter<'_, I::IntoIter>
     where
         I: IntoIterator,
-        I::Item: Bundle,
+        I::Item: Bundle + 'static,
     {
         // Ensure all entity allocations are accounted for so `self.entities` can realloc if
         // necessary
@@ -303,15 +306,17 @@ impl World {
     }
 
     /// Ensure `additional` entities with exact components `T` can be spawned without reallocating
-    pub fn reserve<T: Bundle>(&mut self, additional: u32) {
+    pub fn reserve<T: Bundle + 'static>(&mut self, additional: u32) {
         self.reserve_inner::<T>(additional);
     }
 
-    fn reserve_inner<T: Bundle>(&mut self, additional: u32) -> u32 {
+    fn reserve_inner<T: Bundle + 'static>(&mut self, additional: u32) -> u32 {
         self.flush();
         self.entities.reserve(additional);
 
-        let archetype_id = T::find_static_archetype(&mut self.archetypes);
+        let archetype_id = self
+            .archetypes
+            .get_cached(TypeId::of::<T>(), &|| T::static_type_info());
 
         self.archetypes.archetypes[archetype_id as usize].reserve(additional);
         archetype_id
@@ -1052,8 +1057,7 @@ impl Drop for SpawnColumnBatchIter<'_> {
     }
 }
 
-#[doc(hidden)]
-pub struct ArchetypeSet {
+struct ArchetypeSet {
     /// Maps sorted component type sets to archetypes
     index: HashMap<Box<[TypeId]>, u32>,
     /// Maps statically-typed bundle types to archetypes
@@ -1074,7 +1078,7 @@ impl ArchetypeSet {
     }
 
     /// Find the archetype ID that has exactly `components`
-    pub fn get(&mut self, components: &[TypeId], info: &dyn Fn() -> Vec<TypeInfo>) -> u32 {
+    fn get(&mut self, components: &[TypeId], info: &dyn Fn() -> Vec<TypeInfo>) -> u32 {
         self.index.get(components).copied().unwrap_or_else(|| {
             let x = self.archetypes.len() as u32;
             self.archetypes.push(Archetype::new(info()));
