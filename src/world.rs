@@ -7,6 +7,7 @@
 
 use crate::alloc::vec::Vec;
 use core::any::TypeId;
+use core::borrow::Borrow;
 use core::convert::TryFrom;
 use core::{fmt, mem, ptr};
 
@@ -44,6 +45,8 @@ use crate::{
 pub struct World {
     entities: Entities,
     archetypes: ArchetypeSet,
+    /// Maps statically-typed bundle types to archetypes
+    bundle_to_archetype: HashMap<TypeId, u32>,
 }
 
 impl World {
@@ -52,6 +55,7 @@ impl World {
         Self {
             entities: Entities::default(),
             archetypes: ArchetypeSet::new(),
+            bundle_to_archetype: HashMap::new(),
         }
     }
 
@@ -125,7 +129,12 @@ impl World {
 
     fn spawn_inner(&mut self, entity: Entity, components: impl DynamicBundle) {
         let archetype_id = match components.key() {
-            Some(k) => self.archetypes.get_cached(k, &|| components.type_info()),
+            Some(k) => {
+                let archetypes = &mut self.archetypes;
+                *self.bundle_to_archetype.entry(k).or_insert_with(|| {
+                    components.with_ids(|ids| archetypes.get(ids, &|| components.type_info()))
+                })
+            }
             None => components.with_ids(|ids| self.archetypes.get(ids, &|| components.type_info())),
         };
 
@@ -314,9 +323,13 @@ impl World {
         self.flush();
         self.entities.reserve(additional);
 
-        let archetype_id = self
-            .archetypes
-            .get_cached(TypeId::of::<T>(), &|| T::static_type_info());
+        let archetypes = &mut self.archetypes;
+        let archetype_id = *self
+            .bundle_to_archetype
+            .entry(TypeId::of::<T>())
+            .or_insert_with(|| {
+                T::with_static_ids(|ids| archetypes.get(ids, &|| T::static_type_info()))
+            });
 
         self.archetypes.archetypes[archetype_id as usize].reserve(additional);
         archetype_id
@@ -521,8 +534,6 @@ impl World {
         entity: Entity,
         components: impl DynamicBundle,
     ) -> Result<(), NoSuchEntity> {
-        use hashbrown::hash_map::Entry;
-
         self.flush();
         let loc = self.entities.get_mut(entity)?;
         unsafe {
@@ -539,17 +550,8 @@ impl World {
             info.sort_unstable();
 
             // Find the archetype it'll live in
-            let elements = info.iter().map(|x| x.id()).collect();
-            let target = match self.archetypes.index.entry(elements) {
-                Entry::Occupied(x) => *x.get(),
-                Entry::Vacant(x) => {
-                    let index = self.archetypes.archetypes.len() as u32;
-                    self.archetypes.archetypes.push(Archetype::new(info));
-                    x.insert(index);
-                    self.archetypes.generation += 1;
-                    index
-                }
-            };
+            let elements = info.iter().map(|x| x.id()).collect::<Box<_>>();
+            let target = self.archetypes.get(elements, move || info);
 
             if target == loc.archetype {
                 // Update components in the current archetype
@@ -612,8 +614,6 @@ impl World {
     /// assert_eq!(*world.get::<bool>(e).unwrap(), true);
     /// ```
     pub fn remove<T: Bundle + 'static>(&mut self, entity: Entity) -> Result<T, ComponentError> {
-        use hashbrown::hash_map::Entry;
-
         self.flush();
 
         // Gather current metadata
@@ -637,17 +637,8 @@ impl World {
                     .cloned()
                     .filter(|x| !removed.contains(&x.id()))
                     .collect::<Vec<_>>();
-                let elements = info.iter().map(|x| x.id()).collect();
-                let index = match self.archetypes.index.entry(elements) {
-                    Entry::Occupied(x) => *x.get(),
-                    Entry::Vacant(x) => {
-                        self.archetypes.archetypes.push(Archetype::new(info));
-                        let index = (self.archetypes.archetypes.len() - 1) as u32;
-                        x.insert(index);
-                        self.archetypes.generation += 1;
-                        index
-                    }
-                };
+                let elements = info.iter().map(|x| x.id()).collect::<Box<_>>();
+                let index = self.archetypes.get(&*elements, move || info);
                 self.archetypes.archetypes[loc.archetype as usize]
                     .remove_edges
                     .insert(TypeId::of::<T>(), index);
@@ -1060,8 +1051,6 @@ impl Drop for SpawnColumnBatchIter<'_> {
 struct ArchetypeSet {
     /// Maps sorted component type sets to archetypes
     index: HashMap<Box<[TypeId]>, u32>,
-    /// Maps statically-typed bundle types to archetypes
-    bundle_to_archetype: HashMap<TypeId, u32>,
     archetypes: Vec<Archetype>,
     generation: u64,
 }
@@ -1071,39 +1060,30 @@ impl ArchetypeSet {
         // `flush` assumes archetype 0 always exists, representing entities with no components.
         Self {
             index: Some((Box::default(), 0)).into_iter().collect(),
-            bundle_to_archetype: HashMap::new(),
             archetypes: alloc::vec![Archetype::new(Vec::new())],
             generation: 0,
         }
     }
 
     /// Find the archetype ID that has exactly `components`
-    fn get(&mut self, components: &[TypeId], info: &dyn Fn() -> Vec<TypeInfo>) -> u32 {
-        self.index.get(components).copied().unwrap_or_else(|| {
-            let x = self.archetypes.len() as u32;
-            self.archetypes.push(Archetype::new(info()));
-            self.index.insert(components.into(), x);
-            self.generation += 1;
-            x
-        })
+    fn get<T: Borrow<[TypeId]> + Into<Box<[TypeId]>>>(
+        &mut self,
+        components: T,
+        info: impl FnOnce() -> Vec<TypeInfo>,
+    ) -> u32 {
+        self.index
+            .get(components.borrow())
+            .copied()
+            .unwrap_or_else(|| self.insert(components.into(), info()))
     }
 
-    /// Find the archetype ID that has exactly `components`, which `key` always corresponds to
-    pub fn get_cached(&mut self, key: TypeId, info: &dyn Fn() -> Vec<TypeInfo>) -> u32 {
-        let index = &mut self.index;
-        let archetypes = &mut self.archetypes;
-        let generation = &mut self.generation;
-        *self.bundle_to_archetype.entry(key).or_insert_with(|| {
-            let info = info();
-            let components = info.iter().map(|x| x.id()).collect::<Box<_>>();
-            index.get(&components).copied().unwrap_or_else(move || {
-                let x = archetypes.len() as u32;
-                archetypes.push(Archetype::new(info));
-                index.insert(components, x);
-                *generation += 1;
-                x
-            })
-        })
+    fn insert(&mut self, components: Box<[TypeId]>, info: Vec<TypeInfo>) -> u32 {
+        let x = self.archetypes.len() as u32;
+        self.archetypes.push(Archetype::new(info));
+        let old = self.index.insert(components, x);
+        debug_assert!(old.is_none(), "inserted duplicate archetype");
+        self.generation += 1;
+        x
     }
 }
 
