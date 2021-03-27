@@ -65,8 +65,8 @@ pub trait SerializeContext {
 
     /// Number of entries that [`serialize_entry`] will produce for `entity`, if known
     ///
-    /// Defaults to `None`. Must be overridden to return `Some` to support certain serializers, such
-    /// as bincode.
+    /// Defaults to `None`. Must be overridden to return `Some` to support certain serializers, e.g.
+    /// bincode.
     fn component_count(&self, entity: EntityRef<'_>) -> Option<usize> {
         let _ = entity;
         None
