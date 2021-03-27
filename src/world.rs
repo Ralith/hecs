@@ -5,7 +5,7 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
-use crate::alloc::vec::Vec;
+use crate::alloc::{vec, vec::Vec};
 use core::any::TypeId;
 use core::borrow::Borrow;
 use core::convert::TryFrom;
@@ -117,9 +117,9 @@ impl World {
 
         let loc = self.entities.alloc_at(handle);
         if let Some(loc) = loc {
-            if let Some(moved) =
-                unsafe { self.archetypes.archetypes[loc.archetype as usize].remove(loc.index) }
-            {
+            if let Some(moved) = unsafe {
+                self.archetypes.archetypes[loc.archetype as usize].remove(loc.index, true)
+            } {
                 self.entities.meta[moved as usize].location.index = loc.index;
             }
         }
@@ -233,9 +233,9 @@ impl World {
         for &handle in handles {
             let loc = self.entities.alloc_at(handle);
             if let Some(loc) = loc {
-                if let Some(moved) =
-                    unsafe { self.archetypes.archetypes[loc.archetype as usize].remove(loc.index) }
-                {
+                if let Some(moved) = unsafe {
+                    self.archetypes.archetypes[loc.archetype as usize].remove(loc.index, true)
+                } {
                     self.entities.meta[moved as usize].location.index = loc.index;
                 }
             }
@@ -277,7 +277,7 @@ impl World {
         self.flush();
         let loc = self.entities.free(entity)?;
         if let Some(moved) =
-            unsafe { self.archetypes.archetypes[loc.archetype as usize].remove(loc.index) }
+            unsafe { self.archetypes.archetypes[loc.archetype as usize].remove(loc.index, true) }
         {
             self.entities.meta[moved as usize].location.index = loc.index;
         }
@@ -506,24 +506,39 @@ impl World {
     ) -> Result<(), NoSuchEntity> {
         self.flush();
         let loc = self.entities.get_mut(entity)?;
-        unsafe {
-            // Assemble Vec<TypeInfo> for the final entity
-            let arch = &mut self.archetypes.archetypes[loc.archetype as usize];
-            let mut info = arch.types().to_vec();
-            for ty in components.type_info() {
-                if let Some(ptr) = arch.get_dynamic(ty.id(), ty.layout().size(), loc.index) {
-                    ty.drop(ptr.as_ptr());
-                } else {
-                    info.push(ty);
-                }
+
+        let target_storage;
+        let target = match components.key() {
+            None => {
+                target_storage = self
+                    .archetypes
+                    .get_insert_target(loc.archetype, &components);
+                &target_storage
             }
-            info.sort_unstable();
+            Some(key) => match self.archetypes.insert_edges[loc.archetype as usize].get(&key) {
+                Some(x) => x,
+                None => {
+                    let t = self
+                        .archetypes
+                        .get_insert_target(loc.archetype, &components);
+                    self.archetypes.insert_edges[loc.archetype as usize]
+                        .entry(key)
+                        .or_insert(t)
+                }
+            },
+        };
 
-            // Find the archetype it'll live in
-            let elements = info.iter().map(|x| x.id()).collect::<Box<_>>();
-            let target = self.archetypes.get(elements, move || info);
+        unsafe {
+            // Drop the components we're overwriting
+            let source_arch = &mut self.archetypes.archetypes[loc.archetype as usize];
+            for &ty in &target.replaced {
+                let ptr = source_arch
+                    .get_dynamic(ty.id(), ty.layout().size(), loc.index)
+                    .unwrap();
+                ty.drop(ptr.as_ptr());
+            }
 
-            if target == loc.archetype {
+            if target.index == loc.archetype {
                 // Update components in the current archetype
                 let arch = &mut self.archetypes.archetypes[loc.archetype as usize];
                 components.put(|ptr, ty| {
@@ -532,23 +547,34 @@ impl World {
                 return Ok(());
             }
 
-            // Move into a new archetype
             let (source_arch, target_arch) = index2(
                 &mut self.archetypes.archetypes,
                 loc.archetype as usize,
-                target as usize,
+                target.index as usize,
             );
+
+            // Allocate storage in the archetype and update the entity's location to address it
             let target_index = target_arch.allocate(entity.id);
-            loc.archetype = target;
+            loc.archetype = target.index;
             let old_index = mem::replace(&mut loc.index, target_index);
-            if let Some(moved) = source_arch.move_to(old_index, |ptr, ty, size| {
-                target_arch.put_dynamic(ptr, ty, size, target_index);
-            }) {
-                self.entities.meta[moved as usize].location.index = old_index;
-            }
+
+            // Move the new components
             components.put(|ptr, ty| {
                 target_arch.put_dynamic(ptr, ty.id(), ty.layout().size(), target_index);
             });
+
+            // Move the components we're keeping
+            for &ty in &target.retained {
+                let src = source_arch
+                    .get_dynamic(ty.id(), ty.layout().size(), old_index)
+                    .unwrap();
+                target_arch.put_dynamic(src.as_ptr(), ty.id(), ty.layout().size(), target_index)
+            }
+
+            // Free storage in the old archetype
+            if let Some(moved) = source_arch.remove(old_index, false) {
+                self.entities.meta[moved as usize].location.index = old_index;
+            }
         }
         Ok(())
     }
@@ -1023,6 +1049,10 @@ struct ArchetypeSet {
     index: HashMap<Box<[TypeId]>, u32>,
     archetypes: Vec<Archetype>,
     generation: u64,
+    /// Maps static bundle types to the archetype that an entity from this archetype is moved to
+    /// after inserting the components from that bundle. Stored separately from archetypes to avoid
+    /// borrowck difficulties in `World::insert`.
+    insert_edges: Vec<HashMap<TypeId, InsertTarget>>,
 }
 
 impl ArchetypeSet {
@@ -1030,8 +1060,9 @@ impl ArchetypeSet {
         // `flush` assumes archetype 0 always exists, representing entities with no components.
         Self {
             index: Some((Box::default(), 0)).into_iter().collect(),
-            archetypes: alloc::vec![Archetype::new(Vec::new())],
+            archetypes: vec![Archetype::new(Vec::new())],
             generation: 0,
+            insert_edges: vec![HashMap::new()],
         }
     }
 
@@ -1088,8 +1119,56 @@ impl ArchetypeSet {
     }
 
     fn post_insert(&mut self) {
+        self.insert_edges.push(HashMap::new());
         self.generation += 1;
     }
+
+    fn get_insert_target(&mut self, src: u32, components: &impl DynamicBundle) -> InsertTarget {
+        // Assemble Vec<TypeInfo> for the final entity
+        let arch = &mut self.archetypes[src as usize];
+        let mut info = arch.types().to_vec();
+        let mut replaced = Vec::new(); // Elements in both archetype.types() and components.type_info()
+        let mut retained = Vec::new(); // Elements in archetype.types() but not components.type_info()
+
+        // Because both `components.type_info()` and `arch.types()` are
+        // ordered, we can identify elements in one but not the other efficiently with parallel
+        // iteration.
+        let mut src_ty = 0;
+        for ty in components.type_info() {
+            while src_ty < arch.types().len() && arch.types()[src_ty] <= ty {
+                if arch.types()[src_ty] != ty {
+                    retained.push(arch.types()[src_ty]);
+                }
+                src_ty += 1;
+            }
+            if arch.has_dynamic(ty.id()) {
+                replaced.push(ty);
+            } else {
+                info.push(ty);
+            }
+        }
+        info.sort_unstable();
+        retained.extend_from_slice(&arch.types()[src_ty..]);
+
+        // Find the archetype it'll live in
+        let elements = info.iter().map(|x| x.id()).collect::<Box<_>>();
+        let index = self.get(elements, move || info);
+        InsertTarget {
+            replaced,
+            retained,
+            index,
+        }
+    }
+}
+
+/// Metadata cached for inserting components into entities from this archetype
+struct InsertTarget {
+    /// Components from the current archetype that are replaced by the insert
+    replaced: Vec<TypeInfo>,
+    /// Components from the current archetype that are moved by the insert
+    retained: Vec<TypeInfo>,
+    /// ID of the target archetype
+    index: u32,
 }
 
 #[cfg(test)]

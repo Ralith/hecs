@@ -287,14 +287,16 @@ impl Archetype {
     }
 
     /// Returns the ID of the entity moved into `index`, if any
-    pub(crate) unsafe fn remove(&mut self, index: u32) -> Option<u32> {
+    pub(crate) unsafe fn remove(&mut self, index: u32, drop: bool) -> Option<u32> {
         let last = self.len - 1;
         for ty in &self.types {
             let removed = self
                 .get_dynamic(ty.id, ty.layout.size(), index)
                 .unwrap()
                 .as_ptr();
-            (ty.drop)(removed);
+            if drop {
+                (ty.drop)(removed);
+            }
             if index != last {
                 ptr::copy_nonoverlapping(
                     self.get_dynamic(ty.id, ty.layout.size(), last)
