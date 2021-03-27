@@ -40,8 +40,8 @@ fn gen_dynamic_bundle_impl(
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
     quote! {
         unsafe impl #impl_generics ::hecs::DynamicBundle for #ident #ty_generics #where_clause {
-            fn with_ids<__hecs__T>(&self, f: impl ::std::ops::FnOnce(&[::std::any::TypeId]) -> __hecs__T) -> __hecs__T {
-                <Self as ::hecs::Bundle>::with_static_ids(f)
+            fn find_archetype(&self, archetypes: &mut ::hecs::ArchetypeSet) -> u32 {
+                <Self as ::hecs::Bundle>::find_static_archetype(archetypes)
             }
 
             fn type_info(&self) -> ::std::vec::Vec<::hecs::TypeInfo> {
@@ -99,6 +99,12 @@ fn gen_bundle_impl(
     };
     quote! {
         unsafe impl #impl_generics ::hecs::Bundle for #ident #ty_generics #where_clause {
+            fn find_static_archetype(archetypes: &mut ::hecs::ArchetypeSet) -> u32 {
+                archetypes.get_cached(::core::any::TypeId::of::<Self>(), &|| {
+                    <Self as ::hecs::Bundle>::static_type_info()
+                })
+            }
+
             #[allow(non_camel_case_types)]
             fn with_static_ids<__hecs__T>(f: impl ::std::ops::FnOnce(&[::std::any::TypeId]) -> __hecs__T) -> __hecs__T {
                 #with_static_ids_body
@@ -130,6 +136,7 @@ fn gen_unit_struct_bundle_impl(ident: syn::Ident, generics: &syn::Generics) -> T
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
     quote! {
         unsafe impl #impl_generics ::hecs::Bundle for #ident #ty_generics #where_clause {
+            fn find_static_archetype(_: &mut ::hecs::ArchetypeSet) -> u32 { 0 }
             #[allow(non_camel_case_types)]
             fn with_static_ids<__hecs__T>(f: impl ::std::ops::FnOnce(&[::std::any::TypeId]) -> __hecs__T) -> __hecs__T { f(&[]) }
             fn static_type_info() -> ::std::vec::Vec<::hecs::TypeInfo> { ::std::vec::Vec::new() }

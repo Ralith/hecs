@@ -124,17 +124,7 @@ impl World {
     }
 
     fn spawn_inner(&mut self, entity: Entity, components: impl DynamicBundle) {
-        let archetype_id = components.with_ids(|ids| {
-            self.archetypes.index.get(ids).copied().unwrap_or_else(|| {
-                let x = self.archetypes.archetypes.len() as u32;
-                self.archetypes
-                    .archetypes
-                    .push(Archetype::new(components.type_info()));
-                self.archetypes.index.insert(ids.into(), x);
-                self.archetypes.generation += 1;
-                x
-            })
-        });
+        let archetype_id = components.find_archetype(&mut self.archetypes);
 
         let archetype = &mut self.archetypes.archetypes[archetype_id as usize];
         unsafe {
@@ -321,17 +311,7 @@ impl World {
         self.flush();
         self.entities.reserve(additional);
 
-        let archetype_id = T::with_static_ids(|ids| {
-            self.archetypes.index.get(ids).copied().unwrap_or_else(|| {
-                let x = self.archetypes.archetypes.len() as u32;
-                self.archetypes
-                    .archetypes
-                    .push(Archetype::new(T::static_type_info()));
-                self.archetypes.index.insert(ids.into(), x);
-                self.archetypes.generation += 1;
-                x
-            })
-        });
+        let archetype_id = T::find_static_archetype(&mut self.archetypes);
 
         self.archetypes.archetypes[archetype_id as usize].reserve(additional);
         archetype_id
@@ -1065,7 +1045,8 @@ impl Drop for SpawnColumnBatchIter<'_> {
     }
 }
 
-struct ArchetypeSet {
+#[doc(hidden)]
+pub struct ArchetypeSet {
     /// Maps sorted component type sets to archetypes
     index: HashMap<Box<[TypeId]>, u32>,
     /// Maps statically-typed bundle types to archetypes
@@ -1083,6 +1064,35 @@ impl ArchetypeSet {
             archetypes: alloc::vec![Archetype::new(Vec::new())],
             generation: 0,
         }
+    }
+
+    /// Find the archetype ID that has exactly `components`
+    pub fn get(&mut self, components: &[TypeId], info: &dyn Fn() -> Vec<TypeInfo>) -> u32 {
+        self.index.get(components).copied().unwrap_or_else(|| {
+            let x = self.archetypes.len() as u32;
+            self.archetypes.push(Archetype::new(info()));
+            self.index.insert(components.into(), x);
+            self.generation += 1;
+            x
+        })
+    }
+
+    /// Find the archetype ID that has exactly `components`, which `key` always corresponds to
+    pub fn get_cached(&mut self, key: TypeId, info: &dyn Fn() -> Vec<TypeInfo>) -> u32 {
+        let index = &mut self.index;
+        let archetypes = &mut self.archetypes;
+        let generation = &mut self.generation;
+        *self.bundle_to_archetype.entry(key).or_insert_with(|| {
+            let info = info();
+            let components = info.iter().map(|x| x.id()).collect::<Box<_>>();
+            index.get(&components).copied().unwrap_or_else(move || {
+                let x = archetypes.len() as u32;
+                archetypes.push(Archetype::new(info));
+                index.insert(components, x);
+                *generation += 1;
+                x
+            })
+        })
     }
 }
 

@@ -13,7 +13,7 @@ use core::ptr::{self, NonNull};
 use hashbrown::hash_map::Entry;
 
 use crate::archetype::{TypeIdMap, TypeInfo};
-use crate::{align, Component, DynamicBundle};
+use crate::{align, ArchetypeSet, Component, DynamicBundle};
 
 /// Helper for incrementally constructing a bundle of components with dynamic component types
 ///
@@ -197,8 +197,10 @@ pub struct BuiltEntity<'a> {
 }
 
 unsafe impl DynamicBundle for BuiltEntity<'_> {
-    fn with_ids<T>(&self, f: impl FnOnce(&[TypeId]) -> T) -> T {
-        f(&self.builder.ids)
+    fn find_archetype(&self, archetypes: &mut ArchetypeSet) -> u32 {
+        archetypes.get(&self.builder.ids, &|| {
+            self.builder.info.iter().map(|x| x.0).collect()
+        })
     }
 
     #[doc(hidden)]
