@@ -606,36 +606,54 @@ impl World {
     /// assert!(world.get::<&str>(e).is_err());
     /// assert_eq!(*world.get::<bool>(e).unwrap(), true);
     /// ```
-    pub fn remove<T: Bundle>(&mut self, entity: Entity) -> Result<T, ComponentError> {
+    pub fn remove<T: Bundle + 'static>(&mut self, entity: Entity) -> Result<T, ComponentError> {
         use hashbrown::hash_map::Entry;
 
         self.flush();
+
+        // Gather current metadata
         let loc = self.entities.get_mut(entity)?;
-        unsafe {
-            let removed = T::with_static_ids(|ids| ids.iter().copied().collect::<HashSet<_>>());
-            let info = self.archetypes.archetypes[loc.archetype as usize]
-                .types()
-                .iter()
-                .cloned()
-                .filter(|x| !removed.contains(&x.id()))
-                .collect::<Vec<_>>();
-            let elements = info.iter().map(|x| x.id()).collect();
-            let target = match self.archetypes.index.entry(elements) {
-                Entry::Occupied(x) => *x.get(),
-                Entry::Vacant(x) => {
-                    self.archetypes.archetypes.push(Archetype::new(info));
-                    let index = (self.archetypes.archetypes.len() - 1) as u32;
-                    x.insert(index);
-                    self.archetypes.generation += 1;
-                    index
-                }
-            };
-            let old_index = loc.index;
-            let source_arch = &self.archetypes.archetypes[loc.archetype as usize];
-            let bundle =
-                T::get(|ty| source_arch.get_dynamic(ty.id(), ty.layout().size(), old_index))?;
+        let old_index = loc.index;
+        let source_arch = &self.archetypes.archetypes[loc.archetype as usize];
+
+        // Move out of the source archetype, or bail out if a component is missing
+        let bundle = unsafe {
+            T::get(|ty| source_arch.get_dynamic(ty.id(), ty.layout().size(), old_index))?
+        };
+
+        // Find the target archetype ID
+        let target = match source_arch.remove_edges.get(&TypeId::of::<T>()) {
+            Some(&x) => x,
+            None => {
+                let removed = T::with_static_ids(|ids| ids.iter().copied().collect::<HashSet<_>>());
+                let info = source_arch
+                    .types()
+                    .iter()
+                    .cloned()
+                    .filter(|x| !removed.contains(&x.id()))
+                    .collect::<Vec<_>>();
+                let elements = info.iter().map(|x| x.id()).collect();
+                let index = match self.archetypes.index.entry(elements) {
+                    Entry::Occupied(x) => *x.get(),
+                    Entry::Vacant(x) => {
+                        self.archetypes.archetypes.push(Archetype::new(info));
+                        let index = (self.archetypes.archetypes.len() - 1) as u32;
+                        x.insert(index);
+                        self.archetypes.generation += 1;
+                        index
+                    }
+                };
+                self.archetypes.archetypes[loc.archetype as usize]
+                    .remove_edges
+                    .insert(TypeId::of::<T>(), index);
+                index
+            }
+        };
+
+        // Store components to the target archetype and update metadata
+        if loc.archetype != target {
             // If we actually removed any components, the entity needs to be moved into a new archetype
-            if loc.archetype != target {
+            unsafe {
                 let (source_arch, target_arch) = index2(
                     &mut self.archetypes.archetypes,
                     loc.archetype as usize,
@@ -653,8 +671,9 @@ impl World {
                     self.entities.meta[moved as usize].location.index = old_index;
                 }
             }
-            Ok(bundle)
         }
+
+        Ok(bundle)
     }
 
     /// Remove the `T` component from `entity`

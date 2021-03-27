@@ -34,6 +34,9 @@ pub struct Archetype {
     // containing the `Archetype` exist
     data: UnsafeCell<NonNull<u8>>,
     data_size: usize,
+    /// Maps static bundle types to the archetype that an entity from this archetype is moved to
+    /// after removing the components from that bundle.
+    pub(crate) remove_edges: HashMap<TypeId, u32>,
 }
 
 impl Archetype {
@@ -65,6 +68,7 @@ impl Archetype {
             len: 0,
             data: UnsafeCell::new(NonNull::new(max_align as *mut u8).unwrap()),
             data_size: 0,
+            remove_edges: HashMap::new(),
         }
     }
 
