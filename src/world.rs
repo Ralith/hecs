@@ -428,6 +428,7 @@ impl World {
     /// if *flag { *number *= 2; }
     /// assert_eq!(*number, 246);
     /// ```
+    #[deprecated(since = "0.4.1", note = "Use World::entity, then EntityRef::query")]
     pub fn query_one<Q: Query>(&self, entity: Entity) -> Result<QueryOne<'_, Q>, NoSuchEntity> {
         let loc = self.entities.get(entity)?;
         Ok(unsafe { QueryOne::new(&self.archetypes[loc.archetype as usize], loc.index) })
@@ -453,6 +454,7 @@ impl World {
     ///
     /// Panics if the component is already uniquely borrowed from another entity with the same
     /// components.
+    #[deprecated(since = "0.4.1", note = "Use World::entity, then EntityRef::get")]
     pub fn get<T: Component>(&self, entity: Entity) -> Result<Ref<'_, T>, ComponentError> {
         let loc = self.entities.get(entity)?;
         if loc.archetype == 0 {
@@ -464,6 +466,7 @@ impl World {
     /// Uniquely borrow the `T` component of `entity`
     ///
     /// Panics if the component is already borrowed from another entity with the same components.
+    #[deprecated(since = "0.4.1", note = "Use World::entity, then EntityRef::get_mut")]
     pub fn get_mut<T: Component>(&self, entity: Entity) -> Result<RefMut<'_, T>, ComponentError> {
         let loc = self.entities.get(entity)?;
         if loc.archetype == 0 {

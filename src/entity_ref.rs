@@ -3,7 +3,7 @@ use core::ops::{Deref, DerefMut};
 use core::ptr::NonNull;
 
 use crate::archetype::Archetype;
-use crate::{Component, MissingComponent};
+use crate::{Component, MissingComponent, Query, QueryOne};
 
 /// Handle to an entity with any component types
 #[derive(Copy, Clone)]
@@ -41,6 +41,30 @@ impl<'a> EntityRef<'a> {
     /// Panics if the component is already borrowed from another entity with the same components.
     pub fn get_mut<T: Component>(&self) -> Option<RefMut<'a, T>> {
         Some(unsafe { RefMut::new(self.archetype?, self.index).ok()? })
+    }
+
+    /// Prepare a query against the entity, using dynamic borrow checking
+    ///
+    /// Call `get` on the resulting `QueryOne` to actually execute the query. The `QueryOne` value
+    /// is responsible for releasing the dynamically-checked borrow made by `get`, so it can't be
+    /// dropped while references returned by `get` are live.
+    ///
+    /// Handy for accessing multiple components simultaneously.
+    ///
+    /// # Example
+    /// ```
+    /// # use hecs::*;
+    /// let mut world = World::new();
+    /// let a = world.spawn((123, true, "abc"));
+    /// let entity_ref = world.entity(a).unwrap();
+    /// // The returned query must outlive the borrow made by `get`
+    /// let mut query = entity_ref.query::<(&mut i32, &bool)>();
+    /// let (number, flag) = query.get().unwrap();
+    /// if *flag { *number *= 2; }
+    /// assert_eq!(*number, 246);
+    /// ```
+    pub fn query<Q: Query>(&self) -> QueryOne<'_, Q> {
+        unsafe { QueryOne::new(self.archetype, self.index) }
     }
 
     /// Enumerate the types of the entity's components
