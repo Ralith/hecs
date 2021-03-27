@@ -1,4 +1,4 @@
-# 0.4.0 (Unreleased)
+# 0.4.0
 
 ### Changed
 - Row-major serialization moved under `serialize::row` and behind the `row-serialize` cargo feature
