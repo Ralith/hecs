@@ -1,5 +1,8 @@
 # Unreleased
 
+### Changed
+- Improved performance for spawning, inserting, or removing statically-typed component bundles
+
 ### Fixed
 - `World::archetypes_generation` not updated when a column batch spawn introduces a new archetype
 
