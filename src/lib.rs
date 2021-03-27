@@ -62,6 +62,7 @@ mod borrow;
 mod bundle;
 mod entities;
 mod entity_builder;
+mod entity_ref;
 mod query;
 mod query_one;
 #[cfg(any(feature = "row-serialize", feature = "column-serialize"))]
@@ -70,10 +71,10 @@ mod world;
 
 pub use archetype::Archetype;
 pub use batch::{ColumnBatch, ColumnBatchBuilder, ColumnBatchType};
-pub use borrow::{EntityRef, Ref, RefMut};
 pub use bundle::{Bundle, DynamicBundle, MissingComponent};
 pub use entities::{Entity, NoSuchEntity};
 pub use entity_builder::{BuiltEntity, EntityBuilder};
+pub use entity_ref::{EntityRef, Ref, RefMut};
 pub use query::{
     Access, BatchedIter, Query, QueryBorrow, QueryItem, QueryIter, QueryMut, With, Without,
 };
