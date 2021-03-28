@@ -12,6 +12,7 @@ categories = ["data-structures", "game-engines", "no-std"]
 
 [package.metadata.docs.rs]
 all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
 
 [badges]
 maintenance = { status = "actively-developed" }
