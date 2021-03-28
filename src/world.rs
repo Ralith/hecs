@@ -63,8 +63,9 @@ impl World {
     ///
     /// Returns the ID of the newly created entity.
     ///
-    /// Arguments can be tuples, structs annotated with `#[derive(Bundle)]`, or the result of
-    /// calling `build` on an `EntityBuilder`, which is useful if the set of components isn't
+    /// Arguments can be tuples, structs annotated with [`#[derive(Bundle)]`](macro@Bundle), or the
+    /// result of calling [`build`](crate::EntityBuilder::build) on an
+    /// [`EntityBuilder`](crate::EntityBuilder), which is useful if the set of components isn't
     /// statically known. To spawn an entity with only one component, use a one-element tuple like
     /// `(x,)`.
     ///
@@ -89,11 +90,11 @@ impl World {
         entity
     }
 
-    /// Create an entity with certain components and a specific `Entity` handle.
+    /// Create an entity with certain components and a specific [`Entity`] handle.
     ///
-    /// See `spawn`.
+    /// See [`spawn`](Self::spawn).
     ///
-    /// Despawns any existing entity with the same `Entity::id`.
+    /// Despawns any existing entity with the same [`Entity::id`].
     ///
     /// Useful for easy handle-preserving deserialization. Be cautious resurrecting old `Entity`
     /// handles in already-populated worlds as it vastly increases the likelihood of collisions.
@@ -153,7 +154,7 @@ impl World {
 
     /// Efficiently spawn a large number of entities with the same components
     ///
-    /// Faster than calling `spawn` repeatedly with the same components.
+    /// Faster than calling [`spawn`](Self::spawn) repeatedly with the same components.
     ///
     /// # Example
     /// ```
@@ -218,7 +219,7 @@ impl World {
         }
     }
 
-    /// Hybrid of `spawn_column_batch` and `spawn_at`
+    /// Hybrid of [`spawn_column_batch`](Self::spawn_column_batch) and [`spawn_at`](Self::spawn_at)
     pub fn spawn_column_batch_at(&mut self, handles: &[Entity], batch: ColumnBatch) {
         let archetype = batch.0;
         assert_eq!(
@@ -253,12 +254,12 @@ impl World {
 
     /// Allocate many entities ID concurrently
     ///
-    /// Unlike `spawn`, this can be called simultaneously to other operations on the `World` such as
-    /// queries, but does not immediately create the entities. Reserved entities are not visible to
-    /// queries or world iteration, but can be otherwise operated on freely. Operations that
-    /// uniquely borrow the world, such as `insert` or `despawn`, will cause all outstanding
-    /// reserved entities to become real entities before proceeding. This can also be done
-    /// explicitly by calling `flush`.
+    /// Unlike [`spawn`](Self::spawn), this can be called simultaneously to other operations on the
+    /// [`World`] such as queries, but does not immediately create the entities. Reserved entities
+    /// are not visible to queries or world iteration, but can be otherwise operated on
+    /// freely. Operations that uniquely borrow the world, such as `insert` or `despawn`, will cause
+    /// all outstanding reserved entities to become real entities before proceeding. This can also
+    /// be done explicitly by calling `flush`.
     ///
     /// Useful for reserving an ID that will later have components attached to it with `insert`.
     pub fn reserve_entities(&self, count: u32) -> ReserveEntitiesIterator {
@@ -267,7 +268,7 @@ impl World {
 
     /// Allocate an entity ID concurrently
     ///
-    /// See `reserve_entities`.
+    /// See [`reserve_entities`](Self::reserve_entities).
     pub fn reserve_entity(&self) -> Entity {
         self.entities.reserve_entity()
     }
@@ -323,7 +324,7 @@ impl World {
     /// Efficiently iterate over all entities that have certain components, using dynamic borrow
     /// checking
     ///
-    /// Prefer `query_mut` when concurrent access to the `World` is not required.
+    /// Prefer [`query_mut`](Self::query_mut) when concurrent access to the [`World`] is not required.
     ///
     /// Calling `iter` on the returned value yields `(Entity, Q)` tuples, where `Q` is some query
     /// type. A query type is `&T`, `&mut T`, a tuple of query types, or an `Option` wrapping a
@@ -333,7 +334,7 @@ impl World {
     ///
     /// Entities are yielded in arbitrary order.
     ///
-    /// The returned `QueryBorrow` can be further transformed with combinator methods; see its
+    /// The returned [`QueryBorrow`] can be further transformed with combinator methods; see its
     /// documentation for details.
     ///
     /// Iterating a query will panic if it would violate an existing unique reference or construct
@@ -342,10 +343,10 @@ impl World {
     /// world contains no entities that have all components required by both queries, assuming no
     /// other component borrows are outstanding.
     ///
-    /// Iterating a query yields references with lifetimes bound to the `QueryBorrow` returned
+    /// Iterating a query yields references with lifetimes bound to the [`QueryBorrow`] returned
     /// here. To ensure those are invalidated, the return value of this method must be dropped for
     /// its dynamic borrows from the world to be released. Similarly, lifetime rules ensure that
-    /// references obtained from a query cannot outlive the `QueryBorrow`.
+    /// references obtained from a query cannot outlive the [`QueryBorrow`].
     ///
     /// # Example
     /// ```
@@ -368,19 +369,21 @@ impl World {
 
     /// Query a uniquely borrowed world
     ///
-    /// Like `query`, but faster because dynamic borrow checks can be skipped. Note that, unlike
-    /// `query`, this returns an `IntoIterator` which can be passed directly to a `for` loop.
+    /// Like [`query`](Self::query), but faster because dynamic borrow checks can be skipped. Note
+    /// that, unlike [`query`](Self::query), this returns an `IntoIterator` which can be passed
+    /// directly to a `for` loop.
     pub fn query_mut<Q: Query>(&mut self) -> QueryMut<'_, Q> {
         QueryMut::new(&self.entities.meta, &mut self.archetypes.archetypes)
     }
 
     /// Prepare a query against a single entity, using dynamic borrow checking
     ///
-    /// Prefer `query_one_mut` when concurrent access to the `World` is not required.
+    /// Prefer [`query_one_mut`](Self::query_one_mut) when concurrent access to the [`World`] is not
+    /// required.
     ///
-    /// Call `get` on the resulting `QueryOne` to actually execute the query. The `QueryOne` value
-    /// is responsible for releasing the dynamically-checked borrow made by `get`, so it can't be
-    /// dropped while references returned by `get` are live.
+    /// Call [`get`](QueryOne::get) on the resulting [`QueryOne`] to actually execute the query. The
+    /// [`QueryOne`] value is responsible for releasing the dynamically-checked borrow made by
+    /// `get`, so it can't be dropped while references returned by `get` are live.
     ///
     /// Handy for accessing multiple components simultaneously.
     ///
@@ -407,8 +410,9 @@ impl World {
 
     /// Query a single entity in a uniquely borrow world
     ///
-    /// Like `query_one`, but faster because dynamic borrow checks can be skipped. Note that, unlike
-    /// `query_one`, on success this returns the query's results directly.
+    /// Like [`query_one`](Self::query_one), but faster because dynamic borrow checks can be
+    /// skipped. Note that, unlike [`query_one`](Self::query_one), on success this returns the
+    /// query's results directly.
     pub fn query_one_mut<Q: Query>(
         &mut self,
         entity: Entity,
@@ -455,18 +459,20 @@ impl World {
         }
     }
 
-    /// Given an id obtained from `Entity::id`, reconstruct the still-live `Entity`.
+    /// Given an id obtained from [`Entity::id`], reconstruct the still-live [`Entity`].
     ///
     /// # Safety
-    /// `id` must correspond to a currently live `Entity`. A despawned or never-allocated `id` will produce undefined behavior.
+    ///
+    /// `id` must correspond to a currently live [`Entity`]. A despawned or never-allocated `id`
+    /// will produce undefined behavior.
     pub unsafe fn find_entity_from_id(&self, id: u32) -> Entity {
         self.entities.resolve_unknown_gen(id)
     }
 
     /// Iterate over all entities in the world
     ///
-    /// Entities are yielded in arbitrary order. Prefer `World::query` for better performance when
-    /// components will be accessed in predictable patterns.
+    /// Entities are yielded in arbitrary order. Prefer [`query`](Self::query) for better
+    /// performance when components will be accessed in predictable patterns.
     ///
     /// # Example
     /// ```
@@ -488,7 +494,7 @@ impl World {
     /// Computational cost is proportional to the number of components `entity` has. If an entity
     /// already has a component of a certain type, it is dropped and replaced.
     ///
-    /// When inserting a single component, see `insert_one` for convenience.
+    /// When inserting a single component, see [`insert_one`](Self::insert_one) for convenience.
     ///
     /// # Example
     /// ```
@@ -581,7 +587,7 @@ impl World {
 
     /// Add `component` to `entity`
     ///
-    /// See `insert`.
+    /// See [`insert`](Self::insert).
     pub fn insert_one(
         &mut self,
         entity: Entity,
@@ -597,7 +603,7 @@ impl World {
     /// component in `T` is not present in `entity`, no components are removed and an error is
     /// returned.
     ///
-    /// When removing a single component, see `remove_one` for convenience.
+    /// When removing a single component, see [`remove_one`](Self::remove_one) for convenience.
     ///
     /// # Example
     /// ```
@@ -670,7 +676,7 @@ impl World {
 
     /// Remove the `T` component from `entity`
     ///
-    /// See `remove`.
+    /// See [`remove`](Self::remove).
     pub fn remove_one<T: Component>(&mut self, entity: Entity) -> Result<T, ComponentError> {
         self.remove::<(T,)>(entity).map(|(x,)| x)
     }
@@ -681,7 +687,7 @@ impl World {
     ///
     /// # Safety
     ///
-    /// `entity` must have been previously obtained from this `World`, and no unique borrow of the
+    /// `entity` must have been previously obtained from this [`World`], and no unique borrow of the
     /// same component of `entity` may be live simultaneous to the returned reference.
     pub unsafe fn get_unchecked<T: Component>(&self, entity: Entity) -> Result<&T, ComponentError> {
         let loc = self.entities.get(entity)?;
@@ -701,7 +707,7 @@ impl World {
     ///
     /// # Safety
     ///
-    /// `entity` must have been previously obtained from this `World`, and no borrow of the same
+    /// `entity` must have been previously obtained from this [`World`], and no borrow of the same
     /// component of `entity` may be live simultaneous to the returned reference.
     pub unsafe fn get_unchecked_mut<T: Component>(
         &self,
@@ -737,10 +743,10 @@ impl World {
 
     /// Returns a distinct value after `archetypes` is changed
     ///
-    /// Store the current value after deriving information from `archetypes`, then check whether the
-    /// value returned by this function differs before attempting an operation that relies on its
-    /// correctness. Useful for determining whether e.g. a concurrent query execution plan is still
-    /// correct.
+    /// Store the current value after deriving information from [`archetypes`](Self::archetypes),
+    /// then check whether the value returned by this function differs before attempting an
+    /// operation that relies on its correctness. Useful for determining whether e.g. a concurrent
+    /// query execution plan is still correct.
     ///
     /// The generation may be, but is not necessarily, changed as a result of adding or removing any
     /// entity or component.
@@ -946,11 +952,11 @@ impl<A: DynamicBundle> core::iter::FromIterator<A> for World {
     }
 }
 
-/// Determines freshness of information derived from `World::archetypes`
+/// Determines freshness of information derived from [`World::archetypes`]
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct ArchetypesGeneration(u64);
 
-/// Entity IDs created by `World::spawn_batch`
+/// Entity IDs created by [`World::spawn_batch`]
 pub struct SpawnBatchIter<'a, I>
 where
     I: Iterator,

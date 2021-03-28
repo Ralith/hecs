@@ -191,7 +191,8 @@ impl Default for EntityBuilder {
     }
 }
 
-/// The output of an `EntityBuilder`, suitable for passing to `World::spawn` or `World::insert`
+/// The output of an [`EntityBuilder`], suitable for passing to
+/// [`World::spawn`](crate::World::spawn) or [`World::insert`](crate::World::insert)
 pub struct BuiltEntity<'a> {
     builder: &'a mut EntityBuilder,
 }

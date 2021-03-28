@@ -23,8 +23,8 @@ use crate::{align, Access, Component, Query};
 
 /// A collection of entities having the same component types
 ///
-/// Accessing `Archetype`s is only required for complex dynamic scheduling. To manipulate entities,
-/// go through the `World`.
+/// Accessing `Archetype`s is only required in niche cases. Typical use should go through the
+/// [`World`](crate::World).
 pub struct Archetype {
     types: Vec<TypeInfo>,
     state: TypeIdMap<TypeState>,
@@ -190,8 +190,11 @@ impl Archetype {
     /// all possible combinations of component types which are currently stored in the `World`.
     /// From there, you can then create a mapping of archetypes to wrapper objects for your
     /// scripting language that provide functionality based off of the components of any given
-    /// `Entity`, and bind them onto an `Entity` when passed into your scripting language by looking
-    /// up the `Entity`'s archetype using `EntityRef::component_types`.
+    /// [`Entity`], and bind them onto an [`Entity`] when passed into your scripting language by
+    /// looking up the [`Entity`]'s archetype using
+    /// [`EntityRef::component_types`](crate::EntityRef::component_types).
+    ///
+    /// [`Entity`]: crate::Entity
     pub fn component_types(&self) -> impl ExactSizeIterator<Item = TypeId> + '_ {
         self.types.iter().map(|typeinfo| typeinfo.id)
     }
