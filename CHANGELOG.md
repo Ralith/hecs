@@ -1,3 +1,8 @@
+# 0.5.1
+
+### Changed
+- Documentation updates only
+
 # 0.5.0
 
 ### Changed
