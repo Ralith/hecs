@@ -12,7 +12,7 @@ use crate::archetype::Archetype;
 use crate::entities::EntityMeta;
 use crate::{Component, Entity};
 
-/// A collection of component types to fetch from a `World`
+/// A collection of component types to fetch from a [`World`](crate::World)
 pub trait Query {
     #[doc(hidden)]
     type Fetch: for<'a> Fetch<'a>;
@@ -20,7 +20,7 @@ pub trait Query {
 
 /// Type of values yielded by a query
 ///
-/// Once rust offers generic associated types, this will be moved into `Query`.
+/// Once rust offers generic associated types, this will be moved into [`Query`].
 pub type QueryItem<'a, Q> = <<Q as Query>::Fetch as Fetch<'a>>::Item;
 
 /// Streaming iterators over contiguous homogeneous ranges of components
@@ -51,7 +51,7 @@ pub unsafe trait Fetch<'a>: Sized {
     unsafe fn get(&self, n: usize) -> Self::Item;
 }
 
-/// Type of access a `Query` may have to an `Archetype`
+/// Type of access a [`Query`] may have to an [`Archetype`]
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
 pub enum Access {
     /// Read entity IDs only, no components
@@ -289,7 +289,7 @@ unsafe impl<'a, T: Component, F: Fetch<'a>> Fetch<'a> for FetchWith<T, F> {
     }
 }
 
-/// A borrow of a `World` sufficient to execute the query `Q`
+/// A borrow of a [`World`](crate::World) sufficient to execute the query `Q`
 ///
 /// Note that borrows are not released until this object is dropped.
 pub struct QueryBorrow<'w, Q: Query> {
@@ -575,7 +575,7 @@ impl<Q: Query> ChunkIter<Q> {
     }
 }
 
-/// Batched version of `QueryIter`
+/// Batched version of [`QueryIter`]
 pub struct BatchedIter<'q, Q: Query> {
     _marker: PhantomData<&'q Q>,
     meta: &'q [EntityMeta],

@@ -63,7 +63,8 @@ pub trait SerializeContext {
     where
         S: SerializeMap;
 
-    /// Number of entries that [`serialize_entry`] will produce for `entity`, if known
+    /// Number of entries that [`serialize_entry`](Self::serialize_entity) will produce for
+    /// `entity`, if known
     ///
     /// Defaults to `None`. Must be overridden to return `Some` to support certain serializers, e.g.
     /// bincode.

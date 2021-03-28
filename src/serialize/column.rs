@@ -82,8 +82,8 @@ use crate::{
 // entire output archetype up front, rather than having to allocate storage for each component type
 // after processing the previous one and copy into an archetype at the end.
 pub trait SerializeContext {
-    /// Number of entries that [`serialize_component_ids`] and [`serialize_components`] will produce
-    /// for `archetype`
+    /// Number of entries that [`serialize_component_ids`](Self::serialize_component_ids) and
+    /// [`serialize_components`](Self::serialize_components) will produce for `archetype`
     fn component_count(&self, archetype: &Archetype) -> usize;
 
     /// Serialize the IDs of the components from `archetype` that will be serialized

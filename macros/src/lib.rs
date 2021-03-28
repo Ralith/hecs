@@ -16,9 +16,7 @@ use syn::{parse_macro_input, DeriveInput};
 /// Implement `Bundle` for a struct
 ///
 /// Bundles can be passed directly to `World::spawn` and `World::insert`, and obtained from
-/// `World::remove`. Monomorphic `Bundle` implementations are slightly more efficient than the
-/// polymorphic implementations for tuples, and can be convenient when combined with other derives
-/// like `serde::Deserialize`.
+/// `World::remove`. Can be convenient when combined with other derives like `serde::Deserialize`.
 ///
 /// # Example
 /// ```ignore
