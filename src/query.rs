@@ -7,6 +7,7 @@
 
 use core::marker::PhantomData;
 use core::ptr::NonNull;
+use core::slice::Iter as SliceIter;
 
 use crate::archetype::Archetype;
 use crate::entities::EntityMeta;
@@ -315,7 +316,7 @@ impl<'w, Q: Query> QueryBorrow<'w, Q> {
     // The lifetime narrowing here is required for soundness.
     pub fn iter(&mut self) -> QueryIter<'_, Q> {
         self.borrow();
-        unsafe { QueryIter::new(self.meta, self.archetypes) }
+        unsafe { QueryIter::new(self.meta, self.archetypes.iter()) }
     }
 
     /// Like `iter`, but returns child iterators of at most `batch_size` elements
@@ -431,8 +432,7 @@ impl<'q, 'w, Q: Query> IntoIterator for &'q mut QueryBorrow<'w, Q> {
 /// Iterator over the set of entities with the components in `Q`
 pub struct QueryIter<'q, Q: Query> {
     meta: &'q [EntityMeta],
-    archetypes: &'q [Archetype],
-    archetype_index: usize,
+    archetypes: SliceIter<'q, Archetype>,
     iter: ChunkIter<Q>,
 }
 
@@ -441,11 +441,10 @@ impl<'q, Q: Query> QueryIter<'q, Q> {
     ///
     /// `'q` must be sufficient to guarantee that `Q` cannot violate borrow safety, either with
     /// dynamic borrow checks or by representing exclusive access to the `World`.
-    pub(crate) unsafe fn new(meta: &'q [EntityMeta], archetypes: &'q [Archetype]) -> Self {
+    pub(crate) unsafe fn new(meta: &'q [EntityMeta], archetypes: SliceIter<'q, Archetype>) -> Self {
         Self {
             meta,
             archetypes,
-            archetype_index: 0,
             iter: ChunkIter::empty(),
         }
     }
@@ -462,8 +461,7 @@ impl<'q, Q: Query> Iterator for QueryIter<'q, Q> {
         loop {
             match unsafe { self.iter.next() } {
                 None => {
-                    let archetype = self.archetypes.get(self.archetype_index)?;
-                    self.archetype_index += 1;
+                    let archetype = self.archetypes.next()?;
                     self.iter =
                         Q::Fetch::new(archetype).map_or(ChunkIter::empty(), |fetch| ChunkIter {
                             entities: archetype.entities(),
@@ -495,10 +493,11 @@ impl<'q, Q: Query> Iterator for QueryIter<'q, Q> {
 impl<'q, Q: Query> ExactSizeIterator for QueryIter<'q, Q> {
     fn len(&self) -> usize {
         self.archetypes
-            .iter()
+            .clone()
             .filter(|&x| Q::Fetch::access(x).is_some())
             .map(|x| x.len() as usize)
-            .sum()
+            .sum::<usize>()
+            + self.iter.remaining()
     }
 }
 
@@ -510,7 +509,7 @@ pub struct QueryMut<'q, Q: Query> {
 impl<'q, Q: Query> QueryMut<'q, Q> {
     pub(crate) fn new(meta: &'q [EntityMeta], archetypes: &'q mut [Archetype]) -> Self {
         Self {
-            iter: unsafe { QueryIter::new(meta, archetypes) },
+            iter: unsafe { QueryIter::new(meta, archetypes.iter()) },
         }
     }
 
@@ -572,6 +571,10 @@ impl<Q: Query> ChunkIter<Q> {
         let item = self.fetch.get(self.position);
         self.position += 1;
         Some((*entity, item))
+    }
+
+    fn remaining(&self) -> usize {
+        self.len - self.position
     }
 }
 
