@@ -36,7 +36,7 @@ pub struct Archetype {
     data_size: usize,
     /// Maps static bundle types to the archetype that an entity from this archetype is moved to
     /// after removing the components from that bundle.
-    pub(crate) remove_edges: HashMap<TypeId, u32>,
+    pub(crate) remove_edges: TypeIdMap<u32>,
 }
 
 impl Archetype {
@@ -68,7 +68,7 @@ impl Archetype {
             len: 0,
             data: UnsafeCell::new(NonNull::new(max_align as *mut u8).unwrap()),
             data_size: 0,
-            remove_edges: HashMap::new(),
+            remove_edges: HashMap::default(),
         }
     }
 
@@ -250,7 +250,8 @@ impl Archetype {
             self.entities = new_entities;
 
             let old_data_size = mem::replace(&mut self.data_size, 0);
-            let mut state = HashMap::with_capacity_and_hasher(self.types.len(), Default::default());
+            let mut state =
+                TypeIdMap::with_capacity_and_hasher(self.types.len(), Default::default());
             for ty in &self.types {
                 self.data_size = align(self.data_size, ty.layout.align());
                 state.insert(ty.id, TypeState::new(self.data_size));

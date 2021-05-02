@@ -17,7 +17,7 @@ use std::error::Error;
 use hashbrown::{HashMap, HashSet};
 
 use crate::alloc::boxed::Box;
-use crate::archetype::{Archetype, TypeInfo};
+use crate::archetype::{Archetype, TypeIdMap, TypeInfo};
 use crate::entities::{Entities, Location, ReserveEntitiesIterator};
 use crate::{
     Bundle, ColumnBatch, DynamicBundle, Entity, EntityRef, Fetch, MissingComponent, NoSuchEntity,
@@ -46,7 +46,7 @@ pub struct World {
     entities: Entities,
     archetypes: ArchetypeSet,
     /// Maps statically-typed bundle types to archetypes
-    bundle_to_archetype: HashMap<TypeId, u32>,
+    bundle_to_archetype: TypeIdMap<u32>,
 }
 
 impl World {
@@ -55,7 +55,7 @@ impl World {
         Self {
             entities: Entities::default(),
             archetypes: ArchetypeSet::new(),
-            bundle_to_archetype: HashMap::new(),
+            bundle_to_archetype: HashMap::default(),
         }
     }
 
@@ -1058,7 +1058,7 @@ struct ArchetypeSet {
     /// Maps static bundle types to the archetype that an entity from this archetype is moved to
     /// after inserting the components from that bundle. Stored separately from archetypes to avoid
     /// borrowck difficulties in `World::insert`.
-    insert_edges: Vec<HashMap<TypeId, InsertTarget>>,
+    insert_edges: Vec<TypeIdMap<InsertTarget>>,
 }
 
 impl ArchetypeSet {
@@ -1068,7 +1068,7 @@ impl ArchetypeSet {
             index: Some((Box::default(), 0)).into_iter().collect(),
             archetypes: vec![Archetype::new(Vec::new())],
             generation: 0,
-            insert_edges: vec![HashMap::new()],
+            insert_edges: vec![HashMap::default()],
         }
     }
 
@@ -1125,7 +1125,7 @@ impl ArchetypeSet {
     }
 
     fn post_insert(&mut self) {
-        self.insert_edges.push(HashMap::new());
+        self.insert_edges.push(HashMap::default());
         self.generation += 1;
     }
 
