@@ -76,7 +76,8 @@ pub use entities::{Entity, NoSuchEntity};
 pub use entity_builder::{BuiltEntity, EntityBuilder};
 pub use entity_ref::{EntityRef, Ref, RefMut};
 pub use query::{
-    Access, BatchedIter, Query, QueryBorrow, QueryItem, QueryIter, QueryMut, With, Without,
+    Access, BatchedIter, CachedIter, Query, QueryBorrow, QueryCache, QueryItem, QueryIter,
+    QueryMut, With, Without,
 };
 pub use query_one::QueryOne;
 pub use world::{

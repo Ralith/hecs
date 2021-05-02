@@ -7,10 +7,14 @@
 
 use core::any::TypeId;
 use core::marker::PhantomData;
+use core::mem;
 use core::ptr::NonNull;
 use core::slice::Iter as SliceIter;
 
-use crate::archetype::Archetype;
+use hashbrown::hash_map::{Entry, HashMap};
+
+use crate::alloc::boxed::Box;
+use crate::archetype::{Archetype, TypeIdMap};
 use crate::entities::EntityMeta;
 use crate::{Component, Entity};
 
@@ -320,15 +324,21 @@ unsafe impl<'a, T: Component, F: Fetch<'a>> Fetch<'a> for FetchWith<T, F> {
 pub struct QueryBorrow<'w, Q: Query> {
     meta: &'w [EntityMeta],
     archetypes: &'w [Archetype],
+    generation: u64,
     borrowed: bool,
     _marker: PhantomData<Q>,
 }
 
 impl<'w, Q: Query> QueryBorrow<'w, Q> {
-    pub(crate) fn new(meta: &'w [EntityMeta], archetypes: &'w [Archetype]) -> Self {
+    pub(crate) fn new(
+        meta: &'w [EntityMeta],
+        archetypes: &'w [Archetype],
+        generation: u64,
+    ) -> Self {
         Self {
             meta,
             archetypes,
+            generation,
             borrowed: false,
             _marker: PhantomData,
         }
@@ -350,6 +360,20 @@ impl<'w, Q: Query> QueryBorrow<'w, Q> {
     pub fn iter_batched(&mut self, batch_size: u32) -> BatchedIter<'_, Q> {
         self.borrow();
         unsafe { BatchedIter::new(self.meta, self.archetypes.iter(), batch_size) }
+    }
+
+    /// TODO
+    pub fn iter_cached<'q, 'c>(
+        &'q mut self,
+        query_cache: &'c mut QueryCache,
+    ) -> CachedIter<'q, 'c, Q>
+    where
+        // TODO
+        Q: 'static,
+    {
+        self.borrow();
+        let archetypes = query_cache.query::<Q>(self.archetypes, self.generation);
+        unsafe { CachedIter::new(self.meta, archetypes.iter()) }
     }
 
     fn borrow(&mut self) {
@@ -418,6 +442,7 @@ impl<'w, Q: Query> QueryBorrow<'w, Q> {
         let x = QueryBorrow {
             meta: self.meta,
             archetypes: self.archetypes,
+            generation: self.generation,
             borrowed: self.borrowed,
             _marker: PhantomData,
         };
@@ -759,6 +784,119 @@ macro_rules! tuple_impl {
 
 //smaller_tuples_too!(tuple_impl, B, A);
 smaller_tuples_too!(tuple_impl, O, N, M, L, K, J, I, H, G, F, E, D, C, B, A);
+
+/// TODO
+pub struct QueryCache {
+    archetypes: *const [Archetype],
+    generation: u64,
+    cache: TypeIdMap<Box<[*const Archetype]>>,
+}
+
+impl QueryCache {
+    pub(crate) fn new(archetypes: &[Archetype], generation: u64) -> Self {
+        Self {
+            archetypes: archetypes as *const _,
+            generation,
+            cache: HashMap::default(),
+        }
+    }
+
+    fn query<'c, Q: Query + 'static>(
+        &'c mut self,
+        archetypes: &[Archetype],
+        generation: u64,
+    ) -> &'c [&'c Archetype] {
+        if self.archetypes != archetypes as *const _ || self.generation != generation {
+            self.archetypes = archetypes as *const _;
+            self.generation = generation;
+            self.cache.clear();
+        }
+
+        let archetypes: &'c [*const Archetype] = match self.cache.entry(TypeId::of::<Q>()) {
+            Entry::Vacant(entry) => {
+                let archetypes = archetypes
+                    .iter()
+                    .filter(|&x| Q::Fetch::access(x).is_some())
+                    .map(|x| x as *const _)
+                    .collect();
+
+                entry.insert(archetypes)
+            }
+            Entry::Occupied(entry) => entry.into_mut(),
+        };
+
+        unsafe { mem::transmute(archetypes) }
+    }
+}
+
+/// TODO
+pub struct CachedIter<'q, 'c, Q: Query> {
+    meta: &'q [EntityMeta],
+    archetypes: SliceIter<'c, &'c Archetype>,
+    iter: ChunkIter<Q>,
+}
+
+impl<'q, 'c, Q: Query> CachedIter<'q, 'c, Q> {
+    pub(crate) unsafe fn new(
+        meta: &'q [EntityMeta],
+        archetypes: SliceIter<'c, &'c Archetype>,
+    ) -> Self {
+        Self {
+            meta,
+            archetypes,
+            iter: ChunkIter::empty(),
+        }
+    }
+}
+
+unsafe impl<Q: Query> Send for CachedIter<'_, '_, Q> {}
+unsafe impl<Q: Query> Sync for CachedIter<'_, '_, Q> {}
+
+impl<'q, 'c, Q: Query> Iterator for CachedIter<'q, 'c, Q> {
+    type Item = (Entity, QueryItem<'q, Q>);
+
+    #[inline(always)]
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            match unsafe { self.iter.next() } {
+                None => {
+                    let archetype = self.archetypes.next()?;
+                    self.iter = ChunkIter {
+                        entities: archetype.entities(),
+                        fetch: Q::Fetch::new(archetype).unwrap(),
+                        position: 0,
+                        len: archetype.len() as usize,
+                    };
+                    continue;
+                }
+                Some((id, components)) => {
+                    return Some((
+                        Entity {
+                            id,
+                            generation: unsafe { self.meta.get_unchecked(id as usize).generation },
+                        },
+                        components,
+                    ));
+                }
+            }
+        }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let n = self.len();
+        (n, Some(n))
+    }
+}
+
+impl<Q: Query> ExactSizeIterator for CachedIter<'_, '_, Q> {
+    fn len(&self) -> usize {
+        self.archetypes
+            .clone()
+            .map(|x| x.len() as usize)
+            .sum::<usize>()
+            + self.iter.remaining()
+    }
+}
 
 #[cfg(test)]
 mod tests {

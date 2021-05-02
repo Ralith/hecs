@@ -21,7 +21,7 @@ use crate::archetype::{Archetype, TypeIdMap, TypeInfo};
 use crate::entities::{Entities, Location, ReserveEntitiesIterator};
 use crate::{
     Bundle, ColumnBatch, DynamicBundle, Entity, EntityRef, Fetch, MissingComponent, NoSuchEntity,
-    Query, QueryBorrow, QueryItem, QueryMut, QueryOne, Ref, RefMut,
+    Query, QueryBorrow, QueryCache, QueryItem, QueryMut, QueryOne, Ref, RefMut,
 };
 
 /// An unordered collection of entities, each having any number of distinctly typed components
@@ -364,7 +364,11 @@ impl World {
     /// assert!(entities.contains(&(b, 456, false)));
     /// ```
     pub fn query<Q: Query>(&self) -> QueryBorrow<'_, Q> {
-        QueryBorrow::new(&self.entities.meta, &self.archetypes.archetypes)
+        QueryBorrow::new(
+            &self.entities.meta,
+            &self.archetypes.archetypes,
+            self.archetypes.generation,
+        )
     }
 
     /// Query a uniquely borrowed world
@@ -374,6 +378,11 @@ impl World {
     /// directly to a `for` loop.
     pub fn query_mut<Q: Query>(&mut self) -> QueryMut<'_, Q> {
         QueryMut::new(&self.entities.meta, &mut self.archetypes.archetypes)
+    }
+
+    /// TODO
+    pub fn query_cache(&self) -> QueryCache {
+        QueryCache::new(&self.archetypes.archetypes, self.archetypes.generation)
     }
 
     /// Prepare a query against a single entity, using dynamic borrow checking
