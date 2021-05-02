@@ -59,10 +59,11 @@ fn batch_spawn_entities(world: &mut World, n: usize) {
     // is faster.
 }
 
-fn system_integrate_motion(world: &mut World) {
+fn system_integrate_motion(world: &mut World, cache: &mut QueryCache) {
     let mut rng = thread_rng();
 
-    for (id, (pos, s)) in &mut world.query::<(&mut Position, &Speed)>() {
+    let mut query = world.query::<(&mut Position, &Speed)>();
+    for (id, (pos, s)) in query.iter_cached(cache) {
         let change = (rng.gen_range(-s.0..s.0), rng.gen_range(-s.0..s.0));
         pos.x += change.0;
         pos.y += change.1;
@@ -145,6 +146,7 @@ fn print_world_state(world: &mut World) {
 
 fn main() {
     let mut world = World::new();
+    let mut cache = world.query_cache();
 
     batch_spawn_entities(&mut world, 5);
 
@@ -158,7 +160,7 @@ fn main() {
         match input.trim() {
             "" => {
                 // Run all simulation systems:
-                system_integrate_motion(&mut world);
+                system_integrate_motion(&mut world, &mut cache);
                 system_fire_at_closest(&mut world);
                 system_remove_dead(&mut world);
             }
