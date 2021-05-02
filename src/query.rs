@@ -325,7 +325,7 @@ impl<'w, Q: Query> QueryBorrow<'w, Q> {
     // The lifetime narrowing here is required for soundness.
     pub fn iter_batched(&mut self, batch_size: u32) -> BatchedIter<'_, Q> {
         self.borrow();
-        unsafe { BatchedIter::new(self.meta, self.archetypes, batch_size) }
+        unsafe { BatchedIter::new(self.meta, self.archetypes.iter(), batch_size) }
     }
 
     fn borrow(&mut self) {
@@ -582,8 +582,7 @@ impl<Q: Query> ChunkIter<Q> {
 pub struct BatchedIter<'q, Q: Query> {
     _marker: PhantomData<&'q Q>,
     meta: &'q [EntityMeta],
-    archetypes: &'q [Archetype],
-    archetype_index: usize,
+    archetypes: SliceIter<'q, Archetype>,
     batch_size: u32,
     batch: u32,
 }
@@ -595,14 +594,13 @@ impl<'q, Q: Query> BatchedIter<'q, Q> {
     /// dynamic borrow checks or by representing exclusive access to the `World`.
     pub(crate) unsafe fn new(
         meta: &'q [EntityMeta],
-        archetypes: &'q [Archetype],
+        archetypes: SliceIter<'q, Archetype>,
         batch_size: u32,
     ) -> Self {
         Self {
             _marker: PhantomData,
             meta,
             archetypes,
-            archetype_index: 0,
             batch_size,
             batch: 0,
         }
@@ -617,10 +615,11 @@ impl<'q, Q: Query> Iterator for BatchedIter<'q, Q> {
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
-            let archetype = self.archetypes.get(self.archetype_index)?;
+            let mut archetypes = self.archetypes.clone();
+            let archetype = archetypes.next()?;
             let offset = self.batch_size * self.batch;
             if offset >= archetype.len() {
-                self.archetype_index += 1;
+                self.archetypes = archetypes;
                 self.batch = 0;
                 continue;
             }
@@ -636,7 +635,7 @@ impl<'q, Q: Query> Iterator for BatchedIter<'q, Q> {
                     },
                 });
             } else {
-                self.archetype_index += 1;
+                self.archetypes = archetypes;
                 debug_assert_eq!(
                     self.batch, 0,
                     "query fetch should always reject at the first batch or not at all"
