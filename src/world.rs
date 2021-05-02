@@ -9,6 +9,7 @@ use crate::alloc::{vec, vec::Vec};
 use core::any::TypeId;
 use core::borrow::Borrow;
 use core::convert::TryFrom;
+use core::sync::atomic::{AtomicU64, Ordering};
 use core::{fmt, mem, ptr};
 
 #[cfg(feature = "std")]
@@ -47,15 +48,21 @@ pub struct World {
     archetypes: ArchetypeSet,
     /// Maps statically-typed bundle types to archetypes
     bundle_to_archetype: TypeIdMap<u32>,
+    id: u64,
 }
 
 impl World {
     /// Create an empty world
     pub fn new() -> Self {
+        static ID: AtomicU64 = AtomicU64::new(0);
+
         Self {
             entities: Entities::default(),
             archetypes: ArchetypeSet::new(),
             bundle_to_archetype: HashMap::default(),
+            id: ID
+                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
+                .unwrap(),
         }
     }
 
@@ -367,6 +374,7 @@ impl World {
         QueryBorrow::new(
             &self.entities.meta,
             &self.archetypes.archetypes,
+            self.id,
             self.archetypes.generation,
         )
     }
@@ -382,7 +390,7 @@ impl World {
 
     /// TODO
     pub fn query_cache(&self) -> QueryCache {
-        QueryCache::new(&self.archetypes.archetypes, self.archetypes.generation)
+        QueryCache::new(self.id, self.archetypes.generation)
     }
 
     /// Prepare a query against a single entity, using dynamic borrow checking

@@ -324,7 +324,8 @@ unsafe impl<'a, T: Component, F: Fetch<'a>> Fetch<'a> for FetchWith<T, F> {
 pub struct QueryBorrow<'w, Q: Query> {
     meta: &'w [EntityMeta],
     archetypes: &'w [Archetype],
-    generation: u64,
+    world_id: u64,
+    archetypes_generation: u64,
     borrowed: bool,
     _marker: PhantomData<Q>,
 }
@@ -333,12 +334,14 @@ impl<'w, Q: Query> QueryBorrow<'w, Q> {
     pub(crate) fn new(
         meta: &'w [EntityMeta],
         archetypes: &'w [Archetype],
-        generation: u64,
+        world_id: u64,
+        archetypes_generation: u64,
     ) -> Self {
         Self {
             meta,
             archetypes,
-            generation,
+            world_id,
+            archetypes_generation,
             borrowed: false,
             _marker: PhantomData,
         }
@@ -372,7 +375,8 @@ impl<'w, Q: Query> QueryBorrow<'w, Q> {
         Q: 'static,
     {
         self.borrow();
-        let archetypes = query_cache.query::<Q>(self.archetypes, self.generation);
+        let archetypes =
+            query_cache.query::<Q>(self.world_id, self.archetypes_generation, self.archetypes);
         unsafe { CachedIter::new(self.meta, archetypes.iter()) }
     }
 
@@ -442,7 +446,8 @@ impl<'w, Q: Query> QueryBorrow<'w, Q> {
         let x = QueryBorrow {
             meta: self.meta,
             archetypes: self.archetypes,
-            generation: self.generation,
+            world_id: self.world_id,
+            archetypes_generation: self.archetypes_generation,
             borrowed: self.borrowed,
             _marker: PhantomData,
         };
@@ -787,28 +792,29 @@ smaller_tuples_too!(tuple_impl, O, N, M, L, K, J, I, H, G, F, E, D, C, B, A);
 
 /// TODO
 pub struct QueryCache {
-    archetypes: *const [Archetype],
-    generation: u64,
+    world_id: u64,
+    archetypes_generation: u64,
     cache: TypeIdMap<Box<[*const Archetype]>>,
 }
 
 impl QueryCache {
-    pub(crate) fn new(archetypes: &[Archetype], generation: u64) -> Self {
+    pub(crate) fn new(world_id: u64, archetypes_generation: u64) -> Self {
         Self {
-            archetypes: archetypes as *const _,
-            generation,
+            world_id,
+            archetypes_generation,
             cache: HashMap::default(),
         }
     }
 
     fn query<'c, Q: Query + 'static>(
         &'c mut self,
+        world_id: u64,
+        archetypes_generation: u64,
         archetypes: &[Archetype],
-        generation: u64,
     ) -> &'c [&'c Archetype] {
-        if self.archetypes != archetypes as *const _ || self.generation != generation {
-            self.archetypes = archetypes as *const _;
-            self.generation = generation;
+        if self.world_id != world_id || self.archetypes_generation != archetypes_generation {
+            self.world_id = world_id;
+            self.archetypes_generation = archetypes_generation;
             self.cache.clear();
         }
 
