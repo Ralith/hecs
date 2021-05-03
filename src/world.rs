@@ -19,10 +19,10 @@ use hashbrown::{HashMap, HashSet};
 
 use crate::alloc::boxed::Box;
 use crate::archetype::{Archetype, TypeIdMap, TypeInfo};
-use crate::entities::{Entities, Location, ReserveEntitiesIterator};
+use crate::entities::{Entities, EntityMeta, Location, ReserveEntitiesIterator};
 use crate::{
     Bundle, ColumnBatch, DynamicBundle, Entity, EntityRef, Fetch, MissingComponent, NoSuchEntity,
-    Query, QueryBorrow, QueryCache, QueryItem, QueryMut, QueryOne, Ref, RefMut,
+    Query, QueryBorrow, QueryItem, QueryMut, QueryOne, Ref, RefMut,
 };
 
 /// An unordered collection of entities, each having any number of distinctly typed components
@@ -371,12 +371,7 @@ impl World {
     /// assert!(entities.contains(&(b, 456, false)));
     /// ```
     pub fn query<Q: Query>(&self) -> QueryBorrow<'_, Q> {
-        QueryBorrow::new(
-            &self.entities.meta,
-            &self.archetypes.archetypes,
-            self.id,
-            self.archetypes.generation,
-        )
+        QueryBorrow::new(&self.entities.meta, &self.archetypes.archetypes)
     }
 
     /// Query a uniquely borrowed world
@@ -388,9 +383,12 @@ impl World {
         QueryMut::new(&self.entities.meta, &mut self.archetypes.archetypes)
     }
 
-    /// TODO
-    pub fn query_cache(&self) -> QueryCache {
-        QueryCache::new(self.id, self.archetypes.generation)
+    pub(crate) fn memo(&self) -> (u64, u64) {
+        (self.id, self.archetypes.generation)
+    }
+
+    pub(crate) fn entities_meta(&self) -> &[EntityMeta] {
+        &self.entities.meta
     }
 
     /// Prepare a query against a single entity, using dynamic borrow checking
