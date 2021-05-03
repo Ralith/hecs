@@ -27,7 +27,8 @@ use crate::{align, Access, Component, Query};
 /// [`World`](crate::World).
 pub struct Archetype {
     types: Box<[TypeInfo]>,
-    state: TypeIdMap<TypeState>,
+    offsets: SmallTypeMap<usize>,
+    borrows: SmallTypeMap<AtomicBorrow>,
     len: u32,
     entities: Box<[u32]>,
     // UnsafeCell allows unique references into `data` to be constructed while shared references
@@ -62,7 +63,8 @@ impl Archetype {
         let max_align = types.first().map_or(1, |ty| ty.layout.align());
         Self::assert_type_info(&types);
         Self {
-            state: types.iter().map(|ty| (ty.id, TypeState::new(0))).collect(),
+            offsets: SmallTypeMap::new(types.iter().map(|ty| (ty.id, 0))),
+            borrows: SmallTypeMap::new(types.iter().map(|ty| (ty.id, AtomicBorrow::new()))),
             types: types.into(),
             entities: Box::new([]),
             len: 0,
@@ -89,20 +91,18 @@ impl Archetype {
 
     /// Whether this archetype contains `T` components
     pub fn has<T: Component>(&self) -> bool {
-        self.has_dynamic(TypeId::of::<T>())
+        self.offsets.get::<T>().is_some()
     }
 
     /// Whether this archetype contains components with the type identified by `id`
     pub fn has_dynamic(&self, id: TypeId) -> bool {
-        self.state.contains_key(&id)
+        self.offsets.get_dynamic(&id).is_some()
     }
 
     pub(crate) fn get_base<T: Component>(&self) -> Option<NonNull<T>> {
-        let state = self.state.get(&TypeId::of::<T>())?;
+        let offset = *self.offsets.get::<T>()?;
         Some(unsafe {
-            NonNull::new_unchecked(
-                (*self.data.get()).as_ptr().add(state.offset).cast::<T>() as *mut T
-            )
+            NonNull::new_unchecked((*self.data.get()).as_ptr().add(offset).cast::<T>() as *mut T)
         })
     }
 
@@ -120,34 +120,26 @@ impl Archetype {
     }
 
     pub(crate) fn borrow<T: Component>(&self) {
-        if self
-            .state
-            .get(&TypeId::of::<T>())
-            .map_or(false, |x| !x.borrow.borrow())
-        {
+        if self.borrows.get::<T>().map_or(false, |x| !x.borrow()) {
             panic!("{} already borrowed uniquely", type_name::<T>());
         }
     }
 
     pub(crate) fn borrow_mut<T: Component>(&self) {
-        if self
-            .state
-            .get(&TypeId::of::<T>())
-            .map_or(false, |x| !x.borrow.borrow_mut())
-        {
+        if self.borrows.get::<T>().map_or(false, |x| !x.borrow_mut()) {
             panic!("{} already borrowed", type_name::<T>());
         }
     }
 
     pub(crate) fn release<T: Component>(&self) {
-        if let Some(x) = self.state.get(&TypeId::of::<T>()) {
-            x.borrow.release();
+        if let Some(x) = self.borrows.get::<T>() {
+            x.release();
         }
     }
 
     pub(crate) fn release_mut<T: Component>(&self) {
-        if let Some(x) = self.state.get(&TypeId::of::<T>()) {
-            x.borrow.release_mut();
+        if let Some(x) = self.borrows.get::<T>() {
+            x.release_mut();
         }
     }
 
@@ -207,10 +199,11 @@ impl Archetype {
         index: u32,
     ) -> Option<NonNull<u8>> {
         debug_assert!(index <= self.len);
+        let offset = *self.offsets.get_dynamic(&ty)?;
         Some(NonNull::new_unchecked(
             (*self.data.get())
                 .as_ptr()
-                .add(self.state.get(&ty)?.offset + size * index as usize)
+                .add(offset + size * index as usize)
                 .cast::<u8>(),
         ))
     }
@@ -250,13 +243,12 @@ impl Archetype {
             self.entities = new_entities;
 
             let old_data_size = mem::replace(&mut self.data_size, 0);
-            let mut state =
-                TypeIdMap::with_capacity_and_hasher(self.types.len(), Default::default());
-            for ty in &*self.types {
-                self.data_size = align(self.data_size, ty.layout.align());
-                state.insert(ty.id, TypeState::new(self.data_size));
-                self.data_size += ty.layout.size() * new_cap;
-            }
+            let new_data_size = &mut self.data_size;
+            let offsets = SmallTypeMap::new(self.types.iter().map(|ty| {
+                let offset = align(*new_data_size, ty.layout.align());
+                *new_data_size = offset + ty.layout.size() * new_cap;
+                (ty.id, offset)
+            }));
             let max_align = self.types.first().map_or(1, |x| x.layout.align());
             let new_data = if self.data_size == 0 {
                 NonNull::new(max_align as *mut u8).unwrap()
@@ -268,8 +260,8 @@ impl Archetype {
             };
             if old_data_size != 0 {
                 for ty in &*self.types {
-                    let old_off = self.state.get(&ty.id).unwrap().offset;
-                    let new_off = state.get(&ty.id).unwrap().offset;
+                    let old_off = *self.offsets.get_dynamic(&ty.id).unwrap();
+                    let new_off = *offsets.get_dynamic(&ty.id).unwrap();
                     ptr::copy_nonoverlapping(
                         (*self.data.get()).as_ptr().add(old_off),
                         new_data.as_ptr().add(new_off),
@@ -286,7 +278,7 @@ impl Archetype {
             }
 
             self.data = UnsafeCell::new(new_data);
-            self.state = state;
+            self.offsets = offsets;
         }
     }
 
@@ -380,9 +372,9 @@ impl Archetype {
     pub(crate) unsafe fn merge(&mut self, mut other: Archetype) {
         self.reserve(other.len);
         for info in &*self.types {
-            let src_off = other.state.get(&info.id()).unwrap().offset;
+            let src_off = *other.offsets.get_dynamic(&info.id).unwrap();
             let src = (*other.data.get()).as_ptr().add(src_off);
-            let dst_off = self.state.get(&info.id()).unwrap().offset;
+            let dst_off = *self.offsets.get_dynamic(&info.id).unwrap();
             let dst = (*self.data.get())
                 .as_ptr()
                 .add(dst_off + self.len as usize * info.layout.size());
@@ -464,17 +456,27 @@ impl Hasher for TypeIdHasher {
 /// faster no-op hash.
 pub(crate) type TypeIdMap<V> = HashMap<TypeId, V, BuildHasherDefault<TypeIdHasher>>;
 
-struct TypeState {
-    offset: usize,
-    borrow: AtomicBorrow,
-}
+/// A map backed by a sorted slice of pairs
+///
+/// As we expected an archetype to contain few types, this should usually be faster
+/// than a hash table due to better cache locality.
+struct SmallTypeMap<V>(Box<[(TypeId, V)]>);
 
-impl TypeState {
-    fn new(offset: usize) -> Self {
-        Self {
-            offset,
-            borrow: AtomicBorrow::new(),
-        }
+impl<V> SmallTypeMap<V> {
+    fn new(iter: impl Iterator<Item = (TypeId, V)>) -> Self {
+        let mut pairs = iter.collect::<Box<[_]>>();
+        pairs.sort_unstable_by_key(|(ty, _)| *ty);
+        Self(pairs)
+    }
+
+    fn get_dynamic(&self, id: &TypeId) -> Option<&V> {
+        let idx = self.0.binary_search_by_key(id, |(ty, _)| *ty).ok()?;
+
+        Some(&self.0[idx].1)
+    }
+
+    fn get<K: 'static>(&self) -> Option<&V> {
+        self.get_dynamic(&TypeId::of::<K>())
     }
 }
 
