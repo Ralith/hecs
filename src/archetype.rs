@@ -26,7 +26,7 @@ use crate::{align, Access, Component, Query};
 /// Accessing `Archetype`s is only required in niche cases. Typical use should go through the
 /// [`World`](crate::World).
 pub struct Archetype {
-    types: Vec<TypeInfo>,
+    types: Box<[TypeInfo]>,
     state: TypeIdMap<TypeState>,
     len: u32,
     entities: Box<[u32]>,
@@ -63,7 +63,7 @@ impl Archetype {
         Self::assert_type_info(&types);
         Self {
             state: types.iter().map(|ty| (ty.id, TypeState::new(0))).collect(),
-            types,
+            types: types.into(),
             entities: Box::new([]),
             len: 0,
             data: UnsafeCell::new(NonNull::new(max_align as *mut u8).unwrap()),
@@ -73,7 +73,7 @@ impl Archetype {
     }
 
     pub(crate) fn clear(&mut self) {
-        for ty in &self.types {
+        for ty in &*self.types {
             for index in 0..self.len {
                 unsafe {
                     let removed = self
@@ -252,7 +252,7 @@ impl Archetype {
             let old_data_size = mem::replace(&mut self.data_size, 0);
             let mut state =
                 TypeIdMap::with_capacity_and_hasher(self.types.len(), Default::default());
-            for ty in &self.types {
+            for ty in &*self.types {
                 self.data_size = align(self.data_size, ty.layout.align());
                 state.insert(ty.id, TypeState::new(self.data_size));
                 self.data_size += ty.layout.size() * new_cap;
@@ -267,7 +267,7 @@ impl Archetype {
                 .unwrap()
             };
             if old_data_size != 0 {
-                for ty in &self.types {
+                for ty in &*self.types {
                     let old_off = self.state.get(&ty.id).unwrap().offset;
                     let new_off = state.get(&ty.id).unwrap().offset;
                     ptr::copy_nonoverlapping(
@@ -293,7 +293,7 @@ impl Archetype {
     /// Returns the ID of the entity moved into `index`, if any
     pub(crate) unsafe fn remove(&mut self, index: u32, drop: bool) -> Option<u32> {
         let last = self.len - 1;
-        for ty in &self.types {
+        for ty in &*self.types {
             let removed = self
                 .get_dynamic(ty.id, ty.layout.size(), index)
                 .unwrap()
@@ -327,7 +327,7 @@ impl Archetype {
         mut f: impl FnMut(*mut u8, TypeId, usize),
     ) -> Option<u32> {
         let last = self.len - 1;
-        for ty in &self.types {
+        for ty in &*self.types {
             let moved = self
                 .get_dynamic(ty.id, ty.layout.size(), index)
                 .unwrap()
@@ -379,7 +379,7 @@ impl Archetype {
     /// Component types must match exactly.
     pub(crate) unsafe fn merge(&mut self, mut other: Archetype) {
         self.reserve(other.len);
-        for info in &self.types {
+        for info in &*self.types {
             let src_off = other.state.get(&info.id()).unwrap().offset;
             let src = (*other.data.get()).as_ptr().add(src_off);
             let dst_off = self.state.get(&info.id()).unwrap().offset;
