@@ -107,78 +107,57 @@ fn iterate_mut_100k(b: &mut Bencher) {
     })
 }
 
-fn spawn_100k_by_50(world: &mut World) {
-    for i in 0..2_000 {
-        world.spawn((Position(-(i as f32)), Velocity(i as f32), [(); 0]));
-        world.spawn((Position(-(i as f32)), [(); 0]));
-        world.spawn((Position(-(i as f32)), Velocity(i as f32), [(); 1]));
-        world.spawn((Position(-(i as f32)), [(); 1]));
-        world.spawn((Position(-(i as f32)), Velocity(i as f32), [(); 2]));
-        world.spawn((Position(-(i as f32)), [(); 2]));
-        world.spawn((Position(-(i as f32)), Velocity(i as f32), [(); 3]));
-        world.spawn((Position(-(i as f32)), [(); 3]));
-        world.spawn((Position(-(i as f32)), Velocity(i as f32), [(); 4]));
-        world.spawn((Position(-(i as f32)), [(); 4]));
-        world.spawn((Position(-(i as f32)), Velocity(i as f32), [(); 5]));
-        world.spawn((Position(-(i as f32)), [(); 5]));
-        world.spawn((Position(-(i as f32)), Velocity(i as f32), [(); 6]));
-        world.spawn((Position(-(i as f32)), [(); 6]));
-        world.spawn((Position(-(i as f32)), Velocity(i as f32), [(); 7]));
-        world.spawn((Position(-(i as f32)), [(); 7]));
-        world.spawn((Position(-(i as f32)), Velocity(i as f32), [(); 8]));
-        world.spawn((Position(-(i as f32)), [(); 8]));
-        world.spawn((Position(-(i as f32)), Velocity(i as f32), [(); 9]));
-        world.spawn((Position(-(i as f32)), [(); 9]));
-        world.spawn((Position(-(i as f32)), Velocity(i as f32), [(); 10]));
-        world.spawn((Position(-(i as f32)), [(); 10]));
-        world.spawn((Position(-(i as f32)), Velocity(i as f32), [(); 11]));
-        world.spawn((Position(-(i as f32)), [(); 11]));
-        world.spawn((Position(-(i as f32)), Velocity(i as f32), [(); 12]));
-        world.spawn((Position(-(i as f32)), [(); 12]));
-        world.spawn((Position(-(i as f32)), Velocity(i as f32), [(); 13]));
-        world.spawn((Position(-(i as f32)), [(); 13]));
-        world.spawn((Position(-(i as f32)), Velocity(i as f32), [(); 14]));
-        world.spawn((Position(-(i as f32)), [(); 14]));
-        world.spawn((Position(-(i as f32)), Velocity(i as f32), [(); 15]));
-        world.spawn((Position(-(i as f32)), [(); 15]));
-        world.spawn((Position(-(i as f32)), Velocity(i as f32), [(); 16]));
-        world.spawn((Position(-(i as f32)), [(); 16]));
-        world.spawn((Position(-(i as f32)), Velocity(i as f32), [(); 17]));
-        world.spawn((Position(-(i as f32)), [(); 17]));
-        world.spawn((Position(-(i as f32)), Velocity(i as f32), [(); 18]));
-        world.spawn((Position(-(i as f32)), [(); 18]));
-        world.spawn((Position(-(i as f32)), Velocity(i as f32), [(); 19]));
-        world.spawn((Position(-(i as f32)), [(); 19]));
-        world.spawn((Position(-(i as f32)), Velocity(i as f32), [(); 20]));
-        world.spawn((Position(-(i as f32)), [(); 20]));
-        world.spawn((Position(-(i as f32)), Velocity(i as f32), [(); 21]));
-        world.spawn((Position(-(i as f32)), [(); 21]));
-        world.spawn((Position(-(i as f32)), Velocity(i as f32), [(); 22]));
-        world.spawn((Position(-(i as f32)), [(); 22]));
-        world.spawn((Position(-(i as f32)), Velocity(i as f32), [(); 23]));
-        world.spawn((Position(-(i as f32)), [(); 23]));
-        world.spawn((Position(-(i as f32)), Velocity(i as f32), [(); 24]));
-        world.spawn((Position(-(i as f32)), [(); 24]));
+fn spawn_100_by_50(world: &mut World) {
+    fn spawn_two<const N: usize>(world: &mut World, i: i32) {
+        world.spawn((Position(-(i as f32)), Velocity(i as f32), [(); N]));
+        world.spawn((Position(-(i as f32)), [(); N]));
+    }
+
+    for i in 0..2 {
+        spawn_two::<0>(world, i);
+        spawn_two::<1>(world, i);
+        spawn_two::<2>(world, i);
+        spawn_two::<3>(world, i);
+        spawn_two::<4>(world, i);
+        spawn_two::<5>(world, i);
+        spawn_two::<6>(world, i);
+        spawn_two::<7>(world, i);
+        spawn_two::<8>(world, i);
+        spawn_two::<9>(world, i);
+        spawn_two::<10>(world, i);
+        spawn_two::<11>(world, i);
+        spawn_two::<12>(world, i);
+        spawn_two::<13>(world, i);
+        spawn_two::<14>(world, i);
+        spawn_two::<15>(world, i);
+        spawn_two::<16>(world, i);
+        spawn_two::<17>(world, i);
+        spawn_two::<18>(world, i);
+        spawn_two::<19>(world, i);
+        spawn_two::<20>(world, i);
+        spawn_two::<21>(world, i);
+        spawn_two::<22>(world, i);
+        spawn_two::<23>(world, i);
+        spawn_two::<24>(world, i);
     }
 }
 
-fn iterate_uncached_100k_by_50(b: &mut Bencher) {
+fn iterate_uncached_100_by_50(b: &mut Bencher) {
     let mut world = World::new();
-    spawn_100k_by_50(&mut world);
+    spawn_100_by_50(&mut world);
     b.iter(|| {
-        for (_, (pos, vel)) in &mut world.query::<(&mut Position, &Velocity)>() {
+        for (_, (pos, vel)) in world.query_mut::<(&mut Position, &Velocity)>() {
             pos.0 += vel.0;
         }
     })
 }
 
-fn iterate_cached_100k_by_50(b: &mut Bencher) {
+fn iterate_cached_100_by_50(b: &mut Bencher) {
     let mut world = World::new();
-    let mut cache = world.query_cache();
-    spawn_100k_by_50(&mut world);
+    spawn_100_by_50(&mut world);
+    let mut query = world.query::<(&mut Position, &Velocity)>().prepare(&world);
     b.iter(|| {
-        let mut query = world.query::<(&mut Position, &Velocity)>();
-        for (_, (pos, vel)) in query.iter_cached(&mut cache) {
+        for (_, (pos, vel)) in query.iter(&mut world) {
             pos.0 += vel.0;
         }
     })
@@ -202,8 +181,8 @@ benchmark_group!(
     insert,
     iterate_100k,
     iterate_mut_100k,
-    iterate_uncached_100k_by_50,
-    iterate_cached_100k_by_50,
+    iterate_uncached_100_by_50,
+    iterate_cached_100_by_50,
     build
 );
 benchmark_main!(benches);

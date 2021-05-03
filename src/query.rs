@@ -11,12 +11,10 @@ use core::mem;
 use core::ptr::NonNull;
 use core::slice::Iter as SliceIter;
 
-use hashbrown::hash_map::{Entry, HashMap};
-
 use crate::alloc::boxed::Box;
-use crate::archetype::{Archetype, TypeIdMap};
+use crate::archetype::Archetype;
 use crate::entities::EntityMeta;
-use crate::{Component, Entity};
+use crate::{Component, Entity, World};
 
 /// A collection of component types to fetch from a [`World`](crate::World)
 pub trait Query {
@@ -324,24 +322,15 @@ unsafe impl<'a, T: Component, F: Fetch<'a>> Fetch<'a> for FetchWith<T, F> {
 pub struct QueryBorrow<'w, Q: Query> {
     meta: &'w [EntityMeta],
     archetypes: &'w [Archetype],
-    world_id: u64,
-    archetypes_generation: u64,
     borrowed: bool,
     _marker: PhantomData<Q>,
 }
 
 impl<'w, Q: Query> QueryBorrow<'w, Q> {
-    pub(crate) fn new(
-        meta: &'w [EntityMeta],
-        archetypes: &'w [Archetype],
-        world_id: u64,
-        archetypes_generation: u64,
-    ) -> Self {
+    pub(crate) fn new(meta: &'w [EntityMeta], archetypes: &'w [Archetype]) -> Self {
         Self {
             meta,
             archetypes,
-            world_id,
-            archetypes_generation,
             borrowed: false,
             _marker: PhantomData,
         }
@@ -366,18 +355,8 @@ impl<'w, Q: Query> QueryBorrow<'w, Q> {
     }
 
     /// TODO
-    pub fn iter_cached<'q, 'c>(
-        &'q mut self,
-        query_cache: &'c mut QueryCache,
-    ) -> CachedIter<'q, 'c, Q>
-    where
-        // TODO
-        Q: 'static,
-    {
-        self.borrow();
-        let archetypes =
-            query_cache.query::<Q>(self.world_id, self.archetypes_generation, self.archetypes);
-        unsafe { CachedIter::new(self.meta, archetypes.iter()) }
+    pub fn prepare(self, world: &World) -> PreparedQuery<Q> {
+        PreparedQuery::new(world)
     }
 
     fn borrow(&mut self) {
@@ -446,8 +425,6 @@ impl<'w, Q: Query> QueryBorrow<'w, Q> {
         let x = QueryBorrow {
             meta: self.meta,
             archetypes: self.archetypes,
-            world_id: self.world_id,
-            archetypes_generation: self.archetypes_generation,
             borrowed: self.borrowed,
             _marker: PhantomData,
         };
@@ -791,61 +768,60 @@ macro_rules! tuple_impl {
 smaller_tuples_too!(tuple_impl, O, N, M, L, K, J, I, H, G, F, E, D, C, B, A);
 
 /// TODO
-pub struct QueryCache {
-    world_id: u64,
-    archetypes_generation: u64,
-    cache: TypeIdMap<Box<[*const Archetype]>>,
+pub struct PreparedQuery<Q> {
+    memo: (u64, u64),
+    archetypes: Box<[*const Archetype]>,
+    _query: PhantomData<Q>,
 }
 
-impl QueryCache {
-    pub(crate) fn new(world_id: u64, archetypes_generation: u64) -> Self {
+impl<Q: Query> PreparedQuery<Q> {
+    #[cold]
+    fn new(world: &World) -> Self {
+        let memo = world.memo();
+
+        let archetypes = world
+            .archetypes()
+            .filter(|&x| Q::Fetch::access(x).is_some())
+            .map(|x| x as *const _)
+            .collect();
+
         Self {
-            world_id,
-            archetypes_generation,
-            cache: HashMap::default(),
+            memo,
+            archetypes,
+            _query: PhantomData,
         }
     }
 
-    fn query<'c, Q: Query + 'static>(
-        &'c mut self,
-        world_id: u64,
-        archetypes_generation: u64,
-        archetypes: &[Archetype],
-    ) -> &'c [&'c Archetype] {
-        if self.world_id != world_id || self.archetypes_generation != archetypes_generation {
-            self.world_id = world_id;
-            self.archetypes_generation = archetypes_generation;
-            self.cache.clear();
+    /// TODO
+    pub fn iter<'q, 'w>(
+        &'q mut self,
+        // TODO
+        world: &'w mut World,
+    ) -> PreparedQueryIter<'q, 'w, Q> {
+        if self.memo != world.memo() {
+            *self = Self::new(world);
         }
 
-        let archetypes: &'c [*const Archetype] = match self.cache.entry(TypeId::of::<Q>()) {
-            Entry::Vacant(entry) => {
-                let archetypes = archetypes
-                    .iter()
-                    .filter(|&x| Q::Fetch::access(x).is_some())
-                    .map(|x| x as *const _)
-                    .collect();
+        let meta = world.entities_meta();
 
-                entry.insert(archetypes)
-            }
-            Entry::Occupied(entry) => entry.into_mut(),
-        };
+        let archetypes: &'q [*const Archetype] = &self.archetypes;
+        let archetypes: &'q [&'q Archetype] = unsafe { mem::transmute(archetypes) };
 
-        unsafe { mem::transmute(archetypes) }
+        unsafe { PreparedQueryIter::new(meta, archetypes.iter()) }
     }
 }
 
 /// TODO
-pub struct CachedIter<'q, 'c, Q: Query> {
-    meta: &'q [EntityMeta],
-    archetypes: SliceIter<'c, &'c Archetype>,
+pub struct PreparedQueryIter<'q, 'w, Q: Query> {
+    meta: &'w [EntityMeta],
+    archetypes: SliceIter<'q, &'q Archetype>,
     iter: ChunkIter<Q>,
 }
 
-impl<'q, 'c, Q: Query> CachedIter<'q, 'c, Q> {
+impl<'q, 'w, Q: Query> PreparedQueryIter<'q, 'w, Q> {
     pub(crate) unsafe fn new(
-        meta: &'q [EntityMeta],
-        archetypes: SliceIter<'c, &'c Archetype>,
+        meta: &'w [EntityMeta],
+        archetypes: SliceIter<'q, &'q Archetype>,
     ) -> Self {
         Self {
             meta,
@@ -855,10 +831,10 @@ impl<'q, 'c, Q: Query> CachedIter<'q, 'c, Q> {
     }
 }
 
-unsafe impl<Q: Query> Send for CachedIter<'_, '_, Q> {}
-unsafe impl<Q: Query> Sync for CachedIter<'_, '_, Q> {}
+unsafe impl<Q: Query> Send for PreparedQueryIter<'_, '_, Q> {}
+unsafe impl<Q: Query> Sync for PreparedQueryIter<'_, '_, Q> {}
 
-impl<'q, 'c, Q: Query> Iterator for CachedIter<'q, 'c, Q> {
+impl<'q, 'w, Q: Query> Iterator for PreparedQueryIter<'q, 'w, Q> {
     type Item = (Entity, QueryItem<'q, Q>);
 
     #[inline(always)]
@@ -894,7 +870,7 @@ impl<'q, 'c, Q: Query> Iterator for CachedIter<'q, 'c, Q> {
     }
 }
 
-impl<Q: Query> ExactSizeIterator for CachedIter<'_, '_, Q> {
+impl<Q: Query> ExactSizeIterator for PreparedQueryIter<'_, '_, Q> {
     fn len(&self) -> usize {
         self.archetypes
             .clone()
