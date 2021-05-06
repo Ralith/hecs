@@ -250,11 +250,11 @@ impl Archetype {
             self.entities = new_entities;
 
             let old_data_size = mem::replace(&mut self.data_size, 0);
-            let mut state =
+            let mut new_offsets =
                 TypeIdMap::with_capacity_and_hasher(self.types.len(), Default::default());
             for ty in &self.types {
                 self.data_size = align(self.data_size, ty.layout.align());
-                state.insert(ty.id, TypeState::new(self.data_size));
+                new_offsets.insert(ty.id, self.data_size);
                 self.data_size += ty.layout.size() * new_cap;
             }
             let max_align = self.types.first().map_or(1, |x| x.layout.align());
@@ -269,7 +269,7 @@ impl Archetype {
             if old_data_size != 0 {
                 for ty in &self.types {
                     let old_off = self.state.get(&ty.id).unwrap().offset;
-                    let new_off = state.get(&ty.id).unwrap().offset;
+                    let new_off = *new_offsets.get(&ty.id).unwrap();
                     ptr::copy_nonoverlapping(
                         (*self.data.get()).as_ptr().add(old_off),
                         new_data.as_ptr().add(new_off),
@@ -286,7 +286,10 @@ impl Archetype {
             }
 
             self.data = UnsafeCell::new(new_data);
-            self.state = state;
+
+            for (id, offset) in &new_offsets {
+                self.state.get_mut(id).unwrap().offset = *offset;
+            }
         }
     }
 
