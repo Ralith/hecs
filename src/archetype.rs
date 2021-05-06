@@ -97,13 +97,17 @@ impl Archetype {
         self.state.contains_key(&id)
     }
 
+    pub(crate) fn get_state<T: Component>(&self) -> Option<&TypeState> {
+        self.state.get(&TypeId::of::<T>())
+    }
+
+    pub(crate) unsafe fn get_base_by_state<T: Component>(&self, state: &TypeState) -> NonNull<T> {
+        NonNull::new_unchecked((*self.data.get()).as_ptr().add(state.offset).cast::<T>() as *mut T)
+    }
+
     pub(crate) fn get_base<T: Component>(&self) -> Option<NonNull<T>> {
-        let state = self.state.get(&TypeId::of::<T>())?;
-        Some(unsafe {
-            NonNull::new_unchecked(
-                (*self.data.get()).as_ptr().add(state.offset).cast::<T>() as *mut T
-            )
-        })
+        let state = self.get_state::<T>()?;
+        Some(unsafe { self.get_base_by_state::<T>(state) })
     }
 
     /// Get the `T` components of these entities, if present
@@ -467,7 +471,7 @@ impl Hasher for TypeIdHasher {
 /// faster no-op hash.
 pub(crate) type TypeIdMap<V> = HashMap<TypeId, V, BuildHasherDefault<TypeIdHasher>>;
 
-struct TypeState {
+pub struct TypeState {
     offset: usize,
     borrow: AtomicBorrow,
 }

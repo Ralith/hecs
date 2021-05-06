@@ -80,6 +80,25 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream2> {
             #vis struct #fetch_ident;
         },
     };
+    let state_ident = Ident::new(&format!("__HecsInternal{}State", ident), Span::call_site());
+    let state = match data.fields {
+        syn::Fields::Named(_) => quote! {
+            #[derive(Clone, Copy)]
+            #vis struct #state_ident<'a> {
+                #(
+                    #fields: <#fetches as ::hecs::Fetch<'a>>::State,
+                )*
+            }
+        },
+        syn::Fields::Unnamed(_) => quote! {
+            #[derive(Clone, Copy)]
+            #vis struct #state_ident<'a>(#(<#fetches as ::hecs::Fetch<'a>>::State),*);
+        },
+        syn::Fields::Unit => quote! {
+            #[derive(Clone, Copy)]
+            #vis struct #state_ident;
+        },
+    };
 
     Ok(quote! {
         impl<'a> ::hecs::Query for #ident<'a> {
@@ -89,8 +108,13 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream2> {
         #[doc(hidden)]
         #fetch
 
+        #[doc(hidden)]
+        #state
+
         unsafe impl<'a> ::hecs::Fetch<'a> for #fetch_ident {
             type Item = #ident<'a>;
+
+            type State = #state_ident<'a>;
 
             fn dangling() -> Self {
                 Self {
@@ -115,12 +139,20 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream2> {
             }
 
             #[allow(unused_variables)]
-            fn new(archetype: &'a ::hecs::Archetype) -> ::std::option::Option<Self> {
-                ::std::option::Option::Some(Self {
+            fn prepare(archetype: &::hecs::Archetype) -> ::std::option::Option<Self::State> {
+                ::std::option::Option::Some(#state_ident {
                     #(
-                        #fields: #fetches::new(archetype)?,
+                        #fields: #fetches::prepare(archetype)?,
                     )*
                 })
+            }
+
+            unsafe fn execute(archetype: &'a ::hecs::Archetype, state: Self::State) -> Self {
+                Self {
+                    #(
+                        #fields: #fetches::execute(archetype, state.#fields),
+                    )*
+                }
             }
 
             #[allow(unused_variables)]
