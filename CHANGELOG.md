@@ -1,3 +1,8 @@
+# 0.5.2
+
+### Fixed
+- `World::query_mut` did not prevent aliasing mutable borrows within the query
+
 # 0.5.1
 
 ### Changed
