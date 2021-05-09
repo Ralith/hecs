@@ -814,8 +814,7 @@ smaller_tuples_too!(tuple_impl, O, N, M, L, K, J, I, H, G, F, E, D, C, B, A);
 /// TODO
 pub struct PreparedQuery<Q: Query> {
     memo: (u64, u64),
-    #[allow(clippy::type_complexity)]
-    archetypes: Box<[(*const Archetype, <Q::Fetch as Fetch<'static>>::State)]>,
+    state: Box<[(usize, <Q::Fetch as Fetch<'static>>::State)]>,
     _query: PhantomData<Q>,
 }
 
@@ -824,63 +823,66 @@ impl<Q: Query> PreparedQuery<Q> {
     fn new(world: &World) -> Self {
         let memo = world.memo();
 
-        let archetypes = world
+        let state = world
             .archetypes()
-            .filter_map(|x| Q::Fetch::prepare(x).map(|state| (x as *const _, state)))
+            .enumerate()
+            .filter_map(|(idx, x)| Q::Fetch::prepare(x).map(|state| (idx, state)))
             .collect();
 
         Self {
             memo,
-            archetypes,
+            state,
             _query: PhantomData,
         }
     }
 
     /// TODO
-    pub fn iter<'q, 'w>(
+    pub fn iter<'q>(
         &'q mut self,
         // TODO
-        world: &'w mut World,
-    ) -> PreparedQueryIter<'q, 'w, Q> {
+        world: &'q mut World,
+    ) -> PreparedQueryIter<'q, Q> {
         if self.memo != world.memo() {
             *self = Self::new(world);
         }
 
         let meta = world.entities_meta();
+        let archetypes = world.archetypes_inner();
 
-        let archetypes: &'q [(*const Archetype, <Q::Fetch as Fetch<'static>>::State)] =
-            &self.archetypes;
-        let archetypes: &'q [(&'q Archetype, <Q::Fetch as Fetch<'q>>::State)] =
-            unsafe { mem::transmute(archetypes) };
+        let state: &'q [(usize, <Q::Fetch as Fetch<'q>>::State)] =
+            unsafe { mem::transmute(&*self.state) };
 
-        unsafe { PreparedQueryIter::new(meta, archetypes.iter()) }
+        unsafe { PreparedQueryIter::new(meta, archetypes, state.iter()) }
     }
 }
 
 /// TODO
-pub struct PreparedQueryIter<'q, 'w, Q: Query> {
-    meta: &'w [EntityMeta],
-    archetypes: SliceIter<'q, (&'q Archetype, <Q::Fetch as Fetch<'q>>::State)>,
+pub struct PreparedQueryIter<'q, Q: Query> {
+    meta: &'q [EntityMeta],
+    archetypes: &'q [Archetype],
+    state: SliceIter<'q, (usize, <Q::Fetch as Fetch<'q>>::State)>,
     iter: ChunkIter<Q>,
 }
 
-impl<'q, 'w, Q: Query> PreparedQueryIter<'q, 'w, Q> {
+impl<'q, Q: Query> PreparedQueryIter<'q, Q> {
     pub(crate) unsafe fn new(
-        meta: &'w [EntityMeta],
-        archetypes: SliceIter<'q, (&'q Archetype, <Q::Fetch as Fetch<'q>>::State)>,
+        meta: &'q [EntityMeta],
+        archetypes: &'q [Archetype],
+        state: SliceIter<'q, (usize, <Q::Fetch as Fetch<'q>>::State)>,
     ) -> Self {
         Self {
             meta,
             archetypes,
+            state,
             iter: ChunkIter::empty(),
         }
     }
 }
 
-unsafe impl<Q: Query> Send for PreparedQueryIter<'_, '_, Q> {}
-unsafe impl<Q: Query> Sync for PreparedQueryIter<'_, '_, Q> {}
+unsafe impl<Q: Query> Send for PreparedQueryIter<'_, Q> {}
+unsafe impl<Q: Query> Sync for PreparedQueryIter<'_, Q> {}
 
-impl<'q, 'w, Q: Query> Iterator for PreparedQueryIter<'q, 'w, Q> {
+impl<'q, Q: Query> Iterator for PreparedQueryIter<'q, Q> {
     type Item = (Entity, QueryItem<'q, Q>);
 
     #[inline(always)]
@@ -888,7 +890,8 @@ impl<'q, 'w, Q: Query> Iterator for PreparedQueryIter<'q, 'w, Q> {
         loop {
             match unsafe { self.iter.next() } {
                 None => {
-                    let (archetype, state) = self.archetypes.next()?;
+                    let (idx, state) = self.state.next()?;
+                    let archetype = &self.archetypes[*idx];
                     self.iter = ChunkIter {
                         entities: archetype.entities(),
                         fetch: unsafe { Q::Fetch::execute(archetype, *state) },
@@ -916,11 +919,11 @@ impl<'q, 'w, Q: Query> Iterator for PreparedQueryIter<'q, 'w, Q> {
     }
 }
 
-impl<Q: Query> ExactSizeIterator for PreparedQueryIter<'_, '_, Q> {
+impl<Q: Query> ExactSizeIterator for PreparedQueryIter<'_, Q> {
     fn len(&self) -> usize {
-        self.archetypes
+        self.state
             .clone()
-            .map(|(x, _)| x.len() as usize)
+            .map(|(idx, _)| self.archetypes[*idx].len() as usize)
             .sum::<usize>()
             + self.iter.remaining()
     }
