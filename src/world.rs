@@ -391,6 +391,10 @@ impl World {
         &self.entities.meta
     }
 
+    pub(crate) fn archetypes_inner(&self) -> &[Archetype] {
+        &self.archetypes.archetypes
+    }
+
     /// Prepare a query against a single entity, using dynamic borrow checking
     ///
     /// Prefer [`query_one_mut`](Self::query_one_mut) when concurrent access to the [`World`] is not
@@ -754,7 +758,7 @@ impl World {
     /// Useful for dynamically scheduling concurrent queries by checking borrows in advance, and for
     /// efficient serialization.
     pub fn archetypes(&self) -> impl ExactSizeIterator<Item = &'_ Archetype> + '_ {
-        self.archetypes.archetypes.iter()
+        self.archetypes_inner().iter()
     }
 
     /// Returns a distinct value after `archetypes` is changed
