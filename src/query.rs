@@ -5,6 +5,7 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
+use core::any::TypeId;
 use core::marker::PhantomData;
 use core::ptr::NonNull;
 use core::slice::Iter as SliceIter;
@@ -41,6 +42,9 @@ pub unsafe trait Fetch<'a>: Sized {
     fn new(archetype: &'a Archetype) -> Option<Self>;
     /// Release dynamic borrows acquired by `borrow`
     fn release(archetype: &Archetype);
+
+    /// Invoke `f` for every component type that may be borrowed and whether the borrow is unique
+    fn for_each_borrow(f: impl FnMut(TypeId, bool));
 
     /// Access the `n`th item in this archetype without bounds checking
     ///
@@ -95,6 +99,10 @@ unsafe impl<'a, T: Component> Fetch<'a> for FetchRead<T> {
         archetype.release::<T>();
     }
 
+    fn for_each_borrow(mut f: impl FnMut(TypeId, bool)) {
+        f(TypeId::of::<T>(), false);
+    }
+
     unsafe fn get(&self, n: usize) -> Self::Item {
         &*self.0.as_ptr().add(n)
     }
@@ -132,6 +140,10 @@ unsafe impl<'a, T: Component> Fetch<'a> for FetchWrite<T> {
         archetype.release_mut::<T>();
     }
 
+    fn for_each_borrow(mut f: impl FnMut(TypeId, bool)) {
+        f(TypeId::of::<T>(), true);
+    }
+
     unsafe fn get(&self, n: usize) -> Self::Item {
         &mut *self.0.as_ptr().add(n)
     }
@@ -163,6 +175,10 @@ unsafe impl<'a, T: Fetch<'a>> Fetch<'a> for TryFetch<T> {
     }
     fn release(archetype: &Archetype) {
         T::release(archetype)
+    }
+
+    fn for_each_borrow(f: impl FnMut(TypeId, bool)) {
+        T::for_each_borrow(f);
     }
 
     unsafe fn get(&self, n: usize) -> Option<T::Item> {
@@ -224,6 +240,10 @@ unsafe impl<'a, T: Component, F: Fetch<'a>> Fetch<'a> for FetchWithout<T, F> {
         F::release(archetype)
     }
 
+    fn for_each_borrow(f: impl FnMut(TypeId, bool)) {
+        F::for_each_borrow(f);
+    }
+
     unsafe fn get(&self, n: usize) -> F::Item {
         self.0.get(n)
     }
@@ -283,6 +303,10 @@ unsafe impl<'a, T: Component, F: Fetch<'a>> Fetch<'a> for FetchWith<T, F> {
     }
     fn release(archetype: &Archetype) {
         F::release(archetype)
+    }
+
+    fn for_each_borrow(f: impl FnMut(TypeId, bool)) {
+        F::for_each_borrow(f);
     }
 
     unsafe fn get(&self, n: usize) -> F::Item {
@@ -508,6 +532,21 @@ pub struct QueryMut<'q, Q: Query> {
 
 impl<'q, Q: Query> QueryMut<'q, Q> {
     pub(crate) fn new(meta: &'q [EntityMeta], archetypes: &'q mut [Archetype]) -> Self {
+        // This looks like an ugly O(n^2) loop, but everything's constant after inlining, so in
+        // practice LLVM optimizes it out entirely.
+        let mut i = 0;
+        Q::Fetch::for_each_borrow(|a, unique| {
+            if unique {
+                let mut j = 0;
+                Q::Fetch::for_each_borrow(|b, _| {
+                    if i != j {
+                        core::assert!(a != b, "query violates a unique borrow");
+                    }
+                    j += 1;
+                })
+            }
+            i += 1;
+        });
         Self {
             iter: unsafe { QueryIter::new(meta, archetypes.iter()) },
         }
@@ -699,6 +738,11 @@ macro_rules! tuple_impl {
             #[allow(unused_variables)]
             fn release(archetype: &Archetype) {
                 $($name::release(archetype);)*
+            }
+
+            #[allow(unused_variables, unused_mut)]
+            fn for_each_borrow(mut f: impl FnMut(TypeId, bool)) {
+                $($name::for_each_borrow(&mut f);)*
             }
 
             #[allow(unused_variables)]
