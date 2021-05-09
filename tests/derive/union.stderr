@@ -5,7 +5,7 @@ error: derive(Query) may only be applied to structs
   |       ^^^
 
 error: derive(Bundle) does not support enums or unions
- --> $DIR/union.rs:4:7
+ --> $DIR/union.rs:9:7
   |
-4 | union Foo {
+9 | union Bar {
   |       ^^^
