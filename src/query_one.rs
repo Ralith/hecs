@@ -38,8 +38,9 @@ impl<'a, Q: Query> QueryOne<'a, Q> {
             panic!("called QueryOnce::get twice; construct a new query instead");
         }
         unsafe {
-            let fetch = Q::Fetch::new(self.archetype)?;
-            Q::Fetch::borrow(self.archetype);
+            let state = Q::Fetch::prepare(self.archetype)?;
+            Q::Fetch::borrow(self.archetype, state);
+            let fetch = Q::Fetch::execute(self.archetype, state);
             self.borrowed = true;
             Some(fetch.get(self.index as usize))
         }
@@ -76,7 +77,8 @@ impl<'a, Q: Query> QueryOne<'a, Q> {
 impl<Q: Query> Drop for QueryOne<'_, Q> {
     fn drop(&mut self) {
         if self.borrowed {
-            Q::Fetch::release(self.archetype);
+            let state = Q::Fetch::prepare(self.archetype).unwrap();
+            Q::Fetch::release(self.archetype, state);
         }
     }
 }

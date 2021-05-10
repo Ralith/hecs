@@ -134,8 +134,8 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream2> {
             }
 
             #[allow(unused_variables)]
-            fn borrow(archetype: &::hecs::Archetype) {
-                #(#fetches::borrow(archetype);)*
+            fn borrow(archetype: &::hecs::Archetype, state: Self::State) {
+                #(#fetches::borrow(archetype, state.#fields);)*
             }
 
             #[allow(unused_variables)]
@@ -147,7 +147,8 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream2> {
                 })
             }
 
-            unsafe fn execute(archetype: &'a ::hecs::Archetype, state: Self::State) -> Self {
+            #[allow(unused_variables)]
+            fn execute(archetype: &'a ::hecs::Archetype, state: Self::State) -> Self {
                 Self {
                     #(
                         #fields: #fetches::execute(archetype, state.#fields),
@@ -156,8 +157,8 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream2> {
             }
 
             #[allow(unused_variables)]
-            fn release(archetype: &::hecs::Archetype) {
-                #(#fetches::release(archetype);)*
+            fn release(archetype: &::hecs::Archetype, state: Self::State) {
+                #(#fetches::release(archetype, state.#fields);)*
             }
 
             #[allow(unused_variables, unused_mut)]

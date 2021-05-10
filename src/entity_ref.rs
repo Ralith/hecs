@@ -94,6 +94,7 @@ unsafe impl<'a> Sync for EntityRef<'a> {}
 #[derive(Clone)]
 pub struct Ref<'a, T: Component> {
     archetype: &'a Archetype,
+    state: usize,
     target: NonNull<T>,
 }
 
@@ -102,15 +103,17 @@ impl<'a, T: Component> Ref<'a, T> {
         archetype: &'a Archetype,
         index: u32,
     ) -> Result<Self, MissingComponent> {
-        let target = NonNull::new_unchecked(
-            archetype
-                .get_base::<T>()
-                .ok_or_else(MissingComponent::new::<T>)?
-                .as_ptr()
-                .add(index as usize),
-        );
-        archetype.borrow::<T>();
-        Ok(Self { archetype, target })
+        let state = archetype
+            .get_state::<T>()
+            .ok_or_else(MissingComponent::new::<T>)?;
+        let target =
+            NonNull::new_unchecked(archetype.get_base::<T>(state).as_ptr().add(index as usize));
+        archetype.borrow::<T>(state);
+        Ok(Self {
+            archetype,
+            state,
+            target,
+        })
     }
 }
 
@@ -119,7 +122,7 @@ unsafe impl<T: Component> Sync for Ref<'_, T> {}
 
 impl<'a, T: Component> Drop for Ref<'a, T> {
     fn drop(&mut self) {
-        self.archetype.release::<T>();
+        self.archetype.release::<T>(self.state);
     }
 }
 
@@ -133,6 +136,7 @@ impl<'a, T: Component> Deref for Ref<'a, T> {
 /// Unique borrow of an entity's component
 pub struct RefMut<'a, T: Component> {
     archetype: &'a Archetype,
+    state: usize,
     target: NonNull<T>,
 }
 
@@ -141,15 +145,17 @@ impl<'a, T: Component> RefMut<'a, T> {
         archetype: &'a Archetype,
         index: u32,
     ) -> Result<Self, MissingComponent> {
-        let target = NonNull::new_unchecked(
-            archetype
-                .get_base::<T>()
-                .ok_or_else(MissingComponent::new::<T>)?
-                .as_ptr()
-                .add(index as usize),
-        );
-        archetype.borrow_mut::<T>();
-        Ok(Self { archetype, target })
+        let state = archetype
+            .get_state::<T>()
+            .ok_or_else(MissingComponent::new::<T>)?;
+        let target =
+            NonNull::new_unchecked(archetype.get_base::<T>(state).as_ptr().add(index as usize));
+        archetype.borrow_mut::<T>(state);
+        Ok(Self {
+            archetype,
+            state,
+            target,
+        })
     }
 }
 
@@ -158,7 +164,7 @@ unsafe impl<T: Component> Sync for RefMut<'_, T> {}
 
 impl<'a, T: Component> Drop for RefMut<'a, T> {
     fn drop(&mut self) {
-        self.archetype.release_mut::<T>();
+        self.archetype.release_mut::<T>(self.state);
     }
 }
 
