@@ -57,7 +57,8 @@ impl ColumnBatchBuilder {
     /// Get a handle for inserting `T` components if `T` was in the [`ColumnBatchType`]
     pub fn writer<T: Component>(&mut self) -> Option<BatchWriter<'_, T>> {
         let archetype = self.archetype.as_mut().unwrap();
-        let base = archetype.get_base::<T>()?;
+        let state = archetype.get_state::<T>()?;
+        let base = archetype.get_base::<T>(state);
         Some(BatchWriter {
             fill: self.fill.entry(TypeId::of::<T>()).or_insert(0),
             storage: unsafe {

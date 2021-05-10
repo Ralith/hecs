@@ -12,7 +12,7 @@ use core::ptr::NonNull;
 use core::slice::Iter as SliceIter;
 
 use crate::alloc::boxed::Box;
-use crate::archetype::{Archetype, TypeState};
+use crate::archetype::Archetype;
 use crate::entities::EntityMeta;
 use crate::{Component, Entity, World};
 
@@ -42,18 +42,13 @@ pub unsafe trait Fetch<'a>: Sized {
     fn access(archetype: &Archetype) -> Option<Access>;
 
     /// Acquire dynamic borrows from `archetype`
-    fn borrow(archetype: &Archetype);
-    /// Construct a `Fetch` for `archetype` if it should be traversed
-    fn new(archetype: &'a Archetype) -> Option<Self> {
-        Self::prepare(archetype).map(|state| unsafe { Self::execute(archetype, state) })
-    }
+    fn borrow(archetype: &Archetype, state: Self::State);
     /// Look-up state for `archetype` if it should be traversed
     fn prepare(archetype: &Archetype) -> Option<Self::State>;
     /// Construct a `Fetch` for `archetype` based on the associated state
-    #[allow(clippy::missing_safety_doc)]
-    unsafe fn execute(archetype: &'a Archetype, state: Self::State) -> Self;
+    fn execute(archetype: &'a Archetype, state: Self::State) -> Self;
     /// Release dynamic borrows acquired by `borrow`
-    fn release(archetype: &Archetype);
+    fn release(archetype: &Archetype, state: Self::State);
 
     /// Invoke `f` for every component type that may be borrowed and whether the borrow is unique
     fn for_each_borrow(f: impl FnMut(TypeId, bool));
@@ -89,7 +84,7 @@ pub struct FetchRead<T>(NonNull<T>);
 unsafe impl<'a, T: Component> Fetch<'a> for FetchRead<T> {
     type Item = &'a T;
 
-    type State = *const TypeState;
+    type State = usize;
 
     fn dangling() -> Self {
         Self(NonNull::dangling())
@@ -103,18 +98,17 @@ unsafe impl<'a, T: Component> Fetch<'a> for FetchRead<T> {
         }
     }
 
-    fn borrow(archetype: &Archetype) {
-        archetype.borrow::<T>();
+    fn borrow(archetype: &Archetype, state: Self::State) {
+        archetype.borrow::<T>(state);
     }
-    #[allow(clippy::needless_question_mark)]
     fn prepare(archetype: &Archetype) -> Option<Self::State> {
-        Some(archetype.get_state::<T>()?)
+        archetype.get_state::<T>()
     }
-    unsafe fn execute(archetype: &'a Archetype, state: Self::State) -> Self {
-        Self(archetype.get_base_by_state(&*state))
+    fn execute(archetype: &'a Archetype, state: Self::State) -> Self {
+        Self(archetype.get_base(state))
     }
-    fn release(archetype: &Archetype) {
-        archetype.release::<T>();
+    fn release(archetype: &Archetype, state: Self::State) {
+        archetype.release::<T>(state);
     }
 
     fn for_each_borrow(mut f: impl FnMut(TypeId, bool)) {
@@ -136,7 +130,7 @@ pub struct FetchWrite<T>(NonNull<T>);
 unsafe impl<'a, T: Component> Fetch<'a> for FetchWrite<T> {
     type Item = &'a mut T;
 
-    type State = *const TypeState;
+    type State = usize;
 
     fn dangling() -> Self {
         Self(NonNull::dangling())
@@ -150,18 +144,18 @@ unsafe impl<'a, T: Component> Fetch<'a> for FetchWrite<T> {
         }
     }
 
-    fn borrow(archetype: &Archetype) {
-        archetype.borrow_mut::<T>();
+    fn borrow(archetype: &Archetype, state: Self::State) {
+        archetype.borrow_mut::<T>(state);
     }
     #[allow(clippy::needless_question_mark)]
     fn prepare(archetype: &Archetype) -> Option<Self::State> {
         Some(archetype.get_state::<T>()?)
     }
-    unsafe fn execute(archetype: &'a Archetype, state: Self::State) -> Self {
-        Self(archetype.get_base_by_state::<T>(&*state))
+    fn execute(archetype: &'a Archetype, state: Self::State) -> Self {
+        Self(archetype.get_base::<T>(state))
     }
-    fn release(archetype: &Archetype) {
-        archetype.release_mut::<T>();
+    fn release(archetype: &Archetype, state: Self::State) {
+        archetype.release_mut::<T>(state);
     }
 
     fn for_each_borrow(mut f: impl FnMut(TypeId, bool)) {
@@ -193,17 +187,21 @@ unsafe impl<'a, T: Fetch<'a>> Fetch<'a> for TryFetch<T> {
         Some(T::access(archetype).unwrap_or(Access::Iterate))
     }
 
-    fn borrow(archetype: &Archetype) {
-        T::borrow(archetype)
+    fn borrow(archetype: &Archetype, state: Self::State) {
+        if let Some(state) = state {
+            T::borrow(archetype, state);
+        }
     }
     fn prepare(archetype: &Archetype) -> Option<Self::State> {
         Some(T::prepare(archetype))
     }
-    unsafe fn execute(archetype: &'a Archetype, state: Self::State) -> Self {
+    fn execute(archetype: &'a Archetype, state: Self::State) -> Self {
         Self(state.map(|state| T::execute(archetype, state)))
     }
-    fn release(archetype: &Archetype) {
-        T::release(archetype)
+    fn release(archetype: &Archetype, state: Self::State) {
+        if let Some(state) = state {
+            T::release(archetype, state);
+        }
     }
 
     fn for_each_borrow(f: impl FnMut(TypeId, bool)) {
@@ -258,8 +256,8 @@ unsafe impl<'a, T: Component, F: Fetch<'a>> Fetch<'a> for FetchWithout<T, F> {
         }
     }
 
-    fn borrow(archetype: &Archetype) {
-        F::borrow(archetype)
+    fn borrow(archetype: &Archetype, state: Self::State) {
+        F::borrow(archetype, state)
     }
     fn prepare(archetype: &Archetype) -> Option<Self::State> {
         if archetype.has::<T>() {
@@ -267,11 +265,11 @@ unsafe impl<'a, T: Component, F: Fetch<'a>> Fetch<'a> for FetchWithout<T, F> {
         }
         F::prepare(archetype)
     }
-    unsafe fn execute(archetype: &'a Archetype, state: Self::State) -> Self {
+    fn execute(archetype: &'a Archetype, state: Self::State) -> Self {
         Self(F::execute(archetype, state), PhantomData)
     }
-    fn release(archetype: &Archetype) {
-        F::release(archetype)
+    fn release(archetype: &Archetype, state: Self::State) {
+        F::release(archetype, state)
     }
 
     fn for_each_borrow(f: impl FnMut(TypeId, bool)) {
@@ -328,8 +326,8 @@ unsafe impl<'a, T: Component, F: Fetch<'a>> Fetch<'a> for FetchWith<T, F> {
         }
     }
 
-    fn borrow(archetype: &Archetype) {
-        F::borrow(archetype)
+    fn borrow(archetype: &Archetype, state: Self::State) {
+        F::borrow(archetype, state)
     }
     fn prepare(archetype: &Archetype) -> Option<Self::State> {
         if !archetype.has::<T>() {
@@ -337,11 +335,11 @@ unsafe impl<'a, T: Component, F: Fetch<'a>> Fetch<'a> for FetchWith<T, F> {
         }
         F::prepare(archetype)
     }
-    unsafe fn execute(archetype: &'a Archetype, state: Self::State) -> Self {
+    fn execute(archetype: &'a Archetype, state: Self::State) -> Self {
         Self(F::execute(archetype, state), PhantomData)
     }
-    fn release(archetype: &Archetype) {
-        F::release(archetype)
+    fn release(archetype: &Archetype, state: Self::State) {
+        F::release(archetype, state)
     }
 
     fn for_each_borrow(f: impl FnMut(TypeId, bool)) {
@@ -402,8 +400,8 @@ impl<'w, Q: Query> QueryBorrow<'w, Q> {
         }
         for x in self.archetypes {
             // TODO: Release prior borrows on failure?
-            if Q::Fetch::access(x) >= Some(Access::Read) {
-                Q::Fetch::borrow(x);
+            if let Some(state) = Q::Fetch::prepare(x) {
+                Q::Fetch::borrow(x, state);
             }
         }
         self.borrowed = true;
@@ -478,8 +476,8 @@ impl<'w, Q: Query> Drop for QueryBorrow<'w, Q> {
     fn drop(&mut self) {
         if self.borrowed {
             for x in self.archetypes {
-                if Q::Fetch::access(x) >= Some(Access::Read) {
-                    Q::Fetch::release(x);
+                if let Some(state) = Q::Fetch::prepare(x) {
+                    Q::Fetch::release(x, state);
                 }
             }
         }
@@ -528,13 +526,14 @@ impl<'q, Q: Query> Iterator for QueryIter<'q, Q> {
             match unsafe { self.iter.next() } {
                 None => {
                     let archetype = self.archetypes.next()?;
-                    self.iter =
-                        Q::Fetch::new(archetype).map_or(ChunkIter::empty(), |fetch| ChunkIter {
-                            entities: archetype.entities(),
-                            fetch,
-                            position: 0,
-                            len: archetype.len() as usize,
-                        });
+                    let state = Q::Fetch::prepare(archetype);
+                    let fetch = state.map(|state| Q::Fetch::execute(archetype, state));
+                    self.iter = fetch.map_or(ChunkIter::empty(), |fetch| ChunkIter {
+                        entities: archetype.entities(),
+                        fetch,
+                        position: 0,
+                        len: archetype.len() as usize,
+                    });
                     continue;
                 }
                 Some((id, components)) => {
@@ -709,7 +708,9 @@ impl<'q, Q: Query> Iterator for BatchedIter<'q, Q> {
                 self.batch = 0;
                 continue;
             }
-            if let Some(fetch) = Q::Fetch::new(archetype) {
+            let state = Q::Fetch::prepare(archetype);
+            let fetch = state.map(|state| Q::Fetch::execute(archetype, state));
+            if let Some(fetch) = fetch {
                 self.batch += 1;
                 return Some(Batch {
                     meta: self.meta,
@@ -776,22 +777,24 @@ macro_rules! tuple_impl {
                 Some(access)
             }
 
-            #[allow(unused_variables)]
-            fn borrow(archetype: &Archetype) {
-                $($name::borrow(archetype);)*
+            #[allow(unused_variables, non_snake_case)]
+            fn borrow(archetype: &Archetype, state: Self::State) {
+                let ($($name,)*) = state;
+                $($name::borrow(archetype, $name);)*
             }
             #[allow(unused_variables)]
             fn prepare(archetype: &Archetype) -> Option<Self::State> {
                 Some(($($name::prepare(archetype)?,)*))
             }
             #[allow(unused_variables, non_snake_case)]
-            unsafe fn execute(archetype: &'a Archetype, state: Self::State) -> Self {
+            fn execute(archetype: &'a Archetype, state: Self::State) -> Self {
                 let ($($name,)*) = state;
                 ($($name::execute(archetype, $name),)*)
             }
-            #[allow(unused_variables)]
-            fn release(archetype: &Archetype) {
-                $($name::release(archetype);)*
+            #[allow(unused_variables, non_snake_case)]
+            fn release(archetype: &Archetype, state: Self::State) {
+                let ($($name,)*) = state;
+                $($name::release(archetype, $name);)*
             }
 
             #[allow(unused_variables, unused_mut)]
@@ -885,8 +888,8 @@ impl<'q, Q: Query> PreparedQueryBorrow<'q, Q> {
         archetypes: &'q [Archetype],
         state: &'q [(usize, <Q::Fetch as Fetch<'static>>::State)],
     ) -> Self {
-        for (idx, _) in state {
-            Q::Fetch::borrow(&archetypes[*idx]);
+        for (idx, state) in state {
+            Q::Fetch::borrow(&archetypes[*idx], *state);
         }
 
         Self {
@@ -908,8 +911,8 @@ impl<'q, Q: Query> PreparedQueryBorrow<'q, Q> {
 
 impl<Q: Query> Drop for PreparedQueryBorrow<'_, Q> {
     fn drop(&mut self) {
-        for (idx, _) in self.state {
-            Q::Fetch::release(&self.archetypes[*idx]);
+        for (idx, state) in self.state {
+            Q::Fetch::release(&self.archetypes[*idx], *state);
         }
     }
 }
@@ -953,7 +956,7 @@ impl<'q, Q: Query> Iterator for PreparedQueryIter<'q, Q> {
                     let archetype = &self.archetypes[*idx];
                     self.iter = ChunkIter {
                         entities: archetype.entities(),
-                        fetch: unsafe { Q::Fetch::execute(archetype, *state) },
+                        fetch: Q::Fetch::execute(archetype, *state),
                         position: 0,
                         len: archetype.len() as usize,
                     };

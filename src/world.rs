@@ -438,8 +438,9 @@ impl World {
     ) -> Result<QueryItem<'_, Q>, QueryOneError> {
         let loc = self.entities.get(entity)?;
         unsafe {
-            let fetch = Q::Fetch::new(&self.archetypes.archetypes[loc.archetype as usize])
-                .ok_or(QueryOneError::Unsatisfied)?;
+            let archetype = &self.archetypes.archetypes[loc.archetype as usize];
+            let state = Q::Fetch::prepare(archetype).ok_or(QueryOneError::Unsatisfied)?;
+            let fetch = Q::Fetch::execute(archetype, state);
             Ok(fetch.get(loc.index as usize))
         }
     }
@@ -714,9 +715,12 @@ impl World {
         if loc.archetype == 0 {
             return Err(MissingComponent::new::<T>().into());
         }
-        Ok(&*self.archetypes.archetypes[loc.archetype as usize]
-            .get_base::<T>()
-            .ok_or_else(MissingComponent::new::<T>)?
+        let archetype = &self.archetypes.archetypes[loc.archetype as usize];
+        let state = archetype
+            .get_state::<T>()
+            .ok_or_else(MissingComponent::new::<T>)?;
+        Ok(&*archetype
+            .get_base::<T>(state)
             .as_ptr()
             .add(loc.index as usize))
     }
@@ -737,9 +741,12 @@ impl World {
         if loc.archetype == 0 {
             return Err(MissingComponent::new::<T>().into());
         }
-        Ok(&mut *self.archetypes.archetypes[loc.archetype as usize]
-            .get_base::<T>()
-            .ok_or_else(MissingComponent::new::<T>)?
+        let archetype = &self.archetypes.archetypes[loc.archetype as usize];
+        let state = archetype
+            .get_state::<T>()
+            .ok_or_else(MissingComponent::new::<T>)?;
+        Ok(&mut *archetype
+            .get_base::<T>(state)
             .as_ptr()
             .add(loc.index as usize))
     }

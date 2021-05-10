@@ -27,7 +27,7 @@ use crate::{align, Access, Component, Query};
 /// [`World`](crate::World).
 pub struct Archetype {
     types: Vec<TypeInfo>,
-    state: TypeIdMap<TypeState>,
+    state: OrderedTypeIdMap<TypeState>,
     len: u32,
     entities: Box<[u32]>,
     // UnsafeCell allows unique references into `data` to be constructed while shared references
@@ -62,7 +62,7 @@ impl Archetype {
         let max_align = types.first().map_or(1, |ty| ty.layout.align());
         Self::assert_type_info(&types);
         Self {
-            state: types.iter().map(|ty| (ty.id, TypeState::new(0))).collect(),
+            state: OrderedTypeIdMap::new(types.iter().map(|ty| (ty.id, TypeState::new(0)))),
             types,
             entities: Box::new([]),
             len: 0,
@@ -97,62 +97,65 @@ impl Archetype {
         self.state.contains_key(&id)
     }
 
-    pub(crate) fn get_state<T: Component>(&self) -> Option<&TypeState> {
-        self.state.get(&TypeId::of::<T>())
+    pub(crate) fn get_state<T: Component>(&self) -> Option<usize> {
+        self.state.search(&TypeId::of::<T>())
     }
 
-    pub(crate) unsafe fn get_base_by_state<T: Component>(&self, state: &TypeState) -> NonNull<T> {
-        NonNull::new_unchecked((*self.data.get()).as_ptr().add(state.offset).cast::<T>() as *mut T)
-    }
+    pub(crate) fn get_base<T: Component>(&self, state: usize) -> NonNull<T> {
+        let (id, state) = self.state.get_from_index(state);
+        assert_eq!(id, &TypeId::of::<T>());
 
-    pub(crate) fn get_base<T: Component>(&self) -> Option<NonNull<T>> {
-        let state = self.get_state::<T>()?;
-        Some(unsafe { self.get_base_by_state::<T>(state) })
+        unsafe {
+            NonNull::new_unchecked(
+                (*self.data.get()).as_ptr().add(state.offset).cast::<T>() as *mut T
+            )
+        }
     }
 
     /// Get the `T` components of these entities, if present
     ///
     /// Useful for efficient serialization.
     pub fn get<T: Component>(&self) -> Option<ColumnRef<'_, T>> {
-        let ptr = self.get_base::<T>()?;
+        let state = self.get_state::<T>()?;
+        let ptr = self.get_base::<T>(state);
         let column = unsafe { slice::from_raw_parts_mut(ptr.as_ptr(), self.len as usize) };
-        self.borrow::<T>();
+        self.borrow::<T>(state);
         Some(ColumnRef {
             archetype: self,
             column,
         })
     }
 
-    pub(crate) fn borrow<T: Component>(&self) {
-        if self
-            .state
-            .get(&TypeId::of::<T>())
-            .map_or(false, |x| !x.borrow.borrow())
-        {
+    pub(crate) fn borrow<T: Component>(&self, state: usize) {
+        let (id, state) = self.state.get_from_index(state);
+        assert_eq!(id, &TypeId::of::<T>());
+
+        if !state.borrow.borrow() {
             panic!("{} already borrowed uniquely", type_name::<T>());
         }
     }
 
-    pub(crate) fn borrow_mut<T: Component>(&self) {
-        if self
-            .state
-            .get(&TypeId::of::<T>())
-            .map_or(false, |x| !x.borrow.borrow_mut())
-        {
+    pub(crate) fn borrow_mut<T: Component>(&self, state: usize) {
+        let (id, state) = self.state.get_from_index(state);
+        assert_eq!(id, &TypeId::of::<T>());
+
+        if !state.borrow.borrow_mut() {
             panic!("{} already borrowed", type_name::<T>());
         }
     }
 
-    pub(crate) fn release<T: Component>(&self) {
-        if let Some(x) = self.state.get(&TypeId::of::<T>()) {
-            x.borrow.release();
-        }
+    pub(crate) fn release<T: Component>(&self, state: usize) {
+        let (id, state) = self.state.get_from_index(state);
+        assert_eq!(id, &TypeId::of::<T>());
+
+        state.borrow.release();
     }
 
-    pub(crate) fn release_mut<T: Component>(&self) {
-        if let Some(x) = self.state.get(&TypeId::of::<T>()) {
-            x.borrow.release_mut();
-        }
+    pub(crate) fn release_mut<T: Component>(&self, state: usize) {
+        let (id, state) = self.state.get_from_index(state);
+        assert_eq!(id, &TypeId::of::<T>());
+
+        state.borrow.release_mut();
     }
 
     /// Number of entities in this archetype
@@ -254,11 +257,11 @@ impl Archetype {
             self.entities = new_entities;
 
             let old_data_size = mem::replace(&mut self.data_size, 0);
-            let mut new_offsets =
-                TypeIdMap::with_capacity_and_hasher(self.types.len(), Default::default());
+            let mut new_state =
+                OrderedTypeIdMap::new(self.types.iter().map(|ty| (ty.id, TypeState::new(0))));
             for ty in &self.types {
                 self.data_size = align(self.data_size, ty.layout.align());
-                new_offsets.insert(ty.id, self.data_size);
+                new_state.get_mut(&ty.id).unwrap().offset = self.data_size;
                 self.data_size += ty.layout.size() * new_cap;
             }
             let max_align = self.types.first().map_or(1, |x| x.layout.align());
@@ -273,7 +276,7 @@ impl Archetype {
             if old_data_size != 0 {
                 for ty in &self.types {
                     let old_off = self.state.get(&ty.id).unwrap().offset;
-                    let new_off = *new_offsets.get(&ty.id).unwrap();
+                    let new_off = new_state.get(&ty.id).unwrap().offset;
                     ptr::copy_nonoverlapping(
                         (*self.data.get()).as_ptr().add(old_off),
                         new_data.as_ptr().add(new_off),
@@ -290,10 +293,7 @@ impl Archetype {
             }
 
             self.data = UnsafeCell::new(new_data);
-
-            for (id, offset) in &new_offsets {
-                self.state.get_mut(id).unwrap().offset = *offset;
-            }
+            self.state = new_state;
         }
     }
 
@@ -471,7 +471,37 @@ impl Hasher for TypeIdHasher {
 /// faster no-op hash.
 pub(crate) type TypeIdMap<V> = HashMap<TypeId, V, BuildHasherDefault<TypeIdHasher>>;
 
-pub struct TypeState {
+struct OrderedTypeIdMap<V>(Box<[(TypeId, V)]>);
+
+impl<V> OrderedTypeIdMap<V> {
+    fn new(iter: impl Iterator<Item = (TypeId, V)>) -> Self {
+        let mut vals = iter.collect::<Box<[_]>>();
+        vals.sort_unstable_by_key(|(id, _)| *id);
+        Self(vals)
+    }
+
+    fn search(&self, id: &TypeId) -> Option<usize> {
+        self.0.binary_search_by_key(id, |(id, _)| *id).ok()
+    }
+
+    fn contains_key(&self, id: &TypeId) -> bool {
+        self.search(id).is_some()
+    }
+
+    fn get(&self, id: &TypeId) -> Option<&V> {
+        self.search(id).map(move |idx| &self.0[idx].1)
+    }
+
+    fn get_mut(&mut self, id: &TypeId) -> Option<&mut V> {
+        self.search(id).map(move |idx| &mut self.0[idx].1)
+    }
+
+    fn get_from_index(&self, idx: usize) -> &(TypeId, V) {
+        &self.0[idx]
+    }
+}
+
+struct TypeState {
     offset: usize,
     borrow: AtomicBorrow,
 }
@@ -564,13 +594,15 @@ impl<T: Component> Deref for ColumnRef<'_, T> {
 
 impl<T: Component> Drop for ColumnRef<'_, T> {
     fn drop(&mut self) {
-        self.archetype.release::<T>();
+        let state = self.archetype.get_state::<T>().unwrap();
+        self.archetype.release::<T>(state);
     }
 }
 
 impl<T: Component> Clone for ColumnRef<'_, T> {
     fn clone(&self) -> Self {
-        self.archetype.borrow::<T>();
+        let state = self.archetype.get_state::<T>().unwrap();
+        self.archetype.borrow::<T>(state);
         Self {
             archetype: self.archetype,
             column: self.column,
