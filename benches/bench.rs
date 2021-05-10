@@ -156,8 +156,31 @@ fn iterate_cached_100_by_50(b: &mut Bencher) {
     let mut world = World::new();
     spawn_100_by_50(&mut world);
     let mut query = world.query::<(&mut Position, &Velocity)>().prepare(&world);
+    let _ = query.borrow(&world).iter();
     b.iter(|| {
-        for (_, (pos, vel)) in query.borrow(&mut world).iter() {
+        for (_, (pos, vel)) in query.borrow(&world).iter() {
+            pos.0 += vel.0;
+        }
+    })
+}
+
+fn iterate_mut_uncached_100_by_50(b: &mut Bencher) {
+    let mut world = World::new();
+    spawn_100_by_50(&mut world);
+    b.iter(|| {
+        for (_, (pos, vel)) in world.query_mut::<(&mut Position, &Velocity)>() {
+            pos.0 += vel.0;
+        }
+    })
+}
+
+fn iterate_mut_cached_100_by_50(b: &mut Bencher) {
+    let mut world = World::new();
+    spawn_100_by_50(&mut world);
+    let mut query = world.query::<(&mut Position, &Velocity)>().prepare(&world);
+    let _ = query.iter_mut(&mut world);
+    b.iter(|| {
+        for (_, (pos, vel)) in query.iter_mut(&mut world) {
             pos.0 += vel.0;
         }
     })
@@ -183,6 +206,8 @@ benchmark_group!(
     iterate_mut_100k,
     iterate_uncached_100_by_50,
     iterate_cached_100_by_50,
+    iterate_mut_uncached_100_by_50,
+    iterate_mut_cached_100_by_50,
     build
 );
 benchmark_main!(benches);
