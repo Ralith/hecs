@@ -574,21 +574,8 @@ pub struct QueryMut<'q, Q: Query> {
 
 impl<'q, Q: Query> QueryMut<'q, Q> {
     pub(crate) fn new(meta: &'q [EntityMeta], archetypes: &'q mut [Archetype]) -> Self {
-        // This looks like an ugly O(n^2) loop, but everything's constant after inlining, so in
-        // practice LLVM optimizes it out entirely.
-        let mut i = 0;
-        Q::Fetch::for_each_borrow(|a, unique| {
-            if unique {
-                let mut j = 0;
-                Q::Fetch::for_each_borrow(|b, _| {
-                    if i != j {
-                        core::assert!(a != b, "query violates a unique borrow");
-                    }
-                    j += 1;
-                })
-            }
-            i += 1;
-        });
+        assert_borrow::<Q>();
+
         Self {
             iter: unsafe { QueryIter::new(meta, archetypes.iter()) },
         }
@@ -624,6 +611,24 @@ impl<'q, Q: Query> IntoIterator for QueryMut<'q, Q> {
     fn into_iter(self) -> Self::IntoIter {
         self.iter
     }
+}
+
+fn assert_borrow<Q: Query>() {
+    // This looks like an ugly O(n^2) loop, but everything's constant after inlining, so in
+    // practice LLVM optimizes it out entirely.
+    let mut i = 0;
+    Q::Fetch::for_each_borrow(|a, unique| {
+        if unique {
+            let mut j = 0;
+            Q::Fetch::for_each_borrow(|b, _| {
+                if i != j {
+                    core::assert!(a != b, "query violates a unique borrow");
+                }
+                j += 1;
+            })
+        }
+        i += 1;
+    });
 }
 
 struct ChunkIter<Q: Query> {
@@ -837,11 +842,21 @@ impl<Q: Query> PreparedQuery<Q> {
     }
 
     /// TODO
-    pub fn iter<'q>(
-        &'q mut self,
-        // TODO
-        world: &'q mut World,
-    ) -> PreparedQueryIter<'q, Q> {
+    pub fn borrow<'q>(&'q mut self, world: &'q World) -> PreparedQueryBorrow<'q, Q> {
+        if self.memo != world.memo() {
+            *self = Self::new(world);
+        }
+
+        let meta = world.entities_meta();
+        let archetypes = world.archetypes_inner();
+
+        unsafe { PreparedQueryBorrow::new(meta, archetypes, &*self.state) }
+    }
+
+    /// TODO
+    pub fn iter_mut<'q>(&'q mut self, world: &'q mut World) -> PreparedQueryIter<'q, Q> {
+        assert_borrow::<Q>();
+
         if self.memo != world.memo() {
             *self = Self::new(world);
         }
@@ -857,6 +872,49 @@ impl<Q: Query> PreparedQuery<Q> {
 }
 
 /// TODO
+pub struct PreparedQueryBorrow<'q, Q: Query> {
+    meta: &'q [EntityMeta],
+    archetypes: &'q [Archetype],
+    state: &'q [(usize, <Q::Fetch as Fetch<'static>>::State)],
+}
+
+impl<'q, Q: Query> PreparedQueryBorrow<'q, Q> {
+    /// TODO
+    pub(crate) unsafe fn new(
+        meta: &'q [EntityMeta],
+        archetypes: &'q [Archetype],
+        state: &'q [(usize, <Q::Fetch as Fetch<'static>>::State)],
+    ) -> Self {
+        for (idx, _) in state {
+            Q::Fetch::borrow(&archetypes[*idx]);
+        }
+
+        Self {
+            meta,
+            archetypes,
+            state,
+        }
+    }
+
+    /// TODO
+    // The lifetime narrowing here is required for soundness.
+    pub fn iter<'i>(&'i mut self) -> PreparedQueryIter<'i, Q> {
+        let state: &'i [(usize, <Q::Fetch as Fetch<'i>>::State)] =
+            unsafe { mem::transmute(self.state) };
+
+        unsafe { PreparedQueryIter::new(self.meta, self.archetypes, state.iter()) }
+    }
+}
+
+impl<Q: Query> Drop for PreparedQueryBorrow<'_, Q> {
+    fn drop(&mut self) {
+        for (idx, _) in self.state {
+            Q::Fetch::release(&self.archetypes[*idx]);
+        }
+    }
+}
+
+/// TODO
 pub struct PreparedQueryIter<'q, Q: Query> {
     meta: &'q [EntityMeta],
     archetypes: &'q [Archetype],
@@ -865,6 +923,7 @@ pub struct PreparedQueryIter<'q, Q: Query> {
 }
 
 impl<'q, Q: Query> PreparedQueryIter<'q, Q> {
+    /// TODO
     pub(crate) unsafe fn new(
         meta: &'q [EntityMeta],
         archetypes: &'q [Archetype],
