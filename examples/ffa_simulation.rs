@@ -62,7 +62,7 @@ fn batch_spawn_entities(world: &mut World, n: usize) {
 fn system_integrate_motion(world: &mut World, query: &mut PreparedQuery<(&mut Position, &Speed)>) {
     let mut rng = thread_rng();
 
-    for (id, (pos, s)) in query.iter(world) {
+    for (id, (pos, s)) in query.iter_mut(world) {
         let change = (rng.gen_range(-s.0..s.0), rng.gen_range(-s.0..s.0));
         pos.x += change.0;
         pos.y += change.1;

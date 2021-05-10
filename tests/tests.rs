@@ -127,6 +127,62 @@ fn query_optional_component() {
 }
 
 #[test]
+fn prepare_query() {
+    let mut world = World::new();
+    let e = world.spawn(("abc", 123));
+    let f = world.spawn(("def", 456));
+
+    let mut query = world.query::<(&i32, &&str)>().prepare(&world);
+
+    let ents = query
+        .borrow(&world)
+        .iter()
+        .map(|(e, (&i, &s))| (e, i, s))
+        .collect::<Vec<_>>();
+    assert_eq!(ents.len(), 2);
+    assert!(ents.contains(&(e, 123, "abc")));
+    assert!(ents.contains(&(f, 456, "def")));
+
+    let ents = query
+        .iter_mut(&mut world)
+        .map(|(e, (&i, &s))| (e, i, s))
+        .collect::<Vec<_>>();
+    assert_eq!(ents.len(), 2);
+    assert!(ents.contains(&(e, 123, "abc")));
+    assert!(ents.contains(&(f, 456, "def")));
+}
+
+#[test]
+fn invalidate_prepared_query() {
+    let mut world = World::new();
+    let e = world.spawn(("abc", 123));
+    let f = world.spawn(("def", 456));
+
+    let mut query = world.query::<(&i32, &&str)>().prepare(&world);
+
+    let ents = query
+        .borrow(&world)
+        .iter()
+        .map(|(e, (&i, &s))| (e, i, s))
+        .collect::<Vec<_>>();
+    assert_eq!(ents.len(), 2);
+    assert!(ents.contains(&(e, 123, "abc")));
+    assert!(ents.contains(&(f, 456, "def")));
+
+    world.spawn((true,));
+    let g = world.spawn(("ghi", 789));
+
+    let ents = query
+        .iter_mut(&mut world)
+        .map(|(e, (&i, &s))| (e, i, s))
+        .collect::<Vec<_>>();
+    assert_eq!(ents.len(), 3);
+    assert!(ents.contains(&(e, 123, "abc")));
+    assert!(ents.contains(&(f, 456, "def")));
+    assert!(ents.contains(&(g, 789, "ghi")));
+}
+
+#[test]
 fn build_entity() {
     let mut world = World::new();
     let mut entity = EntityBuilder::new();
