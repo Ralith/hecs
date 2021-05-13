@@ -32,7 +32,8 @@ pub unsafe trait Fetch<'a>: Sized {
     /// Type of value to be fetched
     type Item;
 
-    /// TODO
+    /// The type of the data which can be cached to speed up retrieving
+    /// the relevant type states from a matching [`Archetype`]
     type State: Copy;
 
     /// A value on which `get` may never be called
@@ -43,7 +44,7 @@ pub unsafe trait Fetch<'a>: Sized {
 
     /// Acquire dynamic borrows from `archetype`
     fn borrow(archetype: &Archetype, state: Self::State);
-    /// Look-up state for `archetype` if it should be traversed
+    /// Look up state for `archetype` if it should be traversed
     fn prepare(archetype: &Archetype) -> Option<Self::State>;
     /// Construct a `Fetch` for `archetype` based on the associated state
     fn execute(archetype: &'a Archetype, state: Self::State) -> Self;
@@ -389,7 +390,9 @@ impl<'w, Q: Query> QueryBorrow<'w, Q> {
         unsafe { BatchedIter::new(self.meta, self.archetypes.iter(), batch_size) }
     }
 
-    /// TODO
+    /// Prepare this query for repeated execution
+    ///
+    /// A prepared query can be stored independently of the [`World`] to amortize query set-up costs.
     pub fn prepare(self, world: &World) -> PreparedQuery<Q> {
         PreparedQuery::new(world)
     }
@@ -505,7 +508,7 @@ impl<'q, Q: Query> QueryIter<'q, Q> {
     ///
     /// `'q` must be sufficient to guarantee that `Q` cannot violate borrow safety, either with
     /// dynamic borrow checks or by representing exclusive access to the `World`.
-    pub(crate) unsafe fn new(meta: &'q [EntityMeta], archetypes: SliceIter<'q, Archetype>) -> Self {
+    unsafe fn new(meta: &'q [EntityMeta], archetypes: SliceIter<'q, Archetype>) -> Self {
         Self {
             meta,
             archetypes,
@@ -677,7 +680,7 @@ impl<'q, Q: Query> BatchedIter<'q, Q> {
     ///
     /// `'q` must be sufficient to guarantee that `Q` cannot violate borrow safety, either with
     /// dynamic borrow checks or by representing exclusive access to the `World`.
-    pub(crate) unsafe fn new(
+    unsafe fn new(
         meta: &'q [EntityMeta],
         archetypes: SliceIter<'q, Archetype>,
         batch_size: u32,
@@ -819,7 +822,7 @@ macro_rules! tuple_impl {
 //smaller_tuples_too!(tuple_impl, B, A);
 smaller_tuples_too!(tuple_impl, O, N, M, L, K, J, I, H, G, F, E, D, C, B, A);
 
-/// TODO
+/// A prepared query caches some of the information required to execute the query `Q`
 pub struct PreparedQuery<Q: Query> {
     memo: (u64, u64),
     state: Box<[(usize, <Q::Fetch as Fetch<'static>>::State)]>,
@@ -844,8 +847,11 @@ impl<Q: Query> PreparedQuery<Q> {
         }
     }
 
-    /// TODO
-    pub fn borrow<'q>(&'q mut self, world: &'q World) -> PreparedQueryBorrow<'q, Q> {
+    /// Query `world`, using dynamic borrow checking
+    ///
+    /// This will panic if it would violate an existing unique reference
+    /// or construct an invalid unique reference.
+    pub fn query<'q>(&'q mut self, world: &'q World) -> PreparedQueryBorrow<'q, Q> {
         if self.memo != world.memo() {
             *self = Self::new(world);
         }
@@ -853,11 +859,14 @@ impl<Q: Query> PreparedQuery<Q> {
         let meta = world.entities_meta();
         let archetypes = world.archetypes_inner();
 
-        unsafe { PreparedQueryBorrow::new(meta, archetypes, &*self.state) }
+        PreparedQueryBorrow::new(meta, archetypes, &*self.state)
     }
 
-    /// TODO
-    pub fn iter_mut<'q>(&'q mut self, world: &'q mut World) -> PreparedQueryIter<'q, Q> {
+    /// Query a uniquely borrowed world
+    ///
+    /// This avoids the cost of the dynamic borrow checking.
+    /// that is required by [`borrow`][Self::borrow]
+    pub fn query_mut<'q>(&'q mut self, world: &'q mut World) -> PreparedQueryIter<'q, Q> {
         assert_borrow::<Q>();
 
         if self.memo != world.memo() {
@@ -874,7 +883,7 @@ impl<Q: Query> PreparedQuery<Q> {
     }
 }
 
-/// TODO
+/// Combined borrow of a [`PreparedQuery`] and a [`World`]
 pub struct PreparedQueryBorrow<'q, Q: Query> {
     meta: &'q [EntityMeta],
     archetypes: &'q [Archetype],
@@ -882,8 +891,7 @@ pub struct PreparedQueryBorrow<'q, Q: Query> {
 }
 
 impl<'q, Q: Query> PreparedQueryBorrow<'q, Q> {
-    /// TODO
-    pub(crate) unsafe fn new(
+    fn new(
         meta: &'q [EntityMeta],
         archetypes: &'q [Archetype],
         state: &'q [(usize, <Q::Fetch as Fetch<'static>>::State)],
@@ -899,7 +907,7 @@ impl<'q, Q: Query> PreparedQueryBorrow<'q, Q> {
         }
     }
 
-    /// TODO
+    /// Execute the prepared query
     // The lifetime narrowing here is required for soundness.
     pub fn iter<'i>(&'i mut self) -> PreparedQueryIter<'i, Q> {
         let state: &'i [(usize, <Q::Fetch as Fetch<'i>>::State)] =
@@ -917,7 +925,7 @@ impl<Q: Query> Drop for PreparedQueryBorrow<'_, Q> {
     }
 }
 
-/// TODO
+/// Iterates over all entities matching a [`PreparedQuery`]
 pub struct PreparedQueryIter<'q, Q: Query> {
     meta: &'q [EntityMeta],
     archetypes: &'q [Archetype],
@@ -926,8 +934,11 @@ pub struct PreparedQueryIter<'q, Q: Query> {
 }
 
 impl<'q, Q: Query> PreparedQueryIter<'q, Q> {
-    /// TODO
-    pub(crate) unsafe fn new(
+    /// # Safety
+    ///
+    /// `'q` must be sufficient to guarantee that `Q` cannot violate borrow safety, either with
+    /// dynamic borrow checks or by representing exclusive access to the `World`.
+    unsafe fn new(
         meta: &'q [EntityMeta],
         archetypes: &'q [Archetype],
         state: SliceIter<'q, (usize, <Q::Fetch as Fetch<'q>>::State)>,

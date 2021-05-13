@@ -156,9 +156,9 @@ fn iterate_cached_100_by_50(b: &mut Bencher) {
     let mut world = World::new();
     spawn_100_by_50(&mut world);
     let mut query = world.query::<(&mut Position, &Velocity)>().prepare(&world);
-    let _ = query.borrow(&world).iter();
+    let _ = query.query(&world).iter();
     b.iter(|| {
-        for (_, (pos, vel)) in query.borrow(&world).iter() {
+        for (_, (pos, vel)) in query.query(&world).iter() {
             pos.0 += vel.0;
         }
     })
@@ -178,9 +178,9 @@ fn iterate_mut_cached_100_by_50(b: &mut Bencher) {
     let mut world = World::new();
     spawn_100_by_50(&mut world);
     let mut query = world.query::<(&mut Position, &Velocity)>().prepare(&world);
-    let _ = query.iter_mut(&mut world);
+    let _ = query.query_mut(&mut world);
     b.iter(|| {
-        for (_, (pos, vel)) in query.iter_mut(&mut world) {
+        for (_, (pos, vel)) in query.query_mut(&mut world) {
             pos.0 += vel.0;
         }
     })

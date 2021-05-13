@@ -135,7 +135,7 @@ fn prepare_query() {
     let mut query = world.query::<(&i32, &&str)>().prepare(&world);
 
     let ents = query
-        .borrow(&world)
+        .query(&world)
         .iter()
         .map(|(e, (&i, &s))| (e, i, s))
         .collect::<Vec<_>>();
@@ -144,7 +144,7 @@ fn prepare_query() {
     assert!(ents.contains(&(f, 456, "def")));
 
     let ents = query
-        .iter_mut(&mut world)
+        .query_mut(&mut world)
         .map(|(e, (&i, &s))| (e, i, s))
         .collect::<Vec<_>>();
     assert_eq!(ents.len(), 2);
@@ -161,7 +161,7 @@ fn invalidate_prepared_query() {
     let mut query = world.query::<(&i32, &&str)>().prepare(&world);
 
     let ents = query
-        .borrow(&world)
+        .query(&world)
         .iter()
         .map(|(e, (&i, &s))| (e, i, s))
         .collect::<Vec<_>>();
@@ -173,7 +173,7 @@ fn invalidate_prepared_query() {
     let g = world.spawn(("ghi", 789));
 
     let ents = query
-        .iter_mut(&mut world)
+        .query_mut(&mut world)
         .map(|(e, (&i, &s))| (e, i, s))
         .collect::<Vec<_>>();
     assert_eq!(ents.len(), 3);

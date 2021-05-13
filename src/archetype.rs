@@ -97,10 +97,12 @@ impl Archetype {
         self.state.contains_key(&id)
     }
 
+    /// Find the state index associated with `T`, if present
     pub(crate) fn get_state<T: Component>(&self) -> Option<usize> {
         self.state.search(&TypeId::of::<T>())
     }
 
+    /// Get the address of the first `T` component using an index from `get_state::<T>`
     pub(crate) fn get_base<T: Component>(&self, state: usize) -> NonNull<T> {
         let (id, state) = self.state.get_from_index(state);
         assert_eq!(id, &TypeId::of::<T>());
