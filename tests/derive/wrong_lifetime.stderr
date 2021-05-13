@@ -1,0 +1,25 @@
+error[E0495]: cannot infer an appropriate lifetime for lifetime parameter `'a` due to conflicting requirements
+ --> $DIR/wrong_lifetime.rs:3:10
+  |
+3 | #[derive(Query)]
+  |          ^^^^^
+  |
+note: first, the lifetime cannot outlive the lifetime `'a` as defined on the impl at 3:10...
+ --> $DIR/wrong_lifetime.rs:3:10
+  |
+3 | #[derive(Query)]
+  |          ^^^^^
+note: ...so that the types are compatible
+ --> $DIR/wrong_lifetime.rs:3:10
+  |
+3 | #[derive(Query)]
+  |          ^^^^^
+  = note: expected `Fetch<'a>`
+             found `Fetch<'_>`
+  = note: but, the lifetime must be valid for the static lifetime...
+note: ...so that reference does not outlive borrowed content
+ --> $DIR/wrong_lifetime.rs:3:10
+  |
+3 | #[derive(Query)]
+  |          ^^^^^
+  = note: this error originates in a derive macro (in Nightly builds, run with -Z macro-backtrace for more info)
