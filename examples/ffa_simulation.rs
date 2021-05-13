@@ -62,7 +62,7 @@ fn batch_spawn_entities(world: &mut World, n: usize) {
 fn system_integrate_motion(world: &mut World, query: &mut PreparedQuery<(&mut Position, &Speed)>) {
     let mut rng = thread_rng();
 
-    for (id, (pos, s)) in query.iter_mut(world) {
+    for (id, (pos, s)) in query.query_mut(world) {
         let change = (rng.gen_range(-s.0..s.0), rng.gen_range(-s.0..s.0));
         pos.x += change.0;
         pos.y += change.1;
@@ -148,7 +148,7 @@ fn main() {
 
     batch_spawn_entities(&mut world, 5);
 
-    let mut motion_query = world.query::<(&mut Position, &Speed)>().prepare(&world);
+    let mut motion_query = PreparedQuery::<(&mut Position, &Speed)>::default();
 
     loop {
         println!("\n'Enter' to continue simulation, '?' for enity list, 'q' to quit");

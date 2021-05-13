@@ -94,6 +94,7 @@ unsafe impl<'a> Sync for EntityRef<'a> {}
 #[derive(Clone)]
 pub struct Ref<'a, T: Component> {
     archetype: &'a Archetype,
+    /// State index for `T` in `archetype`
     state: usize,
     target: NonNull<T>,
 }
@@ -136,6 +137,7 @@ impl<'a, T: Component> Deref for Ref<'a, T> {
 /// Unique borrow of an entity's component
 pub struct RefMut<'a, T: Component> {
     archetype: &'a Archetype,
+    /// State index for `T` in `archetype`
     state: usize,
     target: NonNull<T>,
 }
