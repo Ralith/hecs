@@ -3,7 +3,7 @@ use core::ops::{Deref, DerefMut};
 use core::ptr::NonNull;
 
 use crate::archetype::Archetype;
-use crate::{Component, MissingComponent};
+use crate::{Component, MissingComponent, Query, QueryOne};
 
 /// Handle to an entity with any component types
 #[derive(Copy, Clone)]
@@ -30,6 +30,26 @@ impl<'a> EntityRef<'a> {
     /// Panics if the component is already borrowed from another entity with the same components.
     pub fn get_mut<T: Component>(&self) -> Option<RefMut<'a, T>> {
         Some(unsafe { RefMut::new(self.archetype, self.index).ok()? })
+    }
+
+    /// Run a query against this entity
+    ///
+    /// Equivalent to invoking [`World::query_one`](crate::World::query_one) on the entity. May
+    /// outlive `self`.
+    ///
+    /// # Example
+    /// ```
+    /// # use hecs::*;
+    /// let mut world = World::new();
+    /// let a = world.spawn((123, true, "abc"));
+    /// // The returned query must outlive the borrow made by `get`
+    /// let mut query = world.entity(a).unwrap().query::<(&mut i32, &bool)>();
+    /// let (number, flag) = query.get().unwrap();
+    /// if *flag { *number *= 2; }
+    /// assert_eq!(*number, 246);
+    /// ```
+    pub fn query<Q: Query>(&self) -> QueryOne<'a, Q> {
+        unsafe { QueryOne::new(self.archetype, self.index) }
     }
 
     /// Enumerate the types of the entity's components
