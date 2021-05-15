@@ -3,18 +3,32 @@ use core::ops::{Deref, DerefMut};
 use core::ptr::NonNull;
 
 use crate::archetype::Archetype;
-use crate::{Component, MissingComponent, Query, QueryOne};
+use crate::{Component, Entity, MissingComponent, Query, QueryOne};
 
 /// Handle to an entity with any component types
 #[derive(Copy, Clone)]
 pub struct EntityRef<'a> {
     archetype: &'a Archetype,
+    generation: u32,
     index: u32,
 }
 
 impl<'a> EntityRef<'a> {
-    pub(crate) unsafe fn new(archetype: &'a Archetype, index: u32) -> Self {
-        Self { archetype, index }
+    pub(crate) unsafe fn new(archetype: &'a Archetype, generation: u32, index: u32) -> Self {
+        Self {
+            archetype,
+            generation,
+            index,
+        }
+    }
+
+    /// Get the [`Entity`] handle associated with this entity
+    pub fn entity(&self) -> Entity {
+        let id = self.archetype.entity_id(self.index);
+        Entity {
+            generation: self.generation,
+            id,
+        }
     }
 
     /// Borrow the component of type `T`, if it exists
