@@ -481,7 +481,7 @@ impl World {
     /// let mut world = World::new();
     /// let a = world.spawn(());
     /// let b = world.spawn(());
-    /// let ids = world.iter().map(|(id, _)| id).collect::<Vec<_>>();
+    /// let ids = world.iter().map(|entity_ref| entity_ref.entity()).collect::<Vec<_>>();
     /// assert_eq!(ids.len(), 2);
     /// assert!(ids.contains(&a));
     /// assert!(ids.contains(&b));
@@ -788,7 +788,7 @@ impl Default for World {
 
 impl<'a> IntoIterator for &'a World {
     type IntoIter = Iter<'a>;
-    type Item = (Entity, EntityRef<'a>);
+    type Item = EntityRef<'a>;
     fn into_iter(self) -> Iter<'a> {
         self.iter()
     }
@@ -894,7 +894,7 @@ unsafe impl Send for Iter<'_> {}
 unsafe impl Sync for Iter<'_> {}
 
 impl<'a> Iterator for Iter<'a> {
-    type Item = (Entity, EntityRef<'a>);
+    type Item = EntityRef<'a>;
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             match self.current {
@@ -910,19 +910,9 @@ impl<'a> Iterator for Iter<'a> {
                     let index = self.index;
                     self.index += 1;
                     let id = current.entity_id(index);
-                    return Some((
-                        Entity {
-                            id,
-                            generation: self.entities.meta[id as usize].generation,
-                        },
-                        unsafe {
-                            EntityRef::new(
-                                current,
-                                self.entities.meta[id as usize].generation,
-                                index,
-                            )
-                        },
-                    ));
+                    return Some(unsafe {
+                        EntityRef::new(current, self.entities.meta[id as usize].generation, index)
+                    });
                 }
             }
         }
