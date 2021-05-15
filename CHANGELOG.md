@@ -1,3 +1,8 @@
+# Unreleased
+
+### Added
+- `EntityRef::query` as an alternative to `World::query_one` when you already have an `EntityRef`
+
 # 0.5.2
 
 ### Fixed
