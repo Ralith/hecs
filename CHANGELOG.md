@@ -2,6 +2,7 @@
 
 ### Added
 - `EntityRef::query` as an alternative to `World::query_one` when you already have an `EntityRef`
+- `EntityRef::entity` accessor for recovering the entity's handle
 
 # 0.5.2
 
