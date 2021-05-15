@@ -8,6 +8,7 @@
 use crate::alloc::alloc::{alloc, dealloc, Layout};
 use crate::alloc::boxed::Box;
 use crate::alloc::{vec, vec::Vec};
+use crate::dynamic_query::DynamicQueryTypes;
 use core::any::{type_name, TypeId};
 use core::hash::{BuildHasher, BuildHasherDefault, Hasher};
 use core::ops::Deref;
@@ -180,6 +181,10 @@ impl Archetype {
 
     pub(crate) fn types(&self) -> &[TypeInfo] {
         &self.types
+    }
+
+    pub(crate) fn entity_slice(&self) -> &[u32] {
+        &self.entities[..self.len() as usize]
     }
 
     /// Enumerate the types of the components of entities stored in this archetype.
@@ -369,6 +374,32 @@ impl Archetype {
     pub fn access<Q: Query>(&self) -> Option<Access> {
         Q::Fetch::access(self)
     }
+
+    pub(crate) fn access_dynamic(&self, query: &DynamicQueryTypes) -> Option<Access> {
+        let mut access = None;
+        for &read_component in query.read_types {
+            if self.has_dynamic(read_component) {
+                access = access.max(Some(Access::Read));
+            } else {
+                return None;
+            }
+        }
+        for &write_component in query.write_types {
+            if self.has_dynamic(write_component) {
+                access = access.max(Some(Access::Write));
+            } else {
+                return None;
+            }
+        }
+        access
+    }
+
+    pub(crate) fn component_layout(&self, component_type: TypeId) -> Option<Layout> {
+        self.types()
+            .iter()
+            .find(|typ| typ.id == component_type)
+            .map(|info| info.layout)
+    }	
 
     /// Add components from another archetype with identical components
     ///
