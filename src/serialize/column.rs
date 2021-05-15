@@ -763,8 +763,8 @@ mod tests {
                 x.get::<T>().as_ref().map(|x| &**x) == y.get::<T>().as_ref().map(|x| &**x)
             }
 
-            for ((x_id, x), (y_id, y)) in self.0.iter().zip(other.0.iter()) {
-                if x_id != y_id
+            for (x, y) in self.0.iter().zip(other.0.iter()) {
+                if x.entity() != y.entity()
                     || !same_components::<Position>(&x, &y)
                     || !same_components::<Velocity>(&x, &y)
                 {
@@ -778,9 +778,9 @@ mod tests {
     impl fmt::Debug for SerWorld {
         fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             f.debug_map()
-                .entries(self.0.iter().map(|(id, ref e)| {
+                .entries(self.0.iter().map(|e| {
                     (
-                        id,
+                        e.entity(),
                         (
                             e.get::<Position>().map(|x| *x),
                             e.get::<Velocity>().map(|x| *x),
