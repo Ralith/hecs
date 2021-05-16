@@ -54,7 +54,7 @@ pub struct World {
 impl World {
     /// Create an empty world
     pub fn new() -> Self {
-        static ID: AtomicU64 = AtomicU64::new(0);
+        static ID: AtomicU64 = AtomicU64::new(1);
 
         Self {
             entities: Entities::default(),

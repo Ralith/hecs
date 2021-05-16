@@ -132,7 +132,7 @@ fn prepare_query() {
     let e = world.spawn(("abc", 123));
     let f = world.spawn(("def", 456));
 
-    let mut query = world.query::<(&i32, &&str)>().prepare(&world);
+    let mut query = PreparedQuery::<(&i32, &&str)>::default();
 
     let ents = query
         .query(&world)
@@ -158,7 +158,7 @@ fn invalidate_prepared_query() {
     let e = world.spawn(("abc", 123));
     let f = world.spawn(("def", 456));
 
-    let mut query = world.query::<(&i32, &&str)>().prepare(&world);
+    let mut query = PreparedQuery::<(&i32, &&str)>::default();
 
     let ents = query
         .query(&world)
