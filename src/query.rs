@@ -354,9 +354,7 @@ impl<'w, Q: Query> QueryBorrow<'w, Q> {
 
     fn borrow(&mut self) {
         if self.borrowed {
-            panic!(
-                "called QueryBorrow::iter twice on the same borrow; construct a new query instead"
-            );
+            return;
         }
         for x in self.archetypes {
             // TODO: Release prior borrows on failure?
