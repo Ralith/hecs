@@ -155,7 +155,7 @@ fn iterate_uncached_100_by_50(b: &mut Bencher) {
 fn iterate_cached_100_by_50(b: &mut Bencher) {
     let mut world = World::new();
     spawn_100_by_50(&mut world);
-    let mut query = world.query::<(&mut Position, &Velocity)>().prepare(&world);
+    let mut query = PreparedQuery::<(&mut Position, &Velocity)>::default();
     let _ = query.query(&world).iter();
     b.iter(|| {
         for (_, (pos, vel)) in query.query(&world).iter() {
@@ -177,7 +177,7 @@ fn iterate_mut_uncached_100_by_50(b: &mut Bencher) {
 fn iterate_mut_cached_100_by_50(b: &mut Bencher) {
     let mut world = World::new();
     spawn_100_by_50(&mut world);
-    let mut query = world.query::<(&mut Position, &Velocity)>().prepare(&world);
+    let mut query = PreparedQuery::<(&mut Position, &Velocity)>::default();
     let _ = query.query_mut(&mut world);
     b.iter(|| {
         for (_, (pos, vel)) in query.query_mut(&mut world) {

@@ -390,13 +390,6 @@ impl<'w, Q: Query> QueryBorrow<'w, Q> {
         unsafe { BatchedIter::new(self.meta, self.archetypes.iter(), batch_size) }
     }
 
-    /// Prepare this query for repeated execution
-    ///
-    /// A prepared query can be stored independently of the [`World`] to amortize query set-up costs.
-    pub fn prepare(self, world: &World) -> PreparedQuery<Q> {
-        PreparedQuery::new(world)
-    }
-
     fn borrow(&mut self) {
         if self.borrowed {
             return;
@@ -822,16 +815,30 @@ macro_rules! tuple_impl {
 //smaller_tuples_too!(tuple_impl, B, A);
 smaller_tuples_too!(tuple_impl, O, N, M, L, K, J, I, H, G, F, E, D, C, B, A);
 
-/// A prepared query caches some of the information required to execute the query `Q`
+/// A prepared query can be stored independently of the [`World`] to amortize query set-up costs.
 pub struct PreparedQuery<Q: Query> {
     memo: (u64, u64),
     state: Box<[(usize, <Q::Fetch as Fetch<'static>>::State)]>,
-    _query: PhantomData<Q>,
+}
+
+impl<Q: Query> Default for PreparedQuery<Q> {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl<Q: Query> PreparedQuery<Q> {
+    /// Create a prepared query which is not yet attached to any world
+    pub fn new() -> Self {
+        Self {
+            // This memo will not match any world as the first ID will 1.
+            memo: (0, 0),
+            state: Default::default(),
+        }
+    }
+
     #[cold]
-    fn new(world: &World) -> Self {
+    fn prepare(world: &World) -> Self {
         let memo = world.memo();
 
         let state = world
@@ -840,11 +847,7 @@ impl<Q: Query> PreparedQuery<Q> {
             .filter_map(|(idx, x)| Q::Fetch::prepare(x).map(|state| (idx, state)))
             .collect();
 
-        Self {
-            memo,
-            state,
-            _query: PhantomData,
-        }
+        Self { memo, state }
     }
 
     /// Query `world`, using dynamic borrow checking
@@ -853,7 +856,7 @@ impl<Q: Query> PreparedQuery<Q> {
     /// or construct an invalid unique reference.
     pub fn query<'q>(&'q mut self, world: &'q World) -> PreparedQueryBorrow<'q, Q> {
         if self.memo != world.memo() {
-            *self = Self::new(world);
+            *self = Self::prepare(world);
         }
 
         let meta = world.entities_meta();
@@ -870,7 +873,7 @@ impl<Q: Query> PreparedQuery<Q> {
         assert_borrow::<Q>();
 
         if self.memo != world.memo() {
-            *self = Self::new(world);
+            *self = Self::prepare(world);
         }
 
         let meta = world.entities_meta();
