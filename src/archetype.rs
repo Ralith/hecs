@@ -9,7 +9,6 @@ use crate::alloc::alloc::{alloc, dealloc, Layout};
 use crate::alloc::boxed::Box;
 use crate::alloc::{vec, vec::Vec};
 use core::any::{type_name, TypeId};
-use core::cell::UnsafeCell;
 use core::hash::{BuildHasher, BuildHasherDefault, Hasher};
 use core::ops::Deref;
 use core::ptr::{self, NonNull};
@@ -30,9 +29,7 @@ pub struct Archetype {
     state: OrderedTypeIdMap<TypeState>,
     len: u32,
     entities: Box<[u32]>,
-    // UnsafeCell allows unique references into `data` to be constructed while shared references
-    // containing the `Archetype` exist
-    data: UnsafeCell<NonNull<u8>>,
+    data: NonNull<u8>,
     data_size: usize,
     /// Maps static bundle types to the archetype that an entity from this archetype is moved to
     /// after removing the components from that bundle.
@@ -66,7 +63,7 @@ impl Archetype {
             types,
             entities: Box::new([]),
             len: 0,
-            data: UnsafeCell::new(NonNull::new(max_align as *mut u8).unwrap()),
+            data: NonNull::new(max_align as *mut u8).unwrap(),
             data_size: 0,
             remove_edges: HashMap::default(),
         }
@@ -108,9 +105,7 @@ impl Archetype {
         assert_eq!(id, &TypeId::of::<T>());
 
         unsafe {
-            NonNull::new_unchecked(
-                (*self.data.get()).as_ptr().add(state.offset).cast::<T>() as *mut T
-            )
+            NonNull::new_unchecked(self.data.as_ptr().add(state.offset).cast::<T>() as *mut T)
         }
     }
 
@@ -217,7 +212,7 @@ impl Archetype {
     ) -> Option<NonNull<u8>> {
         debug_assert!(index <= self.len);
         Some(NonNull::new_unchecked(
-            (*self.data.get())
+            self.data
                 .as_ptr()
                 .add(self.state.get(&ty)?.offset + size * index as usize)
                 .cast::<u8>(),
@@ -280,13 +275,13 @@ impl Archetype {
                     let old_off = self.state.get(&ty.id).unwrap().offset;
                     let new_off = new_state.get(&ty.id).unwrap().offset;
                     ptr::copy_nonoverlapping(
-                        (*self.data.get()).as_ptr().add(old_off),
+                        self.data.as_ptr().add(old_off),
                         new_data.as_ptr().add(new_off),
                         ty.layout.size() * old_count,
                     );
                 }
                 dealloc(
-                    (*self.data.get()).as_ptr().cast(),
+                    self.data.as_ptr().cast(),
                     Layout::from_size_align_unchecked(
                         old_data_size,
                         self.types.first().map_or(1, |x| x.layout.align()),
@@ -294,7 +289,7 @@ impl Archetype {
                 );
             }
 
-            self.data = UnsafeCell::new(new_data);
+            self.data = new_data;
             self.state = new_state;
         }
     }
@@ -390,9 +385,10 @@ impl Archetype {
         self.reserve(other.len);
         for info in &self.types {
             let src_off = other.state.get(&info.id()).unwrap().offset;
-            let src = (*other.data.get()).as_ptr().add(src_off);
+            let src = other.data.as_ptr().add(src_off);
             let dst_off = self.state.get(&info.id()).unwrap().offset;
-            let dst = (*self.data.get())
+            let dst = self
+                .data
                 .as_ptr()
                 .add(dst_off + self.len as usize * info.layout.size());
             dst.copy_from_nonoverlapping(src, other.len as usize * info.layout.size())
@@ -418,7 +414,7 @@ impl Drop for Archetype {
         if self.data_size != 0 {
             unsafe {
                 dealloc(
-                    (*self.data.get()).as_ptr().cast(),
+                    self.data.as_ptr().cast(),
                     Layout::from_size_align_unchecked(
                         self.data_size,
                         self.types.first().map_or(1, |x| x.layout.align()),
