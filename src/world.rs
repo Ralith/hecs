@@ -159,9 +159,10 @@ impl World {
         }
     }
 
-    /// Efficiently spawn a large number of entities with the same components
+    /// Efficiently spawn a large number of entities with the same statically-typed components
     ///
-    /// Faster than calling [`spawn`](Self::spawn) repeatedly with the same components.
+    /// Faster than calling [`spawn`](Self::spawn) repeatedly with the same components, but requires
+    /// that component types are known at compile time.
     ///
     /// # Example
     /// ```
@@ -198,7 +199,7 @@ impl World {
     /// Super-efficiently spawn the contents of a [`ColumnBatch`]
     ///
     /// The fastest, but most specialized, way to spawn large numbers of entities. Useful for high
-    /// performance deserialization.
+    /// performance deserialization. Supports dynamic component types.
     pub fn spawn_column_batch(&mut self, batch: ColumnBatch) -> SpawnColumnBatchIter<'_> {
         self.flush();
 
