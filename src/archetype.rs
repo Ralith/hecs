@@ -222,7 +222,7 @@ impl Archetype {
     /// Every type must be written immediately after this call
     pub(crate) unsafe fn allocate(&mut self, id: u32) -> u32 {
         if self.len as usize == self.entities.len() {
-            self.grow(self.len.max(64));
+            self.grow(64);
         }
 
         self.entities[self.len as usize] = id;
@@ -237,7 +237,8 @@ impl Archetype {
 
     pub(crate) fn reserve(&mut self, additional: u32) {
         if additional > (self.capacity() - self.len()) {
-            self.grow(additional - (self.capacity() - self.len()));
+            let increment = additional - (self.capacity() - self.len());
+            self.grow(increment.max(64));
         }
     }
 
@@ -245,7 +246,14 @@ impl Archetype {
         self.entities.len() as u32
     }
 
-    fn grow(&mut self, increment: u32) {
+    /// Increase capacity by at least `min_increment`
+    fn grow(&mut self, min_increment: u32) {
+        // Double capacity or increase it by `min_increment`, whichever is larger.
+        self.grow_exact(self.capacity().max(min_increment))
+    }
+
+    /// Increase capacity by exactly `increment`
+    fn grow_exact(&mut self, increment: u32) {
         unsafe {
             let old_count = self.len as usize;
             let new_cap = self.entities.len() + increment as usize;

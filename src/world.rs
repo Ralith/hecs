@@ -293,7 +293,7 @@ impl World {
         Ok(())
     }
 
-    /// Ensure `additional` entities with exact components `T` can be spawned without reallocating
+    /// Ensure at least `additional` entities with exact components `T` can be spawned without reallocating
     pub fn reserve<T: Bundle + 'static>(&mut self, additional: u32) {
         self.reserve_inner::<T>(additional);
     }
