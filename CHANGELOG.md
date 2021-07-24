@@ -3,6 +3,8 @@
 ### Changed
 - `World::iter` no longer returns entity IDs directly; they can now instead be fetched from the
   `EntityRef`
+- `World::spawn_batch` and `World::reserve` now employ `Vec`-style amortized resizing, improving
+  performance when called repeatedly.
 
 ### Added
 - `EntityRef::query` as an alternative to `World::query_one` when you already have an `EntityRef`
