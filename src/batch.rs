@@ -33,6 +33,7 @@ impl ColumnBatchType {
         arch.reserve(size);
         ColumnBatchBuilder {
             fill,
+            target_fill: size,
             archetype: Some(arch),
         }
     }
@@ -42,6 +43,7 @@ impl ColumnBatchType {
 pub struct ColumnBatchBuilder {
     /// Number of components written so far for each component type
     fill: TypeIdMap<u32>,
+    target_fill: u32,
     pub(crate) archetype: Option<Archetype>,
 }
 
@@ -62,7 +64,7 @@ impl ColumnBatchBuilder {
         Some(BatchWriter {
             fill: self.fill.entry(TypeId::of::<T>()).or_insert(0),
             storage: unsafe {
-                slice::from_raw_parts_mut(base.as_ptr().cast(), archetype.capacity() as usize)
+                slice::from_raw_parts_mut(base.as_ptr().cast(), self.target_fill as usize)
                     .iter_mut()
             },
         })
@@ -74,12 +76,12 @@ impl ColumnBatchBuilder {
         if archetype
             .types()
             .iter()
-            .any(|ty| self.fill.get(&ty.id()).copied().unwrap_or(0) != archetype.capacity())
+            .any(|ty| self.fill.get(&ty.id()).copied().unwrap_or(0) != self.target_fill)
         {
             return Err(BatchIncomplete { _opaque: () });
         }
         unsafe {
-            archetype.set_len(archetype.capacity());
+            archetype.set_len(self.target_fill);
         }
         Ok(ColumnBatch(archetype))
     }
