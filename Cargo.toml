@@ -1,7 +1,7 @@
 [package]
 name = "hecs"
 version = "0.5.2"
-description = "A fast, minimal, and ergonomic entity-component-system"
+description = "A fast, minimal, and ergonomic entity-component-system library"
 authors = ["Benjamin Saunders <ben.e.saunders@gmail.com>"]
 edition = "2018"
 license = "MIT OR Apache-2.0"
