@@ -1052,7 +1052,7 @@ impl Iterator for SpawnColumnBatchIter<'_> {
     type Item = Entity;
 
     fn next(&mut self) -> Option<Entity> {
-        let id = self.id_alloc.next(&self.entities)?;
+        let id = self.id_alloc.next(self.entities)?;
         Some(unsafe { self.entities.resolve_unknown_gen(id) })
     }
 
@@ -1063,7 +1063,7 @@ impl Iterator for SpawnColumnBatchIter<'_> {
 
 impl ExactSizeIterator for SpawnColumnBatchIter<'_> {
     fn len(&self) -> usize {
-        self.id_alloc.len(&self.entities)
+        self.id_alloc.len(self.entities)
     }
 }
 
