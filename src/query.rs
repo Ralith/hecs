@@ -760,6 +760,7 @@ macro_rules! tuple_impl {
 
             type State = ($($name::State,)*);
 
+            #[allow(clippy::unused_unit)]
             fn dangling() -> Self {
                 ($($name::dangling(),)*)
             }
@@ -773,7 +774,7 @@ macro_rules! tuple_impl {
                 Some(access)
             }
 
-            #[allow(unused_variables, non_snake_case)]
+            #[allow(unused_variables, non_snake_case, clippy::unused_unit)]
             fn borrow(archetype: &Archetype, state: Self::State) {
                 let ($($name,)*) = state;
                 $($name::borrow(archetype, $name);)*
@@ -782,23 +783,23 @@ macro_rules! tuple_impl {
             fn prepare(archetype: &Archetype) -> Option<Self::State> {
                 Some(($($name::prepare(archetype)?,)*))
             }
-            #[allow(unused_variables, non_snake_case)]
+            #[allow(unused_variables, non_snake_case, clippy::unused_unit)]
             fn execute(archetype: &'a Archetype, state: Self::State) -> Self {
                 let ($($name,)*) = state;
                 ($($name::execute(archetype, $name),)*)
             }
-            #[allow(unused_variables, non_snake_case)]
+            #[allow(unused_variables, non_snake_case, clippy::unused_unit)]
             fn release(archetype: &Archetype, state: Self::State) {
                 let ($($name,)*) = state;
                 $($name::release(archetype, $name);)*
             }
 
-            #[allow(unused_variables, unused_mut)]
+            #[allow(unused_variables, unused_mut, clippy::unused_unit)]
             fn for_each_borrow(mut f: impl FnMut(TypeId, bool)) {
                 $($name::for_each_borrow(&mut f);)*
             }
 
-            #[allow(unused_variables)]
+            #[allow(unused_variables, clippy::unused_unit)]
             unsafe fn get(&self, n: usize) -> Self::Item {
                 #[allow(non_snake_case)]
                 let ($($name,)*) = self;
