@@ -868,8 +868,7 @@ impl<Q: Query> PreparedQuery<Q> {
 
     /// Query a uniquely borrowed world
     ///
-    /// This avoids the cost of the dynamic borrow checking.
-    /// that is required by [`borrow`][Self::borrow]
+    /// Avoids the cost of the dynamic borrow checking performed by [`query`][Self::query].
     pub fn query_mut<'q>(&'q mut self, world: &'q mut World) -> PreparedQueryIter<'q, Q> {
         assert_borrow::<Q>();
 
