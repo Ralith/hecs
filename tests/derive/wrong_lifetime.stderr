@@ -22,4 +22,4 @@ note: ...so that reference does not outlive borrowed content
   |
 3 | #[derive(Query)]
   |          ^^^^^
-  = note: this error originates in a derive macro (in Nightly builds, run with -Z macro-backtrace for more info)
+  = note: this error originates in the derive macro `Query` (in Nightly builds, run with -Z macro-backtrace for more info)
