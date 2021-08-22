@@ -257,6 +257,10 @@ impl World {
         let archetype = &mut self.archetypes.archetypes[archetype_id as usize];
         for (&handle, index) in handles.iter().zip(base as usize..) {
             archetype.set_entity_id(index, handle.id());
+            self.entities.meta[handle.id() as usize].location = Location {
+                archetype: archetype_id,
+                index: index as u32,
+            };
         }
     }
 
