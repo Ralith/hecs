@@ -336,7 +336,7 @@ impl Entities {
     pub fn free(&mut self, entity: Entity) -> Result<Location, NoSuchEntity> {
         self.verify_flushed();
 
-        let meta = &mut self.meta[entity.id as usize];
+        let meta = self.meta.get_mut(entity.id as usize).ok_or(NoSuchEntity)?;
         if meta.generation != entity.generation {
             return Err(NoSuchEntity);
         }
@@ -382,7 +382,7 @@ impl Entities {
     ///
     /// Must not be called on pending entities.
     pub fn get_mut(&mut self, entity: Entity) -> Result<&mut Location, NoSuchEntity> {
-        let meta = &mut self.meta[entity.id as usize];
+        let meta = self.meta.get_mut(entity.id as usize).ok_or(NoSuchEntity)?;
         if meta.generation == entity.generation {
             Ok(&mut meta.location)
         } else {
