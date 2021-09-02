@@ -558,3 +558,11 @@ fn columnar_access() {
     assert_eq!(b.ids(), &[f.id(), g.id()]);
     assert_eq!(*b.get::<i32>().unwrap(), [456, 789]);
 }
+
+#[test]
+fn empty_entity_ref() {
+    let mut world = World::new();
+    let e = world.spawn(());
+    let r = world.entity(e).unwrap();
+    assert_eq!(r.entity(), e);
+}

@@ -402,12 +402,6 @@ impl Entities {
         if meta.generation != entity.generation {
             return Err(NoSuchEntity);
         }
-        if meta.location.archetype == 0 {
-            return Ok(Location {
-                archetype: 0,
-                index: u32::max_value(),
-            });
-        }
         Ok(meta.location)
     }
 
