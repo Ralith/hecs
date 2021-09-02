@@ -81,8 +81,8 @@ pub use query::{
 };
 pub use query_one::QueryOne;
 pub use world::{
-    ArchetypesGeneration, Component, ComponentError, Iter, SpawnBatchIter, SpawnColumnBatchIter,
-    World,
+    ArchetypesGeneration, Component, ComponentError, Iter, QueryOneError, SpawnBatchIter,
+    SpawnColumnBatchIter, World,
 };
 
 // Unstable implementation details needed by the macros
