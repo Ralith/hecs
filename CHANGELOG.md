@@ -1,5 +1,27 @@
 # Unreleased
 
+### Fixed
+- `EntityRef::entity` panicking on empty entities
+
+# 0.6.3
+
+### Fixed
+- An invalid `Entity` could panic rather than returning the appropriate error, especially after
+  `World::clear`
+- Reexported `BatchIncomplete`
+
+# 0.6.2
+
+### Fixed
+- Reexported `BatchWriter`
+
+# 0.6.1
+
+### Fixed
+- Random-access lookup structures were not correctly populated by column deserialization
+
+# 0.6.0
+
 ### Changed
 - `World::iter` no longer returns entity IDs directly; they can now instead be fetched from the
   `EntityRef`
