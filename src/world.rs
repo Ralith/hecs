@@ -479,7 +479,7 @@ impl World {
         unsafe {
             Ok(EntityRef::new(
                 &self.archetypes.archetypes[loc.archetype as usize],
-                entity.generation,
+                entity,
                 loc.index,
             ))
         }
@@ -937,7 +937,14 @@ impl<'a> Iterator for Iter<'a> {
                     self.index += 1;
                     let id = current.entity_id(index);
                     return Some(unsafe {
-                        EntityRef::new(current, self.entities.meta[id as usize].generation, index)
+                        EntityRef::new(
+                            current,
+                            Entity {
+                                id,
+                                generation: self.entities.meta[id as usize].generation,
+                            },
+                            index,
+                        )
                     });
                 }
             }
