@@ -266,12 +266,12 @@ impl World {
 
     /// Allocate many entities ID concurrently
     ///
-    /// Unlike [`spawn`](Self::spawn), this can be called simultaneously to other operations on the
+    /// Unlike [`spawn`](Self::spawn), this can be called concurrently with other operations on the
     /// [`World`] such as queries, but does not immediately create the entities. Reserved entities
     /// are not visible to queries or world iteration, but can be otherwise operated on
-    /// freely. Operations that uniquely borrow the world, such as `insert` or `despawn`, will cause
-    /// all outstanding reserved entities to become real entities before proceeding. This can also
-    /// be done explicitly by calling `flush`.
+    /// freely. Operations that add or remove components or entities, such as `insert` or `despawn`,
+    /// will cause all outstanding reserved entities to become real entities before proceeding. This
+    /// can also be done explicitly by calling [`flush`](Self::flush).
     ///
     /// Useful for reserving an ID that will later have components attached to it with `insert`.
     pub fn reserve_entities(&self, count: u32) -> ReserveEntitiesIterator {
@@ -752,7 +752,8 @@ impl World {
 
     /// Convert all reserved entities into empty entities that can be iterated and accessed
     ///
-    /// Invoked implicitly by `spawn`, `despawn`, `insert`, and `remove`.
+    /// Invoked implicitly by operations that add or remove components or entities, i.e. all
+    /// variations of `spawn`, `despawn`, `insert`, and `remove`.
     pub fn flush(&mut self) {
         let arch = &mut self.archetypes.archetypes[0];
         self.entities
