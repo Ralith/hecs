@@ -1,4 +1,4 @@
-# Unreleased
+# 0.6.4
 
 ### Fixed
 - `EntityRef::entity` panicking on empty entities
