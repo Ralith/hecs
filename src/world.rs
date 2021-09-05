@@ -717,9 +717,6 @@ impl World {
     /// same component of `entity` may be live simultaneous to the returned reference.
     pub unsafe fn get_unchecked<T: Component>(&self, entity: Entity) -> Result<&T, ComponentError> {
         let loc = self.entities.get(entity)?;
-        if loc.archetype == 0 {
-            return Err(MissingComponent::new::<T>().into());
-        }
         let archetype = &self.archetypes.archetypes[loc.archetype as usize];
         let state = archetype
             .get_state::<T>()
@@ -743,9 +740,6 @@ impl World {
         entity: Entity,
     ) -> Result<&mut T, ComponentError> {
         let loc = self.entities.get(entity)?;
-        if loc.archetype == 0 {
-            return Err(MissingComponent::new::<T>().into());
-        }
         let archetype = &self.archetypes.archetypes[loc.archetype as usize];
         let state = archetype
             .get_state::<T>()
