@@ -12,13 +12,13 @@ use core::any::{type_name, TypeId};
 use core::hash::{BuildHasher, BuildHasherDefault, Hasher};
 use core::ops::Deref;
 use core::ptr::{self, NonNull};
-use core::{fmt, mem, slice};
+use core::{fmt, slice};
 
 use hashbrown::{hash_map::DefaultHashBuilder, HashMap};
 
 use crate::borrow::AtomicBorrow;
 use crate::query::Fetch;
-use crate::{align, Access, Component, Query};
+use crate::{Access, Component, Query};
 
 /// A collection of entities having the same component types
 ///
@@ -29,8 +29,8 @@ pub struct Archetype {
     state: OrderedTypeIdMap<TypeState>,
     len: u32,
     entities: Box<[u32]>,
-    data: NonNull<u8>,
-    data_size: usize,
+    /// One allocation per type, in the same order as `types`
+    data: Box<[NonNull<u8>]>,
     /// Maps static bundle types to the archetype that an entity from this archetype is moved to
     /// after removing the components from that bundle.
     pub(crate) remove_edges: TypeIdMap<u32>,
@@ -58,13 +58,20 @@ impl Archetype {
     pub(crate) fn new(types: Vec<TypeInfo>) -> Self {
         let max_align = types.first().map_or(1, |ty| ty.layout.align());
         Self::assert_type_info(&types);
+        let component_count = types.len();
         Self {
-            state: OrderedTypeIdMap::new(types.iter().map(|ty| (ty.id, TypeState::new(0)))),
+            state: OrderedTypeIdMap::new(
+                types
+                    .iter()
+                    .enumerate()
+                    .map(|(i, ty)| (ty.id, TypeState::new(i))),
+            ),
             types,
             entities: Box::new([]),
             len: 0,
-            data: NonNull::new(max_align as *mut u8).unwrap(),
-            data_size: 0,
+            data: (0..component_count)
+                .map(|_| NonNull::new(max_align as *mut u8).unwrap())
+                .collect(),
             remove_edges: HashMap::default(),
         }
     }
@@ -105,7 +112,9 @@ impl Archetype {
         assert_eq!(id, &TypeId::of::<T>());
 
         unsafe {
-            NonNull::new_unchecked(self.data.as_ptr().add(state.offset).cast::<T>() as *mut T)
+            NonNull::new_unchecked(
+                self.data.get_unchecked(state.index).as_ptr().cast::<T>() as *mut T
+            )
         }
     }
 
@@ -213,8 +222,9 @@ impl Archetype {
         debug_assert!(index <= self.len);
         Some(NonNull::new_unchecked(
             self.data
+                .get_unchecked(self.state.get(&ty)?.index)
                 .as_ptr()
-                .add(self.state.get(&ty)?.offset + size * index as usize)
+                .add(size * index as usize)
                 .cast::<u8>(),
         ))
     }
@@ -256,49 +266,44 @@ impl Archetype {
     fn grow_exact(&mut self, increment: u32) {
         unsafe {
             let old_count = self.len as usize;
+            let old_cap = self.entities.len();
             let new_cap = self.entities.len() + increment as usize;
             let mut new_entities = vec![!0; new_cap].into_boxed_slice();
             new_entities[0..old_count].copy_from_slice(&self.entities[0..old_count]);
             self.entities = new_entities;
 
-            let old_data_size = mem::replace(&mut self.data_size, 0);
-            let mut new_state =
-                OrderedTypeIdMap::new(self.types.iter().map(|ty| (ty.id, TypeState::new(0))));
-            for ty in &self.types {
-                self.data_size = align(self.data_size, ty.layout.align());
-                new_state.get_mut(&ty.id).unwrap().offset = self.data_size;
-                self.data_size += ty.layout.size() * new_cap;
-            }
-            let max_align = self.types.first().map_or(1, |x| x.layout.align());
-            let new_data = if self.data_size == 0 {
-                NonNull::new(max_align as *mut u8).unwrap()
-            } else {
-                NonNull::new(alloc(
-                    Layout::from_size_align(self.data_size, max_align).unwrap(),
-                ))
-                .unwrap()
-            };
-            if old_data_size != 0 {
-                for ty in &self.types {
-                    let old_off = self.state.get(&ty.id).unwrap().offset;
-                    let new_off = new_state.get(&ty.id).unwrap().offset;
-                    ptr::copy_nonoverlapping(
-                        self.data.as_ptr().add(old_off),
-                        new_data.as_ptr().add(new_off),
-                        ty.layout.size() * old_count,
-                    );
-                }
-                dealloc(
-                    self.data.as_ptr().cast(),
-                    Layout::from_size_align_unchecked(
-                        old_data_size,
-                        self.types.first().map_or(1, |x| x.layout.align()),
-                    ),
-                );
-            }
+            let new_data = self
+                .types
+                .iter()
+                .zip(&*self.data)
+                .map(|(info, old)| {
+                    if info.layout.size() == 0 {
+                        NonNull::new(info.layout.align() as *mut u8).unwrap()
+                    } else {
+                        let mem = alloc(
+                            Layout::from_size_align(
+                                info.layout.size() * new_cap,
+                                info.layout.align(),
+                            )
+                            .unwrap(),
+                        );
+                        ptr::copy_nonoverlapping(old.as_ptr(), mem, info.layout.size() * old_count);
+                        if old_cap > 0 {
+                            dealloc(
+                                old.as_ptr(),
+                                Layout::from_size_align(
+                                    info.layout.size() * old_cap,
+                                    info.layout.align(),
+                                )
+                                .unwrap(),
+                            );
+                        }
+                        NonNull::new(mem).unwrap()
+                    }
+                })
+                .collect::<Box<[_]>>();
 
             self.data = new_data;
-            self.state = new_state;
         }
     }
 
@@ -391,15 +396,10 @@ impl Archetype {
     /// Component types must match exactly.
     pub(crate) unsafe fn merge(&mut self, mut other: Archetype) {
         self.reserve(other.len);
-        for info in &self.types {
-            let src_off = other.state.get(&info.id()).unwrap().offset;
-            let src = other.data.as_ptr().add(src_off);
-            let dst_off = self.state.get(&info.id()).unwrap().offset;
-            let dst = self
-                .data
-                .as_ptr()
-                .add(dst_off + self.len as usize * info.layout.size());
-            dst.copy_from_nonoverlapping(src, other.len as usize * info.layout.size())
+        for ((info, dst), src) in self.types.iter().zip(&*self.data).zip(&*other.data) {
+            dst.as_ptr()
+                .add(self.len as usize * info.layout.size())
+                .copy_from_nonoverlapping(src.as_ptr(), other.len as usize * info.layout.size())
         }
         self.len += other.len;
         other.len = 0;
@@ -419,15 +419,20 @@ impl Archetype {
 impl Drop for Archetype {
     fn drop(&mut self) {
         self.clear();
-        if self.data_size != 0 {
-            unsafe {
-                dealloc(
-                    self.data.as_ptr().cast(),
-                    Layout::from_size_align_unchecked(
-                        self.data_size,
-                        self.types.first().map_or(1, |x| x.layout.align()),
-                    ),
-                );
+        if self.entities.len() == 0 {
+            return;
+        }
+        for (info, data) in self.types.iter().zip(&*self.data) {
+            if info.layout.size() != 0 {
+                unsafe {
+                    dealloc(
+                        data.as_ptr(),
+                        Layout::from_size_align_unchecked(
+                            info.layout.size() * self.entities.len(),
+                            info.layout.align(),
+                        ),
+                    );
+                }
             }
         }
     }
@@ -498,24 +503,20 @@ impl<V> OrderedTypeIdMap<V> {
         self.search(id).map(move |idx| &self.0[idx].1)
     }
 
-    fn get_mut(&mut self, id: &TypeId) -> Option<&mut V> {
-        self.search(id).map(move |idx| &mut self.0[idx].1)
-    }
-
     fn get_from_index(&self, idx: usize) -> &(TypeId, V) {
         &self.0[idx]
     }
 }
 
 struct TypeState {
-    offset: usize,
+    index: usize,
     borrow: AtomicBorrow,
 }
 
 impl TypeState {
-    fn new(offset: usize) -> Self {
+    fn new(index: usize) -> Self {
         Self {
-            offset,
+            index,
             borrow: AtomicBorrow::new(),
         }
     }
