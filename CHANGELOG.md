@@ -1,3 +1,9 @@
+# Unreleased
+
+### Changed
+- Internal memory layout adjusted, reducing `TypeId`-to-pointer look-ups for a minor speedup in
+  per-archetype processing and component insertion/removal.
+
 # 0.6.4
 
 ### Fixed
