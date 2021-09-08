@@ -1,4 +1,4 @@
-# Unreleased
+# 0.6.5
 
 ### Changed
 - Internal memory layout adjusted, reducing `TypeId`-to-pointer look-ups for a minor speedup in
