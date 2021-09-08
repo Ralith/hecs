@@ -26,11 +26,11 @@ use crate::{Access, Component, Query};
 /// [`World`](crate::World).
 pub struct Archetype {
     types: Vec<TypeInfo>,
-    state: OrderedTypeIdMap<TypeState>,
+    index: OrderedTypeIdMap<usize>,
     len: u32,
     entities: Box<[u32]>,
     /// One allocation per type, in the same order as `types`
-    data: Box<[NonNull<u8>]>,
+    data: Box<[Data]>,
     /// Maps static bundle types to the archetype that an entity from this archetype is moved to
     /// after removing the components from that bundle.
     pub(crate) remove_edges: TypeIdMap<u32>,
@@ -60,17 +60,15 @@ impl Archetype {
         Self::assert_type_info(&types);
         let component_count = types.len();
         Self {
-            state: OrderedTypeIdMap::new(
-                types
-                    .iter()
-                    .enumerate()
-                    .map(|(i, ty)| (ty.id, TypeState::new(i))),
-            ),
+            index: OrderedTypeIdMap::new(types.iter().enumerate().map(|(i, ty)| (ty.id, i))),
             types,
             entities: Box::new([]),
             len: 0,
             data: (0..component_count)
-                .map(|_| NonNull::new(max_align as *mut u8).unwrap())
+                .map(|_| Data {
+                    state: AtomicBorrow::new(),
+                    storage: NonNull::new(max_align as *mut u8).unwrap(),
+                })
                 .collect(),
             remove_edges: HashMap::default(),
         }
@@ -98,22 +96,21 @@ impl Archetype {
 
     /// Whether this archetype contains components with the type identified by `id`
     pub fn has_dynamic(&self, id: TypeId) -> bool {
-        self.state.contains_key(&id)
+        self.index.contains_key(&id)
     }
 
     /// Find the state index associated with `T`, if present
     pub(crate) fn get_state<T: Component>(&self) -> Option<usize> {
-        self.state.search(&TypeId::of::<T>())
+        self.index.get(&TypeId::of::<T>()).copied()
     }
 
     /// Get the address of the first `T` component using an index from `get_state::<T>`
     pub(crate) fn get_base<T: Component>(&self, state: usize) -> NonNull<T> {
-        let (id, state) = self.state.get_from_index(state);
-        assert_eq!(id, &TypeId::of::<T>());
+        assert_eq!(self.types[state].id, TypeId::of::<T>());
 
         unsafe {
             NonNull::new_unchecked(
-                self.data.get_unchecked(state.index).as_ptr().cast::<T>() as *mut T
+                self.data.get_unchecked(state).storage.as_ptr().cast::<T>() as *mut T
             )
         }
     }
@@ -133,35 +130,29 @@ impl Archetype {
     }
 
     pub(crate) fn borrow<T: Component>(&self, state: usize) {
-        let (id, state) = self.state.get_from_index(state);
-        assert_eq!(id, &TypeId::of::<T>());
+        assert_eq!(self.types[state].id, TypeId::of::<T>());
 
-        if !state.borrow.borrow() {
+        if !self.data[state].state.borrow() {
             panic!("{} already borrowed uniquely", type_name::<T>());
         }
     }
 
     pub(crate) fn borrow_mut<T: Component>(&self, state: usize) {
-        let (id, state) = self.state.get_from_index(state);
-        assert_eq!(id, &TypeId::of::<T>());
+        assert_eq!(self.types[state].id, TypeId::of::<T>());
 
-        if !state.borrow.borrow_mut() {
+        if !self.data[state].state.borrow_mut() {
             panic!("{} already borrowed", type_name::<T>());
         }
     }
 
     pub(crate) fn release<T: Component>(&self, state: usize) {
-        let (id, state) = self.state.get_from_index(state);
-        assert_eq!(id, &TypeId::of::<T>());
-
-        state.borrow.release();
+        assert_eq!(self.types[state].id, TypeId::of::<T>());
+        self.data[state].state.release();
     }
 
     pub(crate) fn release_mut<T: Component>(&self, state: usize) {
-        let (id, state) = self.state.get_from_index(state);
-        assert_eq!(id, &TypeId::of::<T>());
-
-        state.borrow.release_mut();
+        assert_eq!(self.types[state].id, TypeId::of::<T>());
+        self.data[state].state.release_mut();
     }
 
     /// Number of entities in this archetype
@@ -222,7 +213,8 @@ impl Archetype {
         debug_assert!(index <= self.len);
         Some(NonNull::new_unchecked(
             self.data
-                .get_unchecked(self.state.get(&ty)?.index)
+                .get_unchecked(*self.index.get(&ty)?)
+                .storage
                 .as_ptr()
                 .add(size * index as usize)
                 .cast::<u8>(),
@@ -277,7 +269,7 @@ impl Archetype {
                 .iter()
                 .zip(&*self.data)
                 .map(|(info, old)| {
-                    if info.layout.size() == 0 {
+                    let storage = if info.layout.size() == 0 {
                         NonNull::new(info.layout.align() as *mut u8).unwrap()
                     } else {
                         let mem = alloc(
@@ -287,10 +279,14 @@ impl Archetype {
                             )
                             .unwrap(),
                         );
-                        ptr::copy_nonoverlapping(old.as_ptr(), mem, info.layout.size() * old_count);
+                        ptr::copy_nonoverlapping(
+                            old.storage.as_ptr(),
+                            mem,
+                            info.layout.size() * old_count,
+                        );
                         if old_cap > 0 {
                             dealloc(
-                                old.as_ptr(),
+                                old.storage.as_ptr(),
                                 Layout::from_size_align(
                                     info.layout.size() * old_cap,
                                     info.layout.align(),
@@ -299,6 +295,10 @@ impl Archetype {
                             );
                         }
                         NonNull::new(mem).unwrap()
+                    };
+                    Data {
+                        state: AtomicBorrow::new(), // &mut self guarantees no outstanding borrows
+                        storage,
                     }
                 })
                 .collect::<Box<[_]>>();
@@ -397,9 +397,13 @@ impl Archetype {
     pub(crate) unsafe fn merge(&mut self, mut other: Archetype) {
         self.reserve(other.len);
         for ((info, dst), src) in self.types.iter().zip(&*self.data).zip(&*other.data) {
-            dst.as_ptr()
+            dst.storage
+                .as_ptr()
                 .add(self.len as usize * info.layout.size())
-                .copy_from_nonoverlapping(src.as_ptr(), other.len as usize * info.layout.size())
+                .copy_from_nonoverlapping(
+                    src.storage.as_ptr(),
+                    other.len as usize * info.layout.size(),
+                )
         }
         self.len += other.len;
         other.len = 0;
@@ -426,7 +430,7 @@ impl Drop for Archetype {
             if info.layout.size() != 0 {
                 unsafe {
                     dealloc(
-                        data.as_ptr(),
+                        data.storage.as_ptr(),
                         Layout::from_size_align_unchecked(
                             info.layout.size() * self.entities.len(),
                             info.layout.align(),
@@ -436,6 +440,11 @@ impl Drop for Archetype {
             }
         }
     }
+}
+
+struct Data {
+    state: AtomicBorrow,
+    storage: NonNull<u8>,
 }
 
 /// A hasher optimized for hashing a single TypeId.
@@ -501,24 +510,6 @@ impl<V> OrderedTypeIdMap<V> {
 
     fn get(&self, id: &TypeId) -> Option<&V> {
         self.search(id).map(move |idx| &self.0[idx].1)
-    }
-
-    fn get_from_index(&self, idx: usize) -> &(TypeId, V) {
-        &self.0[idx]
-    }
-}
-
-struct TypeState {
-    index: usize,
-    borrow: AtomicBorrow,
-}
-
-impl TypeState {
-    fn new(index: usize) -> Self {
-        Self {
-            index,
-            borrow: AtomicBorrow::new(),
-        }
     }
 }
 
