@@ -75,13 +75,10 @@ impl Archetype {
     }
 
     pub(crate) fn clear(&mut self) {
-        for ty in &self.types {
+        for (ty, data) in self.types.iter().zip(&*self.data) {
             for index in 0..self.len {
                 unsafe {
-                    let removed = self
-                        .get_dynamic(ty.id, ty.layout.size(), index)
-                        .unwrap()
-                        .as_ptr();
+                    let removed = data.storage.as_ptr().add(index as usize * ty.layout.size());
                     (ty.drop)(removed);
                 }
             }
@@ -310,22 +307,14 @@ impl Archetype {
     /// Returns the ID of the entity moved into `index`, if any
     pub(crate) unsafe fn remove(&mut self, index: u32, drop: bool) -> Option<u32> {
         let last = self.len - 1;
-        for ty in &self.types {
-            let removed = self
-                .get_dynamic(ty.id, ty.layout.size(), index)
-                .unwrap()
-                .as_ptr();
+        for (ty, data) in self.types.iter().zip(&*self.data) {
+            let removed = data.storage.as_ptr().add(index as usize * ty.layout.size());
             if drop {
                 (ty.drop)(removed);
             }
             if index != last {
-                ptr::copy_nonoverlapping(
-                    self.get_dynamic(ty.id, ty.layout.size(), last)
-                        .unwrap()
-                        .as_ptr(),
-                    removed,
-                    ty.layout.size(),
-                );
+                let moved = data.storage.as_ptr().add(last as usize * ty.layout.size());
+                ptr::copy_nonoverlapping(moved, removed, ty.layout.size());
             }
         }
         self.len = last;
@@ -344,20 +333,12 @@ impl Archetype {
         mut f: impl FnMut(*mut u8, TypeId, usize),
     ) -> Option<u32> {
         let last = self.len - 1;
-        for ty in &self.types {
-            let moved = self
-                .get_dynamic(ty.id, ty.layout.size(), index)
-                .unwrap()
-                .as_ptr();
-            f(moved, ty.id(), ty.layout().size());
+        for (ty, data) in self.types.iter().zip(&*self.data) {
+            let moved_out = data.storage.as_ptr().add(index as usize * ty.layout.size());
+            f(moved_out, ty.id(), ty.layout().size());
             if index != last {
-                ptr::copy_nonoverlapping(
-                    self.get_dynamic(ty.id, ty.layout.size(), last)
-                        .unwrap()
-                        .as_ptr(),
-                    moved,
-                    ty.layout.size(),
-                );
+                let moved = data.storage.as_ptr().add(last as usize * ty.layout.size());
+                ptr::copy_nonoverlapping(moved, moved_out, ty.layout.size());
             }
         }
         self.len -= 1;
