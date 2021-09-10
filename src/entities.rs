@@ -362,8 +362,7 @@ impl Entities {
         if meta.generation != entity.generation {
             return Err(NoSuchEntity);
         }
-        let to_add = u32::from(meta.generation) + 1;
-        meta.generation = NonZeroU32::new(to_add)
+        meta.generation = NonZeroU32::new(u32::from(meta.generation).wrapping_add(1))
             .unwrap_or_else(|| panic!("Error freeing entity Entity Generation overflows"));
 
         let loc = mem::replace(&mut meta.location, EntityMeta::EMPTY.location);
