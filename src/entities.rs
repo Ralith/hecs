@@ -7,6 +7,7 @@ use core::sync::atomic::{AtomicI64, Ordering};
 use core::{fmt, mem};
 #[cfg(feature = "std")]
 use std::error::Error;
+use std::num::{NonZeroU32, NonZeroU64};
 
 /// Lightweight unique ID, or handle, of an entity
 ///
@@ -16,7 +17,7 @@ use std::error::Error;
 /// able to save space by only serializing the output of `Entity::id`.
 #[derive(Clone, Copy, Hash, Eq, Ord, PartialEq, PartialOrd)]
 pub struct Entity {
-    pub(crate) generation: u32,
+    pub(crate) generation: NonZeroU32,
     pub(crate) id: u32,
 }
 
@@ -29,7 +30,7 @@ impl Entity {
     /// `World::spawn_at` for easy serialization. Alternatively, consider `id` for more compact
     /// representation.
     pub fn to_bits(self) -> u64 {
-        u64::from(self.generation) << 32 | u64::from(self.id)
+        NonZeroU64::from(self.generation).get() << 32 | u64::from(self.id)
     }
 
     /// Reconstruct an `Entity` previously destructured with `to_bits`
@@ -38,7 +39,7 @@ impl Entity {
     /// `World::spawn_at` for easy serialization.
     pub fn from_bits(bits: u64) -> Self {
         Self {
-            generation: (bits >> 32) as u32,
+            generation: Entities::ret_non_zero_u32((bits >> 32) as u32),
             id: bits as u32,
         }
     }
@@ -104,7 +105,12 @@ impl<'a> Iterator for ReserveEntitiesIterator<'a> {
                 generation: self.meta[id as usize].generation,
                 id,
             })
-            .or_else(|| self.id_range.next().map(|id| Entity { generation: 0, id }))
+            .or_else(|| {
+                self.id_range.next().map(|id| Entity {
+                    generation: Entities::ret_non_zero_u32(1),
+                    id,
+                })
+            })
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
@@ -221,7 +227,7 @@ impl Entities {
             // As `self.free_cursor` goes more and more negative, we return IDs farther
             // and farther beyond `meta.len()`.
             Entity {
-                generation: 0,
+                generation: Entities::ret_non_zero_u32(1),
                 id: u32::try_from(self.meta.len() as i64 - n).expect("too many entities"),
             }
         }
@@ -252,7 +258,10 @@ impl Entities {
         } else {
             let id = u32::try_from(self.meta.len()).expect("too many entities");
             self.meta.push(EntityMeta::EMPTY);
-            Entity { generation: 0, id }
+            Entity {
+                generation: Entities::ret_non_zero_u32(1),
+                id,
+            }
         }
     }
 
@@ -279,7 +288,7 @@ impl Entities {
         let fresh_start = self.meta.len() as u32;
         self.meta.extend(
             (first_index..(first_index + fresh)).map(|index| EntityMeta {
-                generation: 0,
+                generation: Entities::ret_non_zero_u32(1),
                 location: Location { archetype, index },
             }),
         );
@@ -340,7 +349,8 @@ impl Entities {
         if meta.generation != entity.generation {
             return Err(NoSuchEntity);
         }
-        meta.generation += 1;
+        let to_add = u32::from(meta.generation) + 1;
+        meta.generation = Entities::ret_non_zero_u32(to_add);
 
         let loc = mem::replace(&mut meta.location, EntityMeta::EMPTY.location);
 
@@ -425,7 +435,10 @@ impl Entities {
 
             if meta_len + num_pending > id as usize {
                 // Pending entities will have generation 0.
-                Entity { generation: 0, id }
+                Entity {
+                    generation: Entities::ret_non_zero_u32(1),
+                    id,
+                }
             } else {
                 panic!("entity id is out of range");
             }
@@ -464,7 +477,12 @@ impl Entities {
             init(id, &mut self.meta[id as usize].location);
         }
     }
-
+    // Since nonzero ops are not const yet (https://github.com/rust-lang/rust/issues/84186)
+    // unsafe is required to bypass the compiler error
+    /// Returns `NonZeroU32` from given number
+    pub(crate) const fn ret_non_zero_u32(num: u32) -> NonZeroU32 {
+        unsafe { NonZeroU32::new_unchecked(num) }
+    }
     #[inline]
     pub fn len(&self) -> u32 {
         self.len
@@ -473,13 +491,13 @@ impl Entities {
 
 #[derive(Copy, Clone)]
 pub(crate) struct EntityMeta {
-    pub generation: u32,
+    pub generation: NonZeroU32,
     pub location: Location,
 }
 
 impl EntityMeta {
     const EMPTY: EntityMeta = EntityMeta {
-        generation: 0,
+        generation: Entities::ret_non_zero_u32(1),
         location: Location {
             archetype: 0,
             index: u32::max_value(), // dummy value, to be filled in
@@ -537,7 +555,7 @@ mod tests {
     #[test]
     fn entity_bits_roundtrip() {
         let e = Entity {
-            generation: 0xDEADBEEF,
+            generation: Entities::ret_non_zero_u32(0xDEADBEEF),
             id: 0xBAADF00D,
         };
         assert_eq!(Entity::from_bits(e.to_bits()), e);
@@ -569,7 +587,7 @@ mod tests {
 
                 e.get_mut(entity).unwrap().index = 37;
 
-                assert!(id_to_gen.insert(id, entity.generation).is_none());
+                assert!(id_to_gen.insert(id, entity.generation.get()).is_none());
             } else {
                 // Free a random ID, whether or not it's in use, and check for errors.
                 let id = rng.gen_range(0..first_unused);
@@ -577,7 +595,9 @@ mod tests {
                 let generation = id_to_gen.remove(&id);
                 let entity = Entity {
                     id,
-                    generation: generation.unwrap_or(0),
+                    generation: Entities::ret_non_zero_u32(
+                        generation.unwrap_or(Entities::ret_non_zero_u32(1).get()),
+                    ),
                 };
 
                 assert_eq!(e.free(entity).is_ok(), generation.is_some());
@@ -631,7 +651,7 @@ mod tests {
         assert!(e
             .alloc_at(Entity {
                 id: 3,
-                generation: 2,
+                generation: Entities::ret_non_zero_u32(2),
             })
             .is_none());
         assert_eq!(e.pending.len(), 2);
