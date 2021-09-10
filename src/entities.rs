@@ -3,6 +3,7 @@ use core::cmp;
 use core::convert::TryFrom;
 use core::iter::ExactSizeIterator;
 use core::ops::Range;
+use core::ptr::NonNull;
 use core::sync::atomic::{AtomicI64, Ordering};
 use core::{fmt, mem};
 #[cfg(feature = "std")]
@@ -37,10 +38,14 @@ impl Entity {
     ///
     /// Useful for storing entity IDs externally, or in conjunction with `Entity::to_bits` and
     /// `World::spawn_at` for easy serialization.
-    pub fn from_bits(bits: u64) -> Self {
-        Self {
-            generation: Entities::ret_non_zero_u32((bits >> 32) as u32),
-            id: bits as u32,
+    pub fn from_bits(bits: u64) -> Option<Self> {
+        if NonZeroU32::new((bits >> 32) as u32).is_some() {
+            Some(Self {
+                generation: NonZeroU32::new((bits >> 32) as u32).unwrap(),
+                id: bits as u32,
+            })
+        } else {
+            None
         }
     }
 
@@ -79,7 +84,15 @@ impl<'de> serde::Deserialize<'de> for Entity {
         D: serde::Deserializer<'de>,
     {
         let bits = u64::deserialize(deserializer)?;
-        Ok(Entity::from_bits(bits))
+
+        if Entity::from_bits(bits).is_some() {
+            Ok(Entity::from_bits(bits).unwrap())
+        } else {
+            Err(serde::de::Error::invalid_value(
+                serde::de::Unexpected::Unsigned(bits),
+                &"Expected unsigned value",
+            ))
+        }
     }
 }
 
@@ -107,7 +120,7 @@ impl<'a> Iterator for ReserveEntitiesIterator<'a> {
             })
             .or_else(|| {
                 self.id_range.next().map(|id| Entity {
-                    generation: Entities::ret_non_zero_u32(1),
+                    generation: NonZeroU32::new(1).unwrap(),
                     id,
                 })
             })
@@ -227,7 +240,7 @@ impl Entities {
             // As `self.free_cursor` goes more and more negative, we return IDs farther
             // and farther beyond `meta.len()`.
             Entity {
-                generation: Entities::ret_non_zero_u32(1),
+                generation: NonZeroU32::new(1).unwrap(),
                 id: u32::try_from(self.meta.len() as i64 - n).expect("too many entities"),
             }
         }
@@ -259,7 +272,7 @@ impl Entities {
             let id = u32::try_from(self.meta.len()).expect("too many entities");
             self.meta.push(EntityMeta::EMPTY);
             Entity {
-                generation: Entities::ret_non_zero_u32(1),
+                generation: NonZeroU32::new(1).unwrap(),
                 id,
             }
         }
@@ -288,7 +301,7 @@ impl Entities {
         let fresh_start = self.meta.len() as u32;
         self.meta.extend(
             (first_index..(first_index + fresh)).map(|index| EntityMeta {
-                generation: Entities::ret_non_zero_u32(1),
+                generation: NonZeroU32::new(1).unwrap(),
                 location: Location { archetype, index },
             }),
         );
@@ -350,7 +363,8 @@ impl Entities {
             return Err(NoSuchEntity);
         }
         let to_add = u32::from(meta.generation) + 1;
-        meta.generation = Entities::ret_non_zero_u32(to_add);
+        meta.generation = NonZeroU32::new(to_add)
+            .unwrap_or_else(|| panic!("Error freeing entity Entity Generation overflows"));
 
         let loc = mem::replace(&mut meta.location, EntityMeta::EMPTY.location);
 
@@ -436,7 +450,7 @@ impl Entities {
             if meta_len + num_pending > id as usize {
                 // Pending entities will have generation 0.
                 Entity {
-                    generation: Entities::ret_non_zero_u32(1),
+                    generation: NonZeroU32::new(1).unwrap(),
                     id,
                 }
             } else {
@@ -477,12 +491,7 @@ impl Entities {
             init(id, &mut self.meta[id as usize].location);
         }
     }
-    // Since nonzero ops are not const yet (https://github.com/rust-lang/rust/issues/84186)
-    // unsafe is required to bypass the compiler error
-    /// Returns `NonZeroU32` from given number
-    pub(crate) const fn ret_non_zero_u32(num: u32) -> NonZeroU32 {
-        unsafe { NonZeroU32::new_unchecked(num) }
-    }
+
     #[inline]
     pub fn len(&self) -> u32 {
         self.len
@@ -497,7 +506,7 @@ pub(crate) struct EntityMeta {
 
 impl EntityMeta {
     const EMPTY: EntityMeta = EntityMeta {
-        generation: Entities::ret_non_zero_u32(1),
+        generation: unsafe { NonZeroU32::new_unchecked(1) },
         location: Location {
             archetype: 0,
             index: u32::max_value(), // dummy value, to be filled in
@@ -555,10 +564,10 @@ mod tests {
     #[test]
     fn entity_bits_roundtrip() {
         let e = Entity {
-            generation: Entities::ret_non_zero_u32(0xDEADBEEF),
+            generation: NonZeroU32::new(0xDEADBEEF).unwrap(),
             id: 0xBAADF00D,
         };
-        assert_eq!(Entity::from_bits(e.to_bits()), e);
+        assert_eq!(Entity::from_bits(e.to_bits()).unwrap(), e);
     }
 
     #[test]
@@ -595,9 +604,10 @@ mod tests {
                 let generation = id_to_gen.remove(&id);
                 let entity = Entity {
                     id,
-                    generation: Entities::ret_non_zero_u32(
-                        generation.unwrap_or(Entities::ret_non_zero_u32(1).get()),
-                    ),
+                    generation: NonZeroU32::new(
+                        generation.unwrap_or(NonZeroU32::new(1).unwrap().get()),
+                    )
+                    .unwrap(),
                 };
 
                 assert_eq!(e.free(entity).is_ok(), generation.is_some());
@@ -651,7 +661,7 @@ mod tests {
         assert!(e
             .alloc_at(Entity {
                 id: 3,
-                generation: Entities::ret_non_zero_u32(2),
+                generation: NonZeroU32::new(2).unwrap(),
             })
             .is_none());
         assert_eq!(e.pending.len(), 2);
