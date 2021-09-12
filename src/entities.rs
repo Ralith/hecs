@@ -27,24 +27,24 @@ impl Entity {
     ///
     /// No particular structure is guaranteed for the returned bits.
     ///
-    /// If bits does not correspond to a possible `NonZeroU64` value returns `None`
-    ///
     /// Useful for storing entity IDs externally, or in conjunction with `Entity::from_bits` and
     /// `World::spawn_at` for easy serialization. Alternatively, consider `id` for more compact
     /// representation.
-    pub fn to_bits(self) -> Option<NonZeroU64> {
-        NonZeroU64::new(NonZeroU64::from(self.generation).get() << 32 | u64::from(self.id))
+    pub fn to_bits(self) -> NonZeroU64 {
+        unsafe {
+            NonZeroU64::new_unchecked(u64::from(self.generation.get()) << 32 | u64::from(self.id))
+        }
     }
 
-    /// Reconstruct an `Entity` previously destructured with `to_bits` if the `bits` is a value
-    /// that can correspond to possible `NonZeroU64`
+    /// Reconstruct an `Entity` previously destructured with `to_bits` if the bitpattern is valid,
+    /// else `None`
     /// 
     ///
     /// Useful for storing entity IDs externally, or in conjunction with `Entity::to_bits` and
     /// `World::spawn_at` for easy serialization.
     pub fn from_bits(bits: u64) -> Option<Self> {
-        NonZeroU32::new((bits >> 32) as u32).map(|_| Self {
-            generation: NonZeroU32::new((bits >> 32) as u32).unwrap(),
+        Some(Self {
+            generation: NonZeroU32::new((bits >> 32) as u32)?,
             id: bits as u32,
         })
     }
@@ -89,7 +89,7 @@ impl<'de> serde::Deserialize<'de> for Entity {
             Some(ent) => Ok(ent),
             None => Err(serde::de::Error::invalid_value(
                 serde::de::Unexpected::Unsigned(bits),
-                &"`bits` does not correpond to possible `NonZeroU64` value ",
+                &"`a valid `Entity` bitpattern",
             )),
         }
     }
@@ -566,7 +566,7 @@ mod tests {
             generation: NonZeroU32::new(0xDEADBEEF).unwrap(),
             id: 0xBAADF00D,
         };
-        assert_eq!(Entity::from_bits(e.to_bits().unwrap().into()).unwrap(), e);
+        assert_eq!(Entity::from_bits(e.to_bits().into()).unwrap(), e);
     }
 
     #[test]

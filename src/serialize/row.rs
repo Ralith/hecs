@@ -366,7 +366,7 @@ mod tests {
             Token::NewtypeStruct { name: "SerWorld" },
             Token::Map { len: Some(2) },
 
-            Token::U64(e0.to_bits().unwrap().into()),
+            Token::U64(e0.to_bits().into()),
             Token::Map { len: None },
 
             Token::UnitVariant { name: "ComponentId", variant: "Position" },
@@ -387,7 +387,7 @@ mod tests {
 
             Token::MapEnd,
 
-            Token::U64(e1.to_bits().unwrap().into()),
+            Token::U64(e1.to_bits().into()),
             Token::Map { len: None },
 
             Token::UnitVariant { name: "ComponentId", variant: "Position" },
