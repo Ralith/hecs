@@ -27,26 +27,26 @@ impl Entity {
     ///
     /// No particular structure is guaranteed for the returned bits.
     ///
+    /// If bits does not correspond to a possible `NonZeroU64` value returns `None`
+    ///
     /// Useful for storing entity IDs externally, or in conjunction with `Entity::from_bits` and
     /// `World::spawn_at` for easy serialization. Alternatively, consider `id` for more compact
     /// representation.
-    pub fn to_bits(self) -> u64 {
-        NonZeroU64::from(self.generation).get() << 32 | u64::from(self.id)
+    pub fn to_bits(self) -> Option<NonZeroU64> {
+        NonZeroU64::new(NonZeroU64::from(self.generation).get() << 32 | u64::from(self.id))
     }
 
-    /// Reconstruct an `Entity` previously destructured with `to_bits`
+    /// Reconstruct an `Entity` previously destructured with `to_bits` if the `bits` is a value
+    /// that can correspond to possible `NonZeroU64`
+    /// 
     ///
     /// Useful for storing entity IDs externally, or in conjunction with `Entity::to_bits` and
     /// `World::spawn_at` for easy serialization.
     pub fn from_bits(bits: u64) -> Option<Self> {
-        if NonZeroU32::new((bits >> 32) as u32).is_some() {
-            Some(Self {
-                generation: NonZeroU32::new((bits >> 32) as u32).unwrap(),
-                id: bits as u32,
-            })
-        } else {
-            None
-        }
+        NonZeroU32::new((bits >> 32) as u32).map(|_| Self {
+            generation: NonZeroU32::new((bits >> 32) as u32).unwrap(),
+            id: bits as u32,
+        })
     }
 
     /// Extract a transiently unique identifier
@@ -85,13 +85,12 @@ impl<'de> serde::Deserialize<'de> for Entity {
     {
         let bits = u64::deserialize(deserializer)?;
 
-        if Entity::from_bits(bits).is_some() {
-            Ok(Entity::from_bits(bits).unwrap())
-        } else {
-            Err(serde::de::Error::invalid_value(
+        match Entity::from_bits(bits) {
+            Some(ent) => Ok(ent),
+            None => Err(serde::de::Error::invalid_value(
                 serde::de::Unexpected::Unsigned(bits),
-                &"Expected unsigned value",
-            ))
+                &"`bits` does not correpond to possible `NonZeroU64` value ",
+            )),
         }
     }
 }
@@ -362,8 +361,9 @@ impl Entities {
         if meta.generation != entity.generation {
             return Err(NoSuchEntity);
         }
+
         meta.generation = NonZeroU32::new(u32::from(meta.generation).wrapping_add(1))
-            .unwrap_or_else(|| panic!("Error freeing entity Entity Generation overflows"));
+            .unwrap_or_else(|| NonZeroU32::new(1).unwrap());
 
         let loc = mem::replace(&mut meta.location, EntityMeta::EMPTY.location);
 
@@ -566,7 +566,7 @@ mod tests {
             generation: NonZeroU32::new(0xDEADBEEF).unwrap(),
             id: 0xBAADF00D,
         };
-        assert_eq!(Entity::from_bits(e.to_bits()).unwrap(), e);
+        assert_eq!(Entity::from_bits(e.to_bits().unwrap().into()).unwrap(), e);
     }
 
     #[test]
@@ -604,7 +604,7 @@ mod tests {
                 let entity = Entity {
                     id,
                     generation: NonZeroU32::new(
-                        generation.unwrap_or(NonZeroU32::new(1).unwrap().get()),
+                        generation.unwrap_or_else(|| NonZeroU32::new(1).unwrap().get()),
                     )
                     .unwrap(),
                 };
