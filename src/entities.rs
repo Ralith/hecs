@@ -3,12 +3,12 @@ use core::cmp;
 use core::convert::TryFrom;
 use core::iter::ExactSizeIterator;
 use core::ops::Range;
-use core::ptr::NonNull;
 use core::sync::atomic::{AtomicI64, Ordering};
 use core::{fmt, mem};
+use core::num::{NonZeroU32, NonZeroU64};
 #[cfg(feature = "std")]
 use std::error::Error;
-use std::num::{NonZeroU32, NonZeroU64};
+
 
 /// Lightweight unique ID, or handle, of an entity
 ///
@@ -38,7 +38,6 @@ impl Entity {
 
     /// Reconstruct an `Entity` previously destructured with `to_bits` if the bitpattern is valid,
     /// else `None`
-    /// 
     ///
     /// Useful for storing entity IDs externally, or in conjunction with `Entity::to_bits` and
     /// `World::spawn_at` for easy serialization.
