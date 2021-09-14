@@ -2,13 +2,12 @@ use alloc::vec::Vec;
 use core::cmp;
 use core::convert::TryFrom;
 use core::iter::ExactSizeIterator;
+use core::num::{NonZeroU32, NonZeroU64};
 use core::ops::Range;
 use core::sync::atomic::{AtomicI64, Ordering};
 use core::{fmt, mem};
-use core::num::{NonZeroU32, NonZeroU64};
 #[cfg(feature = "std")]
 use std::error::Error;
-
 
 /// Lightweight unique ID, or handle, of an entity
 ///
