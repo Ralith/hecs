@@ -214,6 +214,144 @@ unsafe impl<'a, T: Fetch<'a>> Fetch<'a> for TryFetch<T> {
     }
 }
 
+/// Holds an `L`, or an `R`, or both
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub enum Or<L, R> {
+    /// Just an `L`
+    Left(L),
+    /// Just an `R`
+    Right(R),
+    /// Both an `L` and an `R`
+    Both(L, R),
+}
+
+impl<L, R> Or<L, R> {
+    /// Construct an `Or<L, R>` if at least one argument is `Some`
+    pub fn new(l: Option<L>, r: Option<R>) -> Option<Self> {
+        match (l, r) {
+            (None, None) => None,
+            (Some(l), None) => Some(Or::Left(l)),
+            (None, Some(r)) => Some(Or::Right(r)),
+            (Some(l), Some(r)) => Some(Or::Both(l, r)),
+        }
+    }
+
+    /// Destructure into two `Option`s, where either or both are `Some`
+    pub fn split(self) -> (Option<L>, Option<R>) {
+        match self {
+            Or::Left(l) => (Some(l), None),
+            Or::Right(r) => (None, Some(r)),
+            Or::Both(l, r) => (Some(l), Some(r)),
+        }
+    }
+
+    /// Extract `L` regardless of whether `R` is present
+    pub fn left(self) -> Option<L> {
+        match self {
+            Or::Left(l) => Some(l),
+            Or::Both(l, _) => Some(l),
+            _ => None,
+        }
+    }
+
+    /// Extract `R` regardless of whether `L` is present
+    pub fn right(self) -> Option<R> {
+        match self {
+            Or::Right(r) => Some(r),
+            Or::Both(_, r) => Some(r),
+            _ => None,
+        }
+    }
+
+    /// Transform `L` with `f` and `R` with `g`
+    pub fn map<L1, R1, F, G>(self, f: F, g: G) -> Or<L1, R1>
+    where
+        F: FnOnce(L) -> L1,
+        G: FnOnce(R) -> R1,
+    {
+        match self {
+            Or::Left(l) => Or::Left(f(l)),
+            Or::Right(r) => Or::Right(g(r)),
+            Or::Both(l, r) => Or::Both(f(l), g(r)),
+        }
+    }
+
+    /// Convert from `&Or<L, R>` to `Or<&L, &R>`
+    pub fn as_ref(&self) -> Or<&L, &R> {
+        match *self {
+            Or::Left(ref l) => Or::Left(l),
+            Or::Right(ref r) => Or::Right(r),
+            Or::Both(ref l, ref r) => Or::Both(l, r),
+        }
+    }
+
+    /// Convert from `&mut Or<L, R>` to `Or<&mut L, &mut R>`
+    pub fn as_mut(&mut self) -> Or<&mut L, &mut R> {
+        match *self {
+            Or::Left(ref mut l) => Or::Left(l),
+            Or::Right(ref mut r) => Or::Right(r),
+            Or::Both(ref mut l, ref mut r) => Or::Both(l, r),
+        }
+    }
+}
+
+impl<L, R> Or<&'_ L, &'_ R>
+where
+    L: Clone,
+    R: Clone,
+{
+    /// Maps an `Or<&L, &R>` to an `Or<L, R>` by cloning its contents
+    pub fn cloned(self) -> Or<L, R> {
+        self.map(Clone::clone, Clone::clone)
+    }
+}
+
+impl<L: Query, R: Query> Query for Or<L, R> {
+    type Fetch = FetchOr<L::Fetch, R::Fetch>;
+}
+
+#[doc(hidden)]
+pub struct FetchOr<L, R>(Or<L, R>);
+
+unsafe impl<'a, L: Fetch<'a>, R: Fetch<'a>> Fetch<'a> for FetchOr<L, R> {
+    type Item = Or<L::Item, R::Item>;
+
+    type State = Or<L::State, R::State>;
+
+    fn dangling() -> Self {
+        Self(Or::Left(L::dangling()))
+    }
+
+    fn access(archetype: &Archetype) -> Option<Access> {
+        L::access(archetype).max(R::access(archetype))
+    }
+
+    fn borrow(archetype: &Archetype, state: Self::State) {
+        state.map(|l| L::borrow(archetype, l), |r| R::borrow(archetype, r));
+    }
+
+    fn prepare(archetype: &Archetype) -> Option<Self::State> {
+        Or::new(L::prepare(archetype), R::prepare(archetype))
+    }
+
+    fn execute(archetype: &'a Archetype, state: Self::State) -> Self {
+        Self(state.map(|l| L::execute(archetype, l), |r| R::execute(archetype, r)))
+    }
+
+    fn release(archetype: &Archetype, state: Self::State) {
+        state.map(|l| L::release(archetype, l), |r| R::release(archetype, r));
+    }
+
+    fn for_each_borrow(mut f: impl FnMut(TypeId, bool)) {
+        L::for_each_borrow(&mut f);
+        R::for_each_borrow(&mut f);
+    }
+
+    unsafe fn get(&self, n: usize) -> Self::Item {
+        self.0.as_ref().map(|l| l.get(n), |r| r.get(n))
+    }
+}
+
 /// Query transformer skipping entities that have a `T` component
 ///
 /// See also `QueryBorrow::without`.
