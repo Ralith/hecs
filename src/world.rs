@@ -339,10 +339,10 @@ impl World {
     /// Prefer [`query_mut`](Self::query_mut) when concurrent access to the [`World`] is not required.
     ///
     /// Calling `iter` on the returned value yields `(Entity, Q)` tuples, where `Q` is some query
-    /// type. A query type is `&T`, `&mut T`, a tuple of query types, or an `Option` wrapping a
-    /// query type, where `T` is any component type. Components queried with `&mut` must only appear
-    /// once. Entities which do not have a component type referenced outside of an `Option` will be
-    /// skipped.
+    /// type. A query type is any type for which an implementation of [`Query`] exists, e.g. `&T`,
+    /// `&mut T`, a tuple of query types, or an `Option` wrapping a query type, where `T` is any
+    /// component type. Components queried with `&mut` must only appear once. Entities which do not
+    /// have a component type referenced outside of an `Option` will be skipped.
     ///
     /// Entities are yielded in arbitrary order.
     ///

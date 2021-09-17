@@ -1,3 +1,14 @@
+# Unreleased
+
+### Added
+- `Or` query combinator, allowing a single query to select entities that satisfy at least one of two
+  sub-queries.
+
+### Changed
+- Added a niche to `Entity`, making `Option<Entity>` the same size as a bare `Entity`. As a
+  consequence, `Entity::from_bits` is now fallible, and deserialization of `Entity` values from
+  older versions may fail.
+
 # 0.6.5
 
 ### Changed
