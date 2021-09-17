@@ -566,3 +566,21 @@ fn empty_entity_ref() {
     let r = world.entity(e).unwrap();
     assert_eq!(r.entity(), e);
 }
+
+#[test]
+fn query_or() {
+    let mut world = World::new();
+    let e = world.spawn(("abc", 123));
+    let _ = world.spawn(("def",));
+    let f = world.spawn(("ghi", true));
+    let g = world.spawn(("jkl", 456, false));
+    let results = world
+        .query::<(&&str, Or<&i32, &bool>)>()
+        .iter()
+        .map(|(handle, (&s, value))| (handle, s, value.cloned()))
+        .collect::<Vec<_>>();
+    assert_eq!(results.len(), 3);
+    assert!(results.contains(&(e, "abc", Or::Left(123))));
+    assert!(results.contains(&(f, "ghi", Or::Right(true))));
+    assert!(results.contains(&(g, "jkl", Or::Both(456, false))));
+}
