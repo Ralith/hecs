@@ -73,7 +73,7 @@ pub use archetype::Archetype;
 pub use batch::{BatchIncomplete, BatchWriter, ColumnBatch, ColumnBatchBuilder, ColumnBatchType};
 pub use bundle::{Bundle, DynamicBundle, MissingComponent};
 pub use entities::{Entity, NoSuchEntity};
-pub use entity_builder::{BuiltEntity, EntityBuilder};
+pub use entity_builder::{BuiltEntity, Cloneable, EntityBuilder};
 pub use entity_ref::{EntityRef, Ref, RefMut};
 pub use query::{
     Access, BatchedIter, Or, PreparedQuery, PreparedQueryBorrow, PreparedQueryIter, Query,

@@ -8,7 +8,9 @@
 use bencher::{benchmark_group, benchmark_main, Bencher};
 use hecs::*;
 
+#[derive(Clone)]
 struct Position(f32);
+#[derive(Clone)]
 struct Velocity(f32);
 
 fn spawn_tuple(b: &mut Bencher) {
@@ -195,6 +197,16 @@ fn build(b: &mut Bencher) {
     });
 }
 
+fn build_cloneable(b: &mut Bencher) {
+    let mut world = World::new();
+    let mut builder = EntityBuilder::new_cloneable();
+    builder.add(Position(0.0)).add(Velocity(0.0));
+    let bundle = builder.build();
+    b.iter(|| {
+        world.spawn(&bundle);
+    });
+}
+
 benchmark_group!(
     benches,
     spawn_tuple,
@@ -208,6 +220,7 @@ benchmark_group!(
     iterate_cached_100_by_50,
     iterate_mut_uncached_100_by_50,
     iterate_mut_cached_100_by_50,
-    build
+    build,
+    build_cloneable,
 );
 benchmark_main!(benches);
