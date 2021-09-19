@@ -28,6 +28,11 @@ impl<'a> EntityRef<'a> {
         self.entity
     }
 
+    /// Determine whether this entity has a `T` component without borrowing it
+    pub fn has<T: Component>(&self) -> bool {
+        self.archetype.has::<T>()
+    }
+
     /// Borrow the component of type `T`, if it exists
     ///
     /// Panics if the component is already uniquely borrowed from another entity with the same

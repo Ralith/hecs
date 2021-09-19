@@ -3,6 +3,7 @@
 ### Added
 - `Or` query combinator, allowing a single query to select entities that satisfy at least one of two
   sub-queries.
+- `EntityRef::has` to efficiently check for the presence of a component without borrowing it
 
 ### Changed
 - Added a niche to `Entity`, making `Option<Entity>` the same size as a bare `Entity`. As a
