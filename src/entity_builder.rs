@@ -315,7 +315,7 @@ impl Drop for BuiltEntity<'_> {
     }
 }
 
-/// A collection of components that implement `Clone`
+/// A collection of components that implement [`Clone`]
 ///
 /// Built from, and convertible back into, [`EntityBuilder<Cloneable>`]
 #[derive(Clone)]
