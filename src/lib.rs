@@ -62,6 +62,7 @@ mod borrow;
 mod bundle;
 mod entities;
 mod entity_builder;
+mod entity_recorder;
 mod entity_ref;
 mod query;
 mod query_one;
@@ -74,6 +75,7 @@ pub use batch::{BatchIncomplete, BatchWriter, ColumnBatch, ColumnBatchBuilder, C
 pub use bundle::{Bundle, DynamicBundle, MissingComponent};
 pub use entities::{Entity, NoSuchEntity};
 pub use entity_builder::{BuiltEntity, Cloneable, EntityBuilder, ReusableBuiltEntity};
+pub use entity_recorder::{EntityRecorder,ReadyRecorder};
 pub use entity_ref::{EntityRef, Ref, RefMut};
 pub use query::{
     Access, BatchedIter, Or, PreparedQuery, PreparedQueryBorrow, PreparedQueryIter, Query,
