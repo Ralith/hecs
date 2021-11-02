@@ -20,19 +20,19 @@ use crate::{align, DynamicBundle};
 /// # use hecs::*;
 /// let mut world = World::new();
 /// let reserved_ent = world.reserve_entity();
-/// let entity_recorder = EntityRecorder::new();
+/// let mut entity_recorder = EntityRecorder::new();
 /// entity_recorder.record_entity(reserved_ent,(true,0.10));
 /// world.spawn_recorded(&mut entity_recorder); // recorder can now be reused
 /// assert_eq!(world.contains(reserved_ent), true);
 /// ```
 pub struct EntityRecorder {
-    pub ent: Vec<(Entity, usize)>,
-    pub storage: NonNull<u8>,
-    pub layout: Layout,
-    pub cursor: usize,
-    pub info: Vec<(TypeInfo, usize, Entity)>,
+    pub(crate) ent: Vec<(Entity, usize)>,
+    storage: NonNull<u8>,
+    layout: Layout,
+    cursor: usize,
+    info: Vec<(TypeInfo, usize, Entity)>,
     ids: Vec<TypeId>,
-    pub mark: usize,
+    pub(crate) mark: usize,
 }
 
 impl EntityRecorder {
@@ -95,7 +95,7 @@ impl EntityRecorder {
     
     pub(crate) fn build(&mut self) -> (Entity, ReadyRecorder<'_>) {
         let (beg, end) = self.ret_mark();
-        self.ids.extend(self.info[..].iter().map(|x| x.0.id()));
+        self.ids.extend(self.info[beg..end].iter().map(|x| x.0.id()));
         let (ent, _) = self.ent[self.mark];
         (ent, ReadyRecorder { recorder: self })
     }
@@ -146,6 +146,8 @@ impl Default for EntityRecorder {
     }
 }
 
+/// The output of an '[EntityRecorder]` suitable for passing to
+/// [`World::spawn_into`](crate::World::spawn_into)
 pub struct ReadyRecorder<'a> {
     recorder: &'a mut EntityRecorder,
 }

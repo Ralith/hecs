@@ -146,7 +146,7 @@ impl World {
     /// let a = world.reserve_entity();
     /// let mut recorder = EntityRecorder::new();
     /// recorder.record_entity(a, (false,0.0));
-    /// world.spawn_recorded(recorder);
+    /// world.spawn_recorded(&mut recorder);
     /// assert!(world.contains(a));
     /// ```
     pub fn spawn_recorded(&mut self, recorder: &mut EntityRecorder) {
