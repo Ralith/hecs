@@ -131,10 +131,10 @@ impl World {
                 self.entities.meta[moved as usize].location.index = loc.index;
             }
         }
-        
+
         self.spawn_inner(handle, components);
     }
-    
+
     /// Spawn every `entity` recorded with their components
     ///
     /// Useful for recording and spawning entities at some point in the future

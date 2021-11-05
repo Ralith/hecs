@@ -72,9 +72,10 @@ impl EntityRecorder {
         self.info.push((ty, offset, ent));
         self.cursor = end;
     }
+
     /// Record 'reserved_entity' with 'bundle'
     ///
-    /// Can also be used with 'EntityBuilder' 
+    /// Can also be used with 'EntityBuilder'
     pub fn record_entity(&mut self, ent: Entity, bundle: impl DynamicBundle) -> &mut Self {
         let len = bundle.type_info().len();
         unsafe {
@@ -92,14 +93,15 @@ impl EntityRecorder {
         let (beg, end) = (0, self.ent[self.mark].1);
         (beg, end)
     }
-    
+
     pub(crate) fn build(&mut self) -> (Entity, ReadyRecorder<'_>) {
         let (beg, end) = self.ret_mark();
-        self.ids.extend(self.info[beg..end].iter().map(|x| x.0.id()));
+        self.ids
+            .extend(self.info[beg..end].iter().map(|x| x.0.id()));
         let (ent, _) = self.ent[self.mark];
         (ent, ReadyRecorder { recorder: self })
     }
-    
+
     /// Drop previously `recorded` entities and their components
     ///
     /// Recorder is cleared implicitly when entities are spawned, so usually this doesn't need to
