@@ -60,9 +60,9 @@ mod archetype;
 mod batch;
 mod borrow;
 mod bundle;
+mod command_buffer;
 mod entities;
 mod entity_builder;
-mod entity_recorder;
 mod entity_ref;
 mod query;
 mod query_one;
@@ -73,9 +73,9 @@ mod world;
 pub use archetype::Archetype;
 pub use batch::{BatchIncomplete, BatchWriter, ColumnBatch, ColumnBatchBuilder, ColumnBatchType};
 pub use bundle::{Bundle, DynamicBundle, MissingComponent};
+pub use command_buffer::{CommandBuffer, ReadyBuffer};
 pub use entities::{Entity, NoSuchEntity};
 pub use entity_builder::{BuiltEntity, Cloneable, EntityBuilder, ReusableBuiltEntity};
-pub use entity_recorder::{EntityRecorder, ReadyRecorder};
 pub use entity_ref::{EntityRef, Ref, RefMut};
 pub use query::{
     Access, BatchedIter, Or, PreparedQuery, PreparedQueryBorrow, PreparedQueryIter, Query,

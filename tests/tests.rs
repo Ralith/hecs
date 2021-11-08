@@ -273,6 +273,18 @@ fn dynamic_components() {
 }
 
 #[test]
+fn spawn_buffered_entity() {
+    let mut world = World::new();
+    let mut buffer = CommandBuffer::new();
+    let ent = world.reserve_entity();
+
+    buffer.spawn_at(ent, (1, true));
+    buffer.run_on(&mut world);
+
+    assert!(world.contains(ent));
+}
+
+#[test]
 #[should_panic(expected = "already borrowed")]
 fn illegal_borrow() {
     let mut world = World::new();

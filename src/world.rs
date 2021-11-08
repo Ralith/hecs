@@ -21,8 +21,8 @@ use crate::alloc::boxed::Box;
 use crate::archetype::{Archetype, TypeIdMap, TypeInfo};
 use crate::entities::{Entities, EntityMeta, Location, ReserveEntitiesIterator};
 use crate::{
-    Bundle, ColumnBatch, DynamicBundle, Entity, EntityRecorder, EntityRef, Fetch, MissingComponent,
-    NoSuchEntity, Query, QueryBorrow, QueryItem, QueryMut, QueryOne, Ref, RefMut,
+    Bundle, ColumnBatch, DynamicBundle, Entity, EntityRef, Fetch, MissingComponent, NoSuchEntity,
+    Query, QueryBorrow, QueryItem, QueryMut, QueryOne, Ref, RefMut,
 };
 
 /// An unordered collection of entities, each having any number of distinctly typed components
@@ -133,31 +133,6 @@ impl World {
         }
 
         self.spawn_inner(handle, components);
-    }
-
-    /// Spawn every `entity` recorded with their components
-    ///
-    /// Useful for recording and spawning entities at some point in the future
-    ///
-    /// # Example
-    /// ```
-    /// # use hecs::*;
-    /// let mut world = World::new();
-    /// let a = world.reserve_entity();
-    /// let mut recorder = EntityRecorder::new();
-    /// recorder.record_entity(a, (false,0.0));
-    /// world.spawn_recorded(&mut recorder);
-    /// assert!(world.contains(a));
-    /// ```
-    pub fn spawn_recorded(&mut self, recorder: &mut EntityRecorder) {
-        let mark: usize = recorder.mark;
-        recorder.sort_buffered();
-        (mark..recorder.ent.len()).for_each(|_| {
-            let (ent, comps) = recorder.build();
-            self.spawn_at(ent, comps);
-            recorder.mark += 1;
-        });
-        recorder.clear();
     }
 
     fn spawn_inner(&mut self, entity: Entity, components: impl DynamicBundle) {
