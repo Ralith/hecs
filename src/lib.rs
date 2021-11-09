@@ -73,7 +73,7 @@ mod world;
 pub use archetype::Archetype;
 pub use batch::{BatchIncomplete, BatchWriter, ColumnBatch, ColumnBatchBuilder, ColumnBatchType};
 pub use bundle::{Bundle, DynamicBundle, MissingComponent};
-pub use command_buffer::{CommandBuffer, ReadyBuffer};
+pub use command_buffer::CommandBuffer;
 pub use entities::{Entity, NoSuchEntity};
 pub use entity_builder::{BuiltEntity, Cloneable, EntityBuilder, ReusableBuiltEntity};
 pub use entity_ref::{EntityRef, Ref, RefMut};

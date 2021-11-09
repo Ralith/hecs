@@ -27,12 +27,13 @@ use crate::{align, DynamicBundle};
 /// assert!(world.contains(reserved_ent));
 /// ```
 pub struct CommandBuffer {
-    pub(crate) ent: Vec<EntityIndex>,
+    entity: Vec<EntityIndex>,
     storage: NonNull<u8>,
     layout: Layout,
     cursor: usize,
-    info: Vec<InfoBuffer>,
+    info: Vec<ComponentInfo>,
     ids: Vec<TypeId>,
+    mark: usize,
 }
 
 impl CommandBuffer {
@@ -69,9 +70,9 @@ impl CommandBuffer {
 
         let addr = self.storage.as_ptr().add(offset);
         ptr::copy_nonoverlapping(ptr, addr, ty.layout().size());
-        self.info.push(InfoBuffer {
+        self.info.push(ComponentInfo {
             ty_info: ty,
-            size: offset,
+            offset,
         });
         self.cursor = end;
     }
@@ -84,25 +85,16 @@ impl CommandBuffer {
         unsafe {
             bundle.put(|ptr, ty| self.add_inner(ptr, ty));
         }
-        let beg = self.get_beg();
-        let end = beg + len;
-        self.ent.push(EntityIndex {
+        let begin = self.entity.last().map_or(0, |x| x.end);
+        let end = begin + len;
+        self.entity.push(EntityIndex {
             entity: ent,
-            beg,
+            begin,
             end,
         });
     }
 
-    fn get_beg(&self) -> usize {
-        match self.ent.len() {
-            0 => 0,
-            _ => self.ent[self.ent.len() - 1].end,
-        }
-    }
-
     /// Spawn every `entity` recorded with their components
-    ///
-    /// Useful for recording and spawning entities at some point in the future
     ///
     /// # Example
     /// ```
@@ -115,28 +107,25 @@ impl CommandBuffer {
     /// assert!(world.contains(a));
     /// ```
     pub fn run_on(&mut self, world: &mut World) {
-        let mut mark: usize = 0;
-        self.sort_buffered();
-        (0..self.ent.len()).for_each(|_| {
-            let (ent, comps) = self.build(mark);
+        for index in self.entity.iter() {
+            self.info[index.begin..index.end].sort_unstable_by_key(|z| z.ty_info);
+        }
+
+        for _ in 0..self.entity.len() {
+            let (ent, comps) = self.build();
             world.spawn_at(ent, comps);
-            mark += 1;
-        });
+            self.mark += 1;
+        }
         self.clear();
     }
 
-    pub(crate) fn sort_buffered(&mut self) {
-        for index in self.ent.iter() {
-            self.info[index.beg..index.end].sort_unstable_by_key(|z| z.ty_info);
-        }
-    }
-
-    pub(crate) fn build(&mut self, mark: usize) -> (Entity, ReadyBuffer<'_>) {
-        let end = self.ent[0].end - self.ent[0].beg;
+    fn build(&mut self) -> (Entity, ReadyBuffer<'_>) {
+        // Amount of components entity has
+        let len = self.entity[self.mark].end - self.entity[self.mark].begin;
         self.ids
-            .extend(self.info[0..end].iter().map(|x| x.ty_info.id()));
-        let ent = self.ent[mark].entity;
-        (ent, ReadyBuffer { buffer: self })
+            .extend(self.info[0..len].iter().map(|x| x.ty_info.id()));
+        let entity = self.entity[self.mark].entity;
+        (entity, ReadyBuffer { buffer: self })
     }
 
     /// Drop previously `recorded` entities and their components
@@ -145,11 +134,12 @@ impl CommandBuffer {
     /// be called
     pub fn clear(&mut self) {
         self.ids.clear();
-        self.ent.clear();
+        self.entity.clear();
         self.cursor = 0;
+        self.mark = 0;
         unsafe {
             for info in self.info.drain(..) {
-                info.ty_info.drop(self.storage.as_ptr().add(info.size));
+                info.ty_info.drop(self.storage.as_ptr().add(info.offset));
             }
         }
     }
@@ -173,12 +163,13 @@ impl Default for CommandBuffer {
     /// Create an empty buffer
     fn default() -> Self {
         Self {
-            ent: Vec::new(),
+            entity: Vec::new(),
             storage: NonNull::dangling(),
             layout: Layout::from_size_align(0, 8).unwrap(),
             cursor: 0,
             info: Vec::new(),
             ids: Vec::new(),
+            mark: 0,
         }
     }
 }
@@ -194,28 +185,33 @@ unsafe impl DynamicBundle for ReadyBuffer<'_> {
     }
 
     fn type_info(&self) -> Vec<TypeInfo> {
-        let end = self.buffer.ent[0].end - self.buffer.ent[0].beg;
+        let end =
+            self.buffer.entity[self.buffer.mark].end - self.buffer.entity[self.buffer.mark].begin;
         self.buffer.info[0..end].iter().map(|x| x.ty_info).collect()
     }
 
     unsafe fn put(self, mut f: impl FnMut(*mut u8, TypeInfo)) {
-        let end = self.buffer.ent[0].end - self.buffer.ent[0].beg;
+        let end =
+            self.buffer.entity[self.buffer.mark].end - self.buffer.entity[self.buffer.mark].begin;
         for info in self.buffer.info.drain(0..end) {
-            let ptr = self.buffer.storage.as_ptr().add(info.size);
+            let ptr = self.buffer.storage.as_ptr().add(info.offset);
             f(ptr, info.ty_info);
         }
     }
 }
 
 /// Data required to store components and their offset  
-pub struct InfoBuffer {
-    pub ty_info: TypeInfo,
-    pub size: usize,
+#[derive(Debug)]
+pub struct ComponentInfo {
+    ty_info: TypeInfo,
+    /// Position in 'storage'
+    offset: usize,
 }
 
 /// Data of buffered 'entity' and its relative position in component data
 pub struct EntityIndex {
-    pub entity: Entity,
-    pub beg: usize,
-    pub end: usize,
+    entity: Entity,
+    /// Indexes used to find amount of component entity has in the `ComponentInfo`
+    begin: usize,
+    end: usize,
 }
