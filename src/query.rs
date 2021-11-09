@@ -490,6 +490,64 @@ unsafe impl<'a, T: Component, F: Fetch<'a>> Fetch<'a> for FetchWith<T, F> {
     }
 }
 
+/// A query that yields `true` iff an entity would satisfy the query `Q`
+///
+/// Does not borrow any components, making it faster and more concurrency-friendly than `Option<Q>`.
+///
+/// # Example
+/// ```
+/// # use hecs::*;
+/// let mut world = World::new();
+/// let a = world.spawn((123, true, "abc"));
+/// let b = world.spawn((456, false));
+/// let c = world.spawn((42, "def"));
+/// let entities = world.query::<Satisfies<&bool>>()
+///     .iter()
+///     .map(|(e, x)| (e, x))
+///     .collect::<Vec<_>>();
+/// assert_eq!(entities.len(), 3);
+/// assert!(entities.contains(&(a, true)));
+/// assert!(entities.contains(&(b, true)));
+/// assert!(entities.contains(&(c, false)));
+/// ```
+pub struct Satisfies<Q>(PhantomData<Q>);
+
+impl<Q: Query> Query for Satisfies<Q> {
+    type Fetch = FetchSatisfies<Q::Fetch>;
+}
+
+#[doc(hidden)]
+pub struct FetchSatisfies<F>(bool, PhantomData<F>);
+
+unsafe impl<'a, F: Fetch<'a>> Fetch<'a> for FetchSatisfies<F> {
+    type Item = bool;
+
+    type State = bool;
+
+    fn dangling() -> Self {
+        Self(false, PhantomData)
+    }
+
+    fn access(archetype: &Archetype) -> Option<Access> {
+        F::access(archetype).map(|_| Access::Iterate)
+    }
+
+    fn borrow(_archetype: &Archetype, _state: Self::State) {}
+    fn prepare(archetype: &Archetype) -> Option<Self::State> {
+        Some(F::prepare(archetype).is_some())
+    }
+    fn execute(_archetype: &'a Archetype, state: Self::State) -> Self {
+        Self(state, PhantomData)
+    }
+    fn release(_archetype: &Archetype, _state: Self::State) {}
+
+    fn for_each_borrow(_: impl FnMut(TypeId, bool)) {}
+
+    unsafe fn get(&self, _: usize) -> bool {
+        self.0
+    }
+}
+
 /// A borrow of a [`World`](crate::World) sufficient to execute the query `Q`
 ///
 /// Note that borrows are not released until this object is dropped.
