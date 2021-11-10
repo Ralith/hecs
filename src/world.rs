@@ -6,6 +6,7 @@
 // copied, modified, or distributed except according to those terms.
 
 use crate::alloc::{vec, vec::Vec};
+use crate::{DynamicQuery, DynamicQueryTypes};
 use core::any::TypeId;
 use core::borrow::Borrow;
 use core::convert::TryFrom;
@@ -398,6 +399,11 @@ impl World {
 
     pub(crate) fn archetypes_inner(&self) -> &[Archetype] {
         &self.archetypes.archetypes
+	}
+
+    /// Perform a dynamic query.
+    pub fn query_dynamic<'q>(&'q self, types: DynamicQueryTypes<'q>) -> DynamicQuery<'q> {
+        DynamicQuery::new(types, &self.archetypes.archetypes, &self.entities.meta)
     }
 
     /// Prepare a query against a single entity, using dynamic borrow checking
