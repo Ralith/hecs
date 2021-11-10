@@ -288,16 +288,10 @@ fn spawn_buffered_entity() {
 
     buffer.run_on(&mut world);
 
-    let be_true = world.get::<bool>(ent).unwrap();
-    let be_hecs = world.get::<&str>(ent1).unwrap();
-    let be_false = world.get::<bool>(ent2).unwrap();
-    let be_two = world.get::<u8>(ent3).unwrap();
-
-    assert!(world.contains(ent));
-    assert_eq!(*be_true, true);
-    assert_eq!(*be_hecs, "hecs");
-    assert_eq!(*be_false, false);
-    assert_eq!(*be_two, 2);
+    assert_eq!(*world.get::<bool>(ent).unwrap(), true);
+    assert_eq!(*world.get::<&str>(ent1).unwrap(), "hecs");
+    assert_eq!(*world.get::<bool>(ent2).unwrap(), false);
+    assert_eq!(*world.get::<u8>(ent3).unwrap(), 2);
 }
 
 #[test]
