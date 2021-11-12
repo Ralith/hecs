@@ -19,10 +19,11 @@ use hashbrown::{HashMap, HashSet};
 
 use crate::alloc::boxed::Box;
 use crate::archetype::{Archetype, TypeIdMap, TypeInfo};
+use crate::dynamic_query::DynamicQueryOne;
 use crate::entities::{Entities, EntityMeta, Location, ReserveEntitiesIterator};
 use crate::{
-    Bundle, ColumnBatch, DynamicBundle, Entity, EntityRef, Fetch, MissingComponent, NoSuchEntity,
-    Query, QueryBorrow, QueryItem, QueryMut, QueryOne, Ref, RefMut,
+    Bundle, ColumnBatch, DynamicBundle, DynamicQuery, DynamicQueryBorrow, Entity, EntityRef, Fetch,
+    MissingComponent, NoSuchEntity, Query, QueryBorrow, QueryItem, QueryMut, QueryOne, Ref, RefMut,
 };
 
 /// An unordered collection of entities, each having any number of distinctly typed components
@@ -388,6 +389,15 @@ impl World {
         QueryMut::new(&self.entities.meta, &mut self.archetypes.archetypes)
     }
 
+    /// Dynamically query a world, using dynamic borrow checking and a dynamically generated query.
+    pub fn dynamic_query<'w>(&'w self, dynamic_query: &'w DynamicQuery) -> DynamicQueryBorrow<'w> {
+        DynamicQueryBorrow::new(
+            &self.entities.meta,
+            &self.archetypes.archetypes,
+            dynamic_query,
+        )
+    }
+
     pub(crate) fn memo(&self) -> (u64, u64) {
         (self.id, self.archetypes.generation)
     }
@@ -448,6 +458,22 @@ impl World {
             let fetch = Q::Fetch::execute(archetype, state);
             Ok(fetch.get(loc.index as usize))
         }
+    }
+
+    /// Prepare a dynamic query on a single entity.
+    pub fn dynamic_query_one<'w>(
+        &'w self,
+        dynamic_query: &'w DynamicQuery,
+        entity: Entity,
+    ) -> Result<DynamicQueryOne<'w>, NoSuchEntity> {
+        let loc = self.entities.get(entity)?;
+        Ok(unsafe {
+            DynamicQueryOne::new(
+                &self.archetypes.archetypes[loc.archetype as usize],
+                loc.index,
+                dynamic_query,
+            )
+        })
     }
 
     /// Borrow the `T` component of `entity`

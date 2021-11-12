@@ -584,3 +584,84 @@ fn query_or() {
     assert!(results.contains(&(f, "ghi", Or::Right(true))));
     assert!(results.contains(&(g, "jkl", Or::Both(456, false))));
 }
+
+#[test]
+fn dynamic_query_all() {
+    let mut world = World::new();
+    let e = world.spawn(("abc", 123));
+    let f = world.spawn(("def", 456));
+
+    let query = DynamicQuery::lift::<(&i32, &&str)>();
+
+    let ents = world
+        .dynamic_query(&query)
+        .iter()
+        .map(|(e, mut item)| {
+            (
+                e,
+                item.take::<i32>().unwrap().get(),
+                item.take::<&str>().unwrap().get(),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(ents.len(), 2);
+    assert!(ents.contains(&(e, 123, "abc")));
+    assert!(ents.contains(&(f, 456, "def")));
+
+    let ents = world.query::<()>().iter().collect::<Vec<_>>();
+    assert_eq!(ents.len(), 2);
+    assert!(ents.contains(&(e, ())));
+    assert!(ents.contains(&(f, ())));
+}
+
+#[test]
+fn dynamic_query_one() {
+    let mut world = World::new();
+    let a = world.spawn(("abc", 123));
+    let b = world.spawn(("def", 456));
+    let c = world.spawn(("ghi", 789, true));
+
+    assert_eq!(
+        world
+            .dynamic_query_one(&DynamicQuery::lift::<&i32>(), a)
+            .unwrap()
+            .get()
+            .as_mut()
+            .and_then(DynamicItem::take::<i32>)
+            .as_ref()
+            .map(DynamicComponent::get),
+        Some(123)
+    );
+    assert_eq!(
+        world
+            .dynamic_query_one(&DynamicQuery::lift::<&i32>(), b)
+            .unwrap()
+            .get()
+            .as_mut()
+            .and_then(DynamicItem::take::<i32>)
+            .as_ref()
+            .map(DynamicComponent::get),
+        Some(456)
+    );
+
+    assert!(world
+        .dynamic_query_one(&DynamicQuery::lift::<(&i32, &bool)>(), a)
+        .unwrap()
+        .get()
+        .is_none());
+    assert_eq!(
+        world
+            .dynamic_query_one(&DynamicQuery::lift::<(&i32, &bool)>(), c)
+            .unwrap()
+            .get()
+            .map(|mut item| (
+                item.take::<i32>().unwrap().get(),
+                item.take::<bool>().unwrap().get()
+            )),
+        Some((789, true))
+    );
+    world.despawn(a).unwrap();
+    assert!(world
+        .dynamic_query_one(&DynamicQuery::lift::<&i32>(), a)
+        .is_err());
+}

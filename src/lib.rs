@@ -46,13 +46,13 @@ extern crate alloc;
 /// Calls m!(A, B, C), m!(A, B), m!(B), and m!() for i.e. (m, A, B, C)
 /// where m is any macro, for any number of parameters.
 macro_rules! smaller_tuples_too {
-    ($m: ident, $ty: ident) => {
+    ($m: ident, $elem: tt) => {
         $m!{}
-        $m!{$ty}
+        $m!{$elem}
     };
-    ($m: ident, $ty: ident, $($tt: ident),*) => {
+    ($m: ident, $elem: tt, $($tt: tt),*) => {
         smaller_tuples_too!{$m, $($tt),*}
-        $m!{$ty, $($tt),*}
+        $m!{$elem, $($tt),*}
     };
 }
 
@@ -60,6 +60,7 @@ mod archetype;
 mod batch;
 mod borrow;
 mod bundle;
+mod dynamic_query;
 mod entities;
 mod entity_builder;
 mod entity_ref;
@@ -72,6 +73,10 @@ mod world;
 pub use archetype::Archetype;
 pub use batch::{BatchIncomplete, BatchWriter, ColumnBatch, ColumnBatchBuilder, ColumnBatchType};
 pub use bundle::{Bundle, DynamicBundle, MissingComponent};
+pub use dynamic_query::{
+    DynamicComponent, DynamicItem, DynamicQuery, DynamicQueryBorrow, DynamicQueryIter, DynamicWith,
+    DynamicWithout, Ref as DynamicItemRef, RefMut as DynamicItemRefMut,
+};
 pub use entities::{Entity, NoSuchEntity};
 pub use entity_builder::{BuiltEntity, Cloneable, EntityBuilder, ReusableBuiltEntity};
 pub use entity_ref::{EntityRef, Ref, RefMut};
