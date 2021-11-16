@@ -55,13 +55,18 @@ pub struct World {
 impl World {
     /// Create an empty world
     pub fn new() -> Self {
+        // AtomicU64 is unsupported on 32-bit MIPS and PPC architectures
+        // For compatibility, use Mutex<u64>
         static ID: Mutex<u64> = Mutex::new(1);
+
+        let new_id = ID.lock().checked_add(1).unwrap();
+        *ID.lock() = new_id;
 
         Self {
             entities: Entities::default(),
             archetypes: ArchetypeSet::new(),
             bundle_to_archetype: HashMap::default(),
-            id: *ID.lock() + 1,
+            id: new_id,
         }
     }
 
