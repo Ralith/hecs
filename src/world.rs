@@ -68,7 +68,7 @@ impl World {
             entities: Entities::default(),
             archetypes: ArchetypeSet::new(),
             bundle_to_archetype: HashMap::default(),
-            id
+            id,
         }
     }
 

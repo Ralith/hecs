@@ -183,7 +183,9 @@ impl Entities {
         // Use one atomic subtract to grab a range of new IDs. The range might be
         // entirely nonnegative, meaning all IDs come from the freelist, or entirely
         // negative, meaning they are all new IDs to allocate, or a mix of both.
-        let range_end = self.free_cursor.fetch_sub(count as isize, Ordering::Relaxed);
+        let range_end = self
+            .free_cursor
+            .fetch_sub(count as isize, Ordering::Relaxed);
         let range_start = range_end - count as isize;
 
         let freelist_range = range_start.max(0) as usize..range_end.max(0) as usize;
