@@ -4,7 +4,7 @@ use core::convert::TryFrom;
 use core::iter::ExactSizeIterator;
 use core::num::{NonZeroU32, NonZeroU64};
 use core::ops::Range;
-use core::sync::atomic::{AtomicI64, Ordering};
+use core::sync::atomic::{AtomicIsize, Ordering};
 use core::{fmt, mem};
 #[cfg(feature = "std")]
 use std::error::Error;
@@ -171,7 +171,7 @@ pub(crate) struct Entities {
     //
     // Once `flush()` is done, `free_cursor` will equal `pending.len()`.
     pending: Vec<u32>,
-    free_cursor: AtomicI64,
+    free_cursor: AtomicIsize,
     len: u32,
 }
 
@@ -183,8 +183,10 @@ impl Entities {
         // Use one atomic subtract to grab a range of new IDs. The range might be
         // entirely nonnegative, meaning all IDs come from the freelist, or entirely
         // negative, meaning they are all new IDs to allocate, or a mix of both.
-        let range_end = self.free_cursor.fetch_sub(count as i64, Ordering::Relaxed);
-        let range_start = range_end - count as i64;
+        let range_end = self
+            .free_cursor
+            .fetch_sub(count as isize, Ordering::Relaxed);
+        let range_start = range_end - count as isize;
 
         let freelist_range = range_start.max(0) as usize..range_end.max(0) as usize;
 
@@ -201,7 +203,7 @@ impl Entities {
             // In this example, we truncate the end to 0, leaving us with `-3..0`.
             // Then we negate these values to indicate how far beyond the end of `meta.end()`
             // to go, yielding `meta.len()+0 .. meta.len()+3`.
-            let base = self.meta.len() as i64;
+            let base = self.meta.len() as isize;
 
             let new_id_end = u32::try_from(base - range_start).expect("too many entities");
 
@@ -238,7 +240,7 @@ impl Entities {
             // and farther beyond `meta.len()`.
             Entity {
                 generation: NonZeroU32::new(1).unwrap(),
-                id: u32::try_from(self.meta.len() as i64 - n).expect("too many entities"),
+                id: u32::try_from(self.meta.len() as isize - n).expect("too many entities"),
             }
         }
     }
@@ -259,7 +261,7 @@ impl Entities {
 
         self.len += 1;
         if let Some(id) = self.pending.pop() {
-            let new_free_cursor = self.pending.len() as i64;
+            let new_free_cursor = self.pending.len() as isize;
             self.free_cursor.store(new_free_cursor, Ordering::Relaxed); // Not racey due to &mut self
             Entity {
                 generation: self.meta[id as usize].generation,
@@ -326,14 +328,14 @@ impl Entities {
 
         let loc = if entity.id as usize >= self.meta.len() {
             self.pending.extend((self.meta.len() as u32)..entity.id);
-            let new_free_cursor = self.pending.len() as i64;
+            let new_free_cursor = self.pending.len() as isize;
             self.free_cursor.store(new_free_cursor, Ordering::Relaxed); // Not racey due to &mut self
             self.meta.resize(entity.id as usize + 1, EntityMeta::EMPTY);
             self.len += 1;
             None
         } else if let Some(index) = self.pending.iter().position(|item| *item == entity.id) {
             self.pending.swap_remove(index);
-            let new_free_cursor = self.pending.len() as i64;
+            let new_free_cursor = self.pending.len() as isize;
             self.free_cursor.store(new_free_cursor, Ordering::Relaxed); // Not racey due to &mut self
             self.len += 1;
             None
@@ -367,7 +369,7 @@ impl Entities {
 
         self.pending.push(entity.id);
 
-        let new_free_cursor = self.pending.len() as i64;
+        let new_free_cursor = self.pending.len() as isize;
         self.free_cursor.store(new_free_cursor, Ordering::Relaxed); // Not racey due to &mut self
         self.len -= 1;
 
@@ -379,7 +381,7 @@ impl Entities {
         self.verify_flushed();
 
         let freelist_size = self.free_cursor.load(Ordering::Relaxed);
-        let shortfall = additional as i64 - freelist_size;
+        let shortfall = additional as isize - freelist_size;
         if shortfall > 0 {
             self.meta.reserve(shortfall as usize);
         }
@@ -458,7 +460,7 @@ impl Entities {
 
     fn needs_flush(&mut self) -> bool {
         // Not racey due to &mut self
-        self.free_cursor.load(Ordering::Relaxed) != self.pending.len() as i64
+        self.free_cursor.load(Ordering::Relaxed) != self.pending.len() as isize
     }
 
     /// Allocates space for entities previously reserved with `reserve_entity` or

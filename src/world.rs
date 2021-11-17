@@ -9,7 +9,8 @@ use crate::alloc::{vec, vec::Vec};
 use core::any::TypeId;
 use core::borrow::Borrow;
 use core::convert::TryFrom;
-use core::sync::atomic::{AtomicU64, Ordering};
+use spin::Mutex;
+
 use core::{fmt, mem, ptr};
 
 #[cfg(feature = "std")]
@@ -54,15 +55,20 @@ pub struct World {
 impl World {
     /// Create an empty world
     pub fn new() -> Self {
-        static ID: AtomicU64 = AtomicU64::new(1);
-
+        // AtomicU64 is unsupported on 32-bit MIPS and PPC architectures
+        // For compatibility, use Mutex<u64>
+        static ID: Mutex<u64> = Mutex::new(1);
+        let id = {
+            let mut id = ID.lock();
+            let next = id.checked_add(1).unwrap();
+            *id = next;
+            next
+        };
         Self {
             entities: Entities::default(),
             archetypes: ArchetypeSet::new(),
             bundle_to_archetype: HashMap::default(),
-            id: ID
-                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
-                .unwrap(),
+            id,
         }
     }
 
