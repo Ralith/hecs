@@ -58,17 +58,17 @@ impl World {
         // AtomicU64 is unsupported on 32-bit MIPS and PPC architectures
         // For compatibility, use Mutex<u64>
         static ID: Mutex<u64> = Mutex::new(1);
-        {
-            let mut lock_result = ID.lock();
-            let id = lock_result.checked_add(1).unwrap();
-            *lock_result = id;
-
-            Self {
-                entities: Entities::default(),
-                archetypes: ArchetypeSet::new(),
-                bundle_to_archetype: HashMap::default(),
-                id,
-            }
+        let id = {
+            let mut id = ID.lock();
+            let next = id.checked_add(1).unwrap();
+            *id = next;
+            next
+        };
+        Self {
+            entities: Entities::default(),
+            archetypes: ArchetypeSet::new(),
+            bundle_to_archetype: HashMap::default(),
+            id
         }
     }
 
