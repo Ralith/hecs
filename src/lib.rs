@@ -69,7 +69,7 @@ mod query_one;
 pub mod serialize;
 mod world;
 
-pub use archetype::Archetype;
+pub use archetype::{Archetype, ColumnRef};
 pub use batch::{BatchIncomplete, BatchWriter, ColumnBatch, ColumnBatchBuilder, ColumnBatchType};
 pub use bundle::{Bundle, DynamicBundle, MissingComponent};
 pub use entities::{Entity, NoSuchEntity};
