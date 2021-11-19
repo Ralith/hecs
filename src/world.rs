@@ -9,6 +9,7 @@ use crate::alloc::{vec, vec::Vec};
 use core::any::TypeId;
 use core::borrow::Borrow;
 use core::convert::TryFrom;
+use core::marker::PhantomData;
 use spin::Mutex;
 
 use core::{fmt, mem, ptr};
@@ -22,8 +23,8 @@ use crate::alloc::boxed::Box;
 use crate::archetype::{Archetype, TypeIdMap, TypeInfo};
 use crate::entities::{Entities, EntityMeta, Location, ReserveEntitiesIterator};
 use crate::{
-    Bundle, ColumnBatch, DynamicBundle, Entity, EntityRef, Fetch, MissingComponent, NoSuchEntity,
-    Query, QueryBorrow, QueryItem, QueryMut, QueryOne, Ref, RefMut,
+    Bundle, Column, ColumnBatch, ColumnMut, DynamicBundle, Entity, EntityRef, Fetch,
+    MissingComponent, NoSuchEntity, Query, QueryBorrow, QueryItem, QueryMut, QueryOne, Ref, RefMut,
 };
 
 /// An unordered collection of entities, each having any number of distinctly typed components
@@ -772,6 +773,41 @@ impl World {
     /// efficient serialization.
     pub fn archetypes(&self) -> impl ExactSizeIterator<Item = &'_ Archetype> + '_ {
         self.archetypes_inner().iter()
+    }
+
+    /// Faster way of accessing a Component many times
+    pub fn column<T: Component>(&self) -> Column<'_, T> {
+        let archetypes = self.archetypes.archetypes.as_slice();
+        let entities = self.entities.meta.as_slice();
+        let mut archetype_column_offsets: Vec<Option<usize>> = Vec::new();
+        for i in archetypes.iter() {
+            archetype_column_offsets.push(i.get_state::<T>());
+        }
+
+        Column::new(entities, archetypes, archetype_column_offsets, PhantomData)
+    }
+
+    /// Faster way of uniquely accessing a Component type
+    ///
+    /// It's useful for applications that do large amount of random
+    /// access to same Component type
+    ///
+    /// #Example
+    /// ```
+    /// use::hecs::*;
+    /// let mut world = World::new();
+    /// let ent = world.spawn((123,"abc"));
+    /// let column_mut = world.column_mut::<i32>();
+    /// assert_eq!(*column_mut.get(ent).unwrap(),123);
+    /// ```
+    pub fn column_mut<T: Component>(&self) -> ColumnMut<'_, T> {
+        let archetypes = self.archetypes.archetypes.as_slice();
+        let entities = self.entities.meta.as_slice();
+        let mut archetype_column_offsets: Vec<Option<usize>> = Vec::new();
+        for i in archetypes.iter() {
+            archetype_column_offsets.push(i.get_state::<T>());
+        }
+        ColumnMut::new(entities, archetypes, archetype_column_offsets, PhantomData)
     }
 
     /// Returns a distinct value after `archetypes` is changed

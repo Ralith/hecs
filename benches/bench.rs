@@ -207,6 +207,21 @@ fn build_cloneable(b: &mut Bencher) {
     });
 }
 
+fn access_column(b: &mut Bencher) {
+    let mut world = World::new();
+    let enta = world.spawn((Position(0.0), Velocity(0.0)));
+    let entb = world.spawn((true, 12));
+    let entc = world.spawn((Position(3.0),));
+    let entd = world.spawn((13, true, 4.0));
+    let column = world.column::<Position>();
+
+    b.iter(|| {
+        for i in 0..100 {
+            let comp = column.get(entc).unwrap();
+        }
+    });
+}
+
 benchmark_group!(
     benches,
     spawn_tuple,
@@ -222,5 +237,6 @@ benchmark_group!(
     iterate_mut_cached_100_by_50,
     build,
     build_cloneable,
+    access_column,
 );
 benchmark_main!(benches);
