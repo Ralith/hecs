@@ -415,6 +415,10 @@ impl World {
         &self.entities.meta
     }
 
+    pub(crate) fn entities(&self) -> &Entities {
+        &self.entities
+    }
+
     pub(crate) fn archetypes_inner(&self) -> &[Archetype] {
         &self.archetypes.archetypes
     }

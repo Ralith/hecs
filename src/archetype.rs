@@ -469,7 +469,7 @@ impl Hasher for TypeIdHasher {
 /// faster no-op hash.
 pub(crate) type TypeIdMap<V> = HashMap<TypeId, V, BuildHasherDefault<TypeIdHasher>>;
 
-struct OrderedTypeIdMap<V>(Box<[(TypeId, V)]>);
+pub(crate) struct OrderedTypeIdMap<V>(Box<[(TypeId, V)]>);
 
 impl<V> OrderedTypeIdMap<V> {
     fn new(iter: impl Iterator<Item = (TypeId, V)>) -> Self {
