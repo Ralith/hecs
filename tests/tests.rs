@@ -602,7 +602,7 @@ fn column_get_mut() {
 
     let ent = world.spawn((0, true));
     let column = world.column_mut::<i32>();
-    let mut val = column.get(ent).unwrap();
+    let val = column.get(ent).unwrap();
     *val = 99;
     assert_eq!(*val, 99);
 }
