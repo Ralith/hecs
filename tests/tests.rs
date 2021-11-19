@@ -290,6 +290,7 @@ fn spawn_buffered_entity() {
 
     assert_eq!(*world.get::<bool>(ent).unwrap(), true);
     assert_eq!(*world.get::<&str>(ent1).unwrap(), "hecs");
+    assert_eq!(*world.get::<f64>(ent1).unwrap(), 7.11);
     assert_eq!(*world.get::<bool>(ent2).unwrap(), false);
     assert_eq!(*world.get::<u8>(ent3).unwrap(), 2);
 }

@@ -76,7 +76,7 @@ impl CommandBuffer {
         self.cursor = end;
     }
 
-    /// Buffer 'reserved_entity' with 'bundle'
+    /// Record an entity spawn operation
     pub fn spawn_at(&mut self, ent: Entity, bundle: impl DynamicBundle) {
         let len = bundle.type_info().len();
         unsafe {
@@ -91,7 +91,7 @@ impl CommandBuffer {
         });
     }
 
-    /// Spawn every `entity` recorded with their components
+    /// Spawn every entity recorded with their components
     ///
     /// # Example
     /// ```
@@ -121,18 +121,13 @@ impl CommandBuffer {
     }
 
     fn build(&mut self, mark: usize) -> (Entity, ReadyBuffer<'_>) {
-        // Amount of components entity has
-        let len = self.entities[mark].end - self.entities[mark].begin;
-        self.ids
-            .extend(self.info[0..len].iter().map(|x| x.ty_info.id()));
+        self.ids.extend(
+            self.info[self.entities[mark].begin..self.entities[mark].end]
+                .iter()
+                .map(|x| x.ty_info.id()),
+        );
         let entity = self.entities[mark].entity;
-        (
-            entity,
-            ReadyBuffer {
-                buffer: self,
-                mark: mark,
-            },
-        )
+        (entity, ReadyBuffer { buffer: self, mark })
     }
 
     /// Drop previously `recorded` entities and their components
@@ -181,7 +176,7 @@ impl Default for CommandBuffer {
 
 /// The output of an '[CommandBuffer]` suitable for passing to
 /// [`World::spawn_into`](crate::World::spawn_into)
-pub struct ReadyBuffer<'a> {
+struct ReadyBuffer<'a> {
     buffer: &'a mut CommandBuffer,
     mark: usize,
 }
