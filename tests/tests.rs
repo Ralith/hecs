@@ -282,7 +282,7 @@ fn spawn_buffered_entity() {
     let ent3 = world.reserve_entity();
 
     buffer.spawn_at(ent, (1, true));
-    buffer.spawn_at(ent1, (7.11, 13 as usize, "hecs"));
+    buffer.spawn_at(ent1, (13, 7.11, "hecs"));
     buffer.spawn_at(ent2, (17 as i8, false, 'o'));
     buffer.spawn_at(ent3, (2 as u8, "qwe", 101.103, false));
 
@@ -290,7 +290,7 @@ fn spawn_buffered_entity() {
 
     assert_eq!(*world.get::<bool>(ent).unwrap(), true);
     assert_eq!(*world.get::<&str>(ent1).unwrap(), "hecs");
-    assert_eq!(*world.get::<f64>(ent1).unwrap(), 7.11);
+    assert_eq!(*world.get::<i32>(ent1).unwrap(), 13);
     assert_eq!(*world.get::<bool>(ent2).unwrap(), false);
     assert_eq!(*world.get::<u8>(ent3).unwrap(), 2);
 }
