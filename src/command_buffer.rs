@@ -237,7 +237,6 @@ mod tests {
         buffer.spawn_at(enta, (1, 1.0));
         buffer.spawn_at(entb, (1.0, "a"));
         buffer.run_on(&mut world);
-        let archetypes = world.archetypes_inner().iter();
-        assert_eq!(archetypes.len(), 4);
+        assert_eq!(world.archetypes().len(), 4);
     }
 }
