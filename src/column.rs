@@ -44,8 +44,8 @@ impl<'a, T: Component> Column<'a, T> {
             .entities
             .get(entity.id as usize)
             .map_or(true, |meta| meta.generation == entity.generation)
-            .then(|| self.entities[entity.id as usize])
-            .ok_or(NoSuchEntity)?;
+            .then(|| self.entities.get(entity.id as usize).ok_or(NoSuchEntity))
+            .ok_or(NoSuchEntity)??;
         let archetype = self
             .archetypes
             .get(meta.location.archetype as usize)
@@ -56,8 +56,7 @@ impl<'a, T: Component> Column<'a, T> {
             let target = archetype
                 .get_base::<T>(state)
                 .as_ptr()
-                .add(meta.location.index as usize)
-                .cast::<T>();
+                .add(meta.location.index as usize);
 
             Ok(&*target)
         }
@@ -117,8 +116,8 @@ impl<'a, T: Component> ColumnMut<'a, T> {
             .entities
             .get(entity.id as usize)
             .map_or(true, |meta| meta.generation == entity.generation)
-            .then(|| self.entities[entity.id as usize])
-            .ok_or(NoSuchEntity)?;
+            .then(|| self.entities.get(entity.id as usize).ok_or(NoSuchEntity))
+            .ok_or(NoSuchEntity)??;
         let archetype = self
             .archetypes
             .get(meta.location.archetype as usize)
@@ -129,8 +128,7 @@ impl<'a, T: Component> ColumnMut<'a, T> {
             let target = archetype
                 .get_base::<T>(state)
                 .as_ptr()
-                .add(meta.location.index as usize)
-                .cast::<T>();
+                .add(meta.location.index as usize);
             Ok(&mut *target)
         }
     }

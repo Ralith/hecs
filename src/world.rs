@@ -775,14 +775,14 @@ impl World {
         self.archetypes_inner().iter()
     }
 
-    /// Efficient random access within a single component type 
+    /// Efficient random access within a single component type
     pub fn column<T: Component>(&self) -> Column<'_, T> {
         let archetypes = self.archetypes.archetypes.as_slice();
         let entities = self.entities.meta.as_slice();
         Column::new(entities, archetypes, PhantomData)
     }
 
-    /// Efficient random access within a single component type 
+    /// Efficient random access within a single component type
     ///
     /// It's useful for applications that do large amount of random
     /// access to same Component type

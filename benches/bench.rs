@@ -216,9 +216,7 @@ fn access_column(b: &mut Bencher) {
     let column = world.column::<Position>();
 
     b.iter(|| {
-        for i in 0..100 {
-            let comp = bencher::black_box(column.get(entc).unwrap());
-        }
+        let _comp = bencher::black_box(column.get(entc).unwrap());
     });
 }
 
