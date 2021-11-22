@@ -121,6 +121,7 @@ impl CommandBuffer {
     }
 
     fn build(&mut self, mark: usize) -> (Entity, ReadyBuffer<'_>) {
+        self.ids.clear();
         self.ids.extend(
             self.info[self.entities[mark].begin..self.entities[mark].end]
                 .iter()
@@ -217,4 +218,26 @@ struct EntityIndex {
     // Range of associated indices in `CommandBuffer`'s `info` member
     begin: usize,
     end: usize,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn populate_archetypes() {
+        let mut world = World::new();
+        let mut buffer = CommandBuffer::new();
+        let ent = world.reserve_entity();
+        let enta = world.reserve_entity();
+        let entb = world.reserve_entity();
+        let entc = world.reserve_entity();
+        buffer.spawn_at(ent, (true, "a"));
+        buffer.spawn_at(entc, (true, "a"));
+        buffer.spawn_at(enta, (1, 1.0));
+        buffer.spawn_at(entb, (1.0, "a"));
+        buffer.run_on(&mut world);
+        let archetypes = world.archetypes_inner().iter();
+        assert_eq!(archetypes.len(), 4);
+    }
 }
