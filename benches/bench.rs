@@ -217,7 +217,7 @@ fn access_column(b: &mut Bencher) {
 
     b.iter(|| {
         for i in 0..100 {
-            let comp = column.get(entc).unwrap();
+            let comp = bencher::black_box(column.get(entc).unwrap());
         }
     });
 }

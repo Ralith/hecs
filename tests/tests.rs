@@ -588,7 +588,6 @@ fn query_or() {
 #[test]
 fn column_get() {
     let mut world = World::new();
-
     let ent = world.spawn((123, "abc"));
     let ent2 = world.spawn((true, "hecs"));
     let column = world.column::<&str>();
@@ -599,10 +598,11 @@ fn column_get() {
 #[test]
 fn column_get_mut() {
     let mut world = World::new();
-
     let ent = world.spawn((0, true));
-    let column = world.column_mut::<i32>();
-    let val = column.get(ent).unwrap();
-    *val = 99;
-    assert_eq!(*val, 99);
+    {
+        let column = world.column_mut::<i32>();
+        *column.get(ent).unwrap() = 99;
+        assert_eq!(*column.get(ent).unwrap(), 99);
+    }
+    assert_eq!(*world.get::<i32>(ent).unwrap(), 99);
 }

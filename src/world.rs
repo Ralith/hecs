@@ -775,39 +775,33 @@ impl World {
         self.archetypes_inner().iter()
     }
 
-    /// Faster way of accessing a Component many times
+    /// Efficient random access within a single component type 
     pub fn column<T: Component>(&self) -> Column<'_, T> {
         let archetypes = self.archetypes.archetypes.as_slice();
         let entities = self.entities.meta.as_slice();
-        let mut archetype_column_offsets: Vec<Option<usize>> = Vec::new();
-        for i in archetypes.iter() {
-            archetype_column_offsets.push(i.get_state::<T>());
-        }
-
-        Column::new(entities, archetypes, archetype_column_offsets, PhantomData)
+        Column::new(entities, archetypes, PhantomData)
     }
 
-    /// Faster way of uniquely accessing a Component type
+    /// Efficient random access within a single component type 
     ///
     /// It's useful for applications that do large amount of random
     /// access to same Component type
     ///
-    /// #Example
+    /// Since Column borrows every component T in all archetypes
+    /// borrow checker will panic if you try to borrow T before column goes out of scope
+    ///
+    /// # Example
     /// ```
     /// use::hecs::*;
     /// let mut world = World::new();
-    /// let ent = world.spawn((123,"abc"));
+    /// let ent = world.spawn((123, "abc"));
     /// let column_mut = world.column_mut::<i32>();
-    /// assert_eq!(*column_mut.get(ent).unwrap(),123);
+    /// assert_eq!(*column_mut.get(ent).unwrap(), 123);
     /// ```
     pub fn column_mut<T: Component>(&self) -> ColumnMut<'_, T> {
         let archetypes = self.archetypes.archetypes.as_slice();
         let entities = self.entities.meta.as_slice();
-        let mut archetype_column_offsets: Vec<Option<usize>> = Vec::new();
-        for i in archetypes.iter() {
-            archetype_column_offsets.push(i.get_state::<T>());
-        }
-        ColumnMut::new(entities, archetypes, archetype_column_offsets, PhantomData)
+        ColumnMut::new(entities, archetypes, PhantomData)
     }
 
     /// Returns a distinct value after `archetypes` is changed
