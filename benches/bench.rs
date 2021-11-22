@@ -207,6 +207,16 @@ fn build_cloneable(b: &mut Bencher) {
     });
 }
 
+fn spawn_buffered(b: &mut Bencher) {
+    let mut world = World::new();
+    let mut buffer = CommandBuffer::new();
+    let ent = world.reserve_entity();
+    b.iter(|| {
+        buffer.spawn_at(ent, (Position(0.0), Velocity(0.0)));
+        buffer.run_on(&mut world);
+    });
+}
+
 benchmark_group!(
     benches,
     spawn_tuple,
@@ -222,5 +232,6 @@ benchmark_group!(
     iterate_mut_cached_100_by_50,
     build,
     build_cloneable,
+    spawn_buffered,
 );
 benchmark_main!(benches);
