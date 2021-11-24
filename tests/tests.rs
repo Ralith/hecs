@@ -273,6 +273,29 @@ fn dynamic_components() {
 }
 
 #[test]
+fn spawn_buffered_entity() {
+    let mut world = World::new();
+    let mut buffer = CommandBuffer::new();
+    let ent = world.reserve_entity();
+    let ent1 = world.reserve_entity();
+    let ent2 = world.reserve_entity();
+    let ent3 = world.reserve_entity();
+
+    buffer.spawn_at(ent, (1, true));
+    buffer.spawn_at(ent1, (13, 7.11, "hecs"));
+    buffer.spawn_at(ent2, (17 as i8, false, 'o'));
+    buffer.spawn_at(ent3, (2 as u8, "qwe", 101.103, false));
+
+    buffer.run_on(&mut world);
+
+    assert_eq!(*world.get::<bool>(ent).unwrap(), true);
+    assert_eq!(*world.get::<&str>(ent1).unwrap(), "hecs");
+    assert_eq!(*world.get::<i32>(ent1).unwrap(), 13);
+    assert_eq!(*world.get::<bool>(ent2).unwrap(), false);
+    assert_eq!(*world.get::<u8>(ent3).unwrap(), 2);
+}
+
+#[test]
 #[should_panic(expected = "already borrowed")]
 fn illegal_borrow() {
     let mut world = World::new();

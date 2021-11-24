@@ -217,6 +217,15 @@ fn access_column(b: &mut Bencher) {
 
     b.iter(|| {
         let _comp = bencher::black_box(column.get(entc).unwrap());
+      });
+}
+fn spawn_buffered(b: &mut Bencher) {
+    let mut world = World::new();
+    let mut buffer = CommandBuffer::new();
+    let ent = world.reserve_entity();
+    b.iter(|| {
+        buffer.spawn_at(ent, (Position(0.0), Velocity(0.0)));
+        buffer.run_on(&mut world);
     });
 }
 
@@ -236,5 +245,6 @@ benchmark_group!(
     build,
     build_cloneable,
     access_column,
+    spawn_buffered,
 );
 benchmark_main!(benches);
