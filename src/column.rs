@@ -43,9 +43,8 @@ impl<'a, T: Component> Column<'a, T> {
         let meta = self
             .entities
             .get(entity.id as usize)
-            .map_or(true, |meta| meta.generation == entity.generation)
-            .then(|| self.entities.get(entity.id as usize).ok_or(NoSuchEntity))
-            .ok_or(NoSuchEntity)??;
+            .filter(|meta| meta.generation == entity.generation)
+            .ok_or(NoSuchEntity)?;
         let archetype = self
             .archetypes
             .get(meta.location.archetype as usize)
@@ -115,9 +114,8 @@ impl<'a, T: Component> ColumnMut<'a, T> {
         let meta = self
             .entities
             .get(entity.id as usize)
-            .map_or(true, |meta| meta.generation == entity.generation)
-            .then(|| self.entities.get(entity.id as usize).ok_or(NoSuchEntity))
-            .ok_or(NoSuchEntity)??;
+            .filter(|meta| meta.generation == entity.generation)
+            .ok_or(NoSuchEntity)?;
         let archetype = self
             .archetypes
             .get(meta.location.archetype as usize)
