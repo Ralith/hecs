@@ -214,10 +214,9 @@ fn access_column(b: &mut Bencher) {
     let entc = world.spawn((Position(3.0),));
     let _entd = world.spawn((13, true, 4.0));
     let column = world.column::<Position>();
-
     b.iter(|| {
         let _comp = bencher::black_box(column.get(entc).unwrap());
-      });
+    });
 }
 fn spawn_buffered(b: &mut Bencher) {
     let mut world = World::new();
