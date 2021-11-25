@@ -494,7 +494,11 @@ impl<V> OrderedTypeIdMap<V> {
     }
 }
 
-/// Metadata required to store a component
+/// Metadata required to store a component.
+///
+/// All told, this means a [`TypeId`], to be able to dynamically name/check the component type; a
+/// [`Layout`], so that we know how to allocate memory for this component type; and a drop function
+/// which internally calls [`core::ptr::drop_in_place`] with the correct type parameter.
 #[derive(Debug, Copy, Clone)]
 pub struct TypeInfo {
     id: TypeId,
@@ -505,7 +509,7 @@ pub struct TypeInfo {
 }
 
 impl TypeInfo {
-    /// Metadata for `T`
+    /// Construct a `TypeInfo` directly from the static type.
     pub fn of<T: 'static>() -> Self {
         unsafe fn drop_ptr<T>(x: *mut u8) {
             x.cast::<T>().drop_in_place()
@@ -520,16 +524,44 @@ impl TypeInfo {
         }
     }
 
-    pub(crate) fn id(&self) -> TypeId {
+    /// Construct a `TypeInfo` from its components. This is useful in the rare case that you have
+    /// some kind of pointer to raw bytes/erased memory holding a component type, coming from a
+    /// source unrelated to hecs, and you want to treat it as an insertable component by
+    /// implementing the `DynamicBundle` API.
+    pub fn from_parts(id: TypeId, layout: Layout, drop: unsafe fn(*mut u8)) -> Self {
+        Self {
+            id,
+            layout,
+            drop,
+            #[cfg(debug_assertions)]
+            type_name: "<unknown> (TypeInfo constructed from parts)",
+        }
+    }
+
+    /// Access the `TypeId` for this component type.
+    pub fn id(&self) -> TypeId {
         self.id
     }
 
-    pub(crate) fn layout(&self) -> Layout {
+    /// Access the `Layout` of this component type.
+    pub fn layout(&self) -> Layout {
         self.layout
     }
 
-    pub(crate) unsafe fn drop(&self, data: *mut u8) {
+    /// Directly call the destructor on a pointer to data of this component type.
+    ///
+    /// # Safety
+    ///
+    /// All of the caveats of [`core::ptr::drop_in_place`] apply, with the additional requirement
+    /// that this method is being called on a pointer to an object of the correct component type.
+    pub unsafe fn drop(&self, data: *mut u8) {
         (self.drop)(data)
+    }
+
+    /// Get the function pointer encoding the destructor for the component type this `TypeInfo`
+    /// represents.
+    pub fn drop_shim(&self) -> unsafe fn(*mut u8) {
+        self.drop
     }
 }
 
