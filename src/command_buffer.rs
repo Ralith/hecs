@@ -15,16 +15,16 @@ use crate::Entity;
 use crate::World;
 use crate::{align, DynamicBundle};
 
-/// Allows spawn operations to be buffered for future application to a ['World']
+/// Records spawn operations for future application to a ['World']
 ///
 /// ```
 /// # use hecs::*;
 /// let mut world = World::new();
-/// let reserved_ent = world.reserve_entity();
-/// let mut entity_buffer = CommandBuffer::new();
-/// entity_buffer.spawn_at(reserved_ent,(true,0.10));
-/// entity_buffer.run_on(&mut world); // buffer can now be reused
-/// assert!(world.contains(reserved_ent));
+/// let entity = world.reserve_entity();
+/// let mut cmd = CommandBuffer::new();
+/// cmd.spawn_at(entity, (true, 42));
+/// cmd.run_on(&mut world); // cmd can now be reused
+/// assert_eq!(*world.get::<i32>(entity).unwrap(), 42);
 /// ```
 pub struct CommandBuffer {
     entities: Vec<EntityIndex>,
@@ -36,7 +36,7 @@ pub struct CommandBuffer {
 }
 
 impl CommandBuffer {
-    /// Create an empty buffer
+    /// Create an empty command buffer
     pub fn new() -> Self {
         Self::default()
     }
@@ -91,18 +91,7 @@ impl CommandBuffer {
         });
     }
 
-    /// Spawn every entity recorded with their components
-    ///
-    /// # Example
-    /// ```
-    /// # use hecs::*;
-    /// let mut world = World::new();
-    /// let a = world.reserve_entity();
-    /// let mut recorder = CommandBuffer::new();
-    /// recorder.spawn_at(a, (false,0.0));
-    /// recorder.run_on(&mut world);
-    /// assert!(world.contains(a));
-    /// ```
+    /// Run recorded commands on `world`, clearing the command buffer
     pub fn run_on(&mut self, world: &mut World) {
         let mut mark = self.entities.len() - 1;
 
@@ -131,10 +120,7 @@ impl CommandBuffer {
         (entity, ReadyBuffer { buffer: self, mark })
     }
 
-    /// Drop previously `recorded` entities and their components
-    ///
-    /// Recorder is cleared implicitly when entities are spawned, so usually this doesn't need to
-    /// be called
+    /// Drop all recorded commands
     pub fn clear(&mut self) {
         self.ids.clear();
         self.entities.clear();
