@@ -281,10 +281,10 @@ fn spawn_buffered_entity() {
     let ent2 = world.reserve_entity();
     let ent3 = world.reserve_entity();
 
-    buffer.spawn_at(ent, (1, true));
-    buffer.spawn_at(ent1, (13, 7.11, "hecs"));
-    buffer.spawn_at(ent2, (17 as i8, false, 'o'));
-    buffer.spawn_at(ent3, (2 as u8, "qwe", 101.103, false));
+    buffer.insert(ent, (1, true));
+    buffer.insert(ent1, (13, 7.11, "hecs"));
+    buffer.insert(ent2, (17 as i8, false, 'o'));
+    buffer.insert(ent3, (2 as u8, "qwe", 101.103, false));
 
     buffer.run_on(&mut world);
 

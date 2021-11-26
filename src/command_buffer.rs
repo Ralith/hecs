@@ -15,14 +15,16 @@ use crate::Entity;
 use crate::World;
 use crate::{align, DynamicBundle};
 
-/// Records spawn operations for future application to a ['World']
+/// Records operations for future application to a ['World']
+///
+/// Useful when operations cannot be applied directly due to ordering concerns or borrow checking.
 ///
 /// ```
 /// # use hecs::*;
 /// let mut world = World::new();
 /// let entity = world.reserve_entity();
 /// let mut cmd = CommandBuffer::new();
-/// cmd.spawn_at(entity, (true, 42));
+/// cmd.insert(entity, (true, 42));
 /// cmd.run_on(&mut world); // cmd can now be reused
 /// assert_eq!(*world.get::<i32>(entity).unwrap(), 42);
 /// ```
@@ -73,14 +75,16 @@ impl CommandBuffer {
         self.cursor = end;
     }
 
-    /// Record an entity spawn operation
-    pub fn spawn_at(&mut self, ent: Entity, bundle: impl DynamicBundle) {
+    /// Add components from `bundle` to `entity`, if it exists
+    ///
+    /// Pairs well with [`World::reserve_entity`] to spawn entities with a known handle.
+    pub fn insert(&mut self, entity: Entity, components: impl DynamicBundle) {
         let first_component = self.components.len();
         unsafe {
-            bundle.put(|ptr, ty| self.add_inner(ptr, ty));
+            components.put(|ptr, ty| self.add_inner(ptr, ty));
         }
         self.entities.push(EntityIndex {
-            entity: ent,
+            entity,
             first_component,
         });
     }
@@ -94,8 +98,9 @@ impl CommandBuffer {
         }
 
         for index in (0..self.entities.len()).rev() {
-            let (ent, comps) = self.build(index);
-            world.spawn_at(ent, comps);
+            let (entity, comps) = self.build(index);
+            // If `entity` no longer exists, quietly drop the components.
+            let _ = world.insert(entity, comps);
         }
         self.clear();
     }
@@ -209,10 +214,10 @@ mod tests {
         let enta = world.reserve_entity();
         let entb = world.reserve_entity();
         let entc = world.reserve_entity();
-        buffer.spawn_at(ent, (true, "a"));
-        buffer.spawn_at(entc, (true, "a"));
-        buffer.spawn_at(enta, (1, 1.0));
-        buffer.spawn_at(entb, (1.0, "a"));
+        buffer.insert(ent, (true, "a"));
+        buffer.insert(entc, (true, "a"));
+        buffer.insert(enta, (1, 1.0));
+        buffer.insert(entb, (1.0, "a"));
         buffer.run_on(&mut world);
         assert_eq!(world.archetypes().len(), 4);
     }

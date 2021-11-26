@@ -223,7 +223,7 @@ fn spawn_buffered(b: &mut Bencher) {
     let mut buffer = CommandBuffer::new();
     let ent = world.reserve_entity();
     b.iter(|| {
-        buffer.spawn_at(ent, (Position(0.0), Velocity(0.0)));
+        buffer.insert(ent, (Position(0.0), Velocity(0.0)));
         buffer.run_on(&mut world);
     });
 }
