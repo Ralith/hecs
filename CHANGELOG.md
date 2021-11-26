@@ -9,7 +9,7 @@
 - `Satisfies` query combinator, which yields a `bool` without borrowing any components
 - `World::column` and `column_mut` for efficient random access within
   a single component type
-- `CommandBuffer` helper for recording spawns in advance
+- `CommandBuffer` helper for recording operations on a world in advance
 
 ### Changed
 - Added a niche to `Entity`, making `Option<Entity>` the same size as a bare `Entity`. As a
