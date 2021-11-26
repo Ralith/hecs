@@ -84,7 +84,22 @@ impl CommandBuffer {
             components.put(|ptr, ty| self.add_inner(ptr, ty));
         }
         self.entities.push(EntityIndex {
-            entity,
+            entity: Some(entity),
+            first_component,
+        });
+    }
+
+    /// Spawn a new entity with `components`
+    ///
+    /// If the [`Entity`] is needed immediately, consider combining [`World::reserve_entity`] with
+    /// [`insert`](CommandBuffer::insert) instead.
+    pub fn spawn(&mut self, components: impl DynamicBundle) {
+        let first_component = self.components.len();
+        unsafe {
+            components.put(|ptr, ty| self.add_inner(ptr, ty));
+        }
+        self.entities.push(EntityIndex {
+            entity: None,
             first_component,
         });
     }
@@ -98,14 +113,21 @@ impl CommandBuffer {
         }
 
         for index in (0..self.entities.len()).rev() {
-            let (entity, comps) = self.build(index);
-            // If `entity` no longer exists, quietly drop the components.
-            let _ = world.insert(entity, comps);
+            let (entity, components) = self.build(index);
+            match entity {
+                Some(entity) => {
+                    // If `entity` no longer exists, quietly drop the components.
+                    let _ = world.insert(entity, components);
+                }
+                None => {
+                    world.spawn(components);
+                }
+            }
         }
         self.clear();
     }
 
-    fn build(&mut self, index: usize) -> (Entity, RecordedEntity<'_>) {
+    fn build(&mut self, index: usize) -> (Option<Entity>, RecordedEntity<'_>) {
         self.ids.clear();
         self.ids.extend(
             self.components[self.entities[index].first_component..]
@@ -197,7 +219,7 @@ struct ComponentInfo {
 
 /// Data of buffered 'entity' and its relative position in component data
 struct EntityIndex {
-    entity: Entity,
+    entity: Option<Entity>,
     // Position of this entity's first component in `CommandBuffer::info`
     first_component: usize,
 }
