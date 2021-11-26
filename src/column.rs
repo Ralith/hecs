@@ -9,7 +9,7 @@ use crate::{Archetype, Component, ComponentError, Entity, MissingComponent};
 pub struct Column<'a, T: Component> {
     entities: &'a [EntityMeta],
     archetypes: &'a [Archetype],
-    archetype_column_indices: Vec<Option<usize>>,
+    archetype_state: Vec<Option<usize>>,
     _marker: PhantomData<T>,
 }
 
@@ -19,21 +19,19 @@ impl<'a, T: Component> Column<'a, T> {
         archetypes: &'a [Archetype],
         _marker: PhantomData<T>,
     ) -> Self {
-        let mut archetype_column_indices: Vec<Option<usize>> = Vec::new();
-        for i in archetypes.iter() {
-            archetype_column_indices.push(i.get_state::<T>());
-        }
-        for val in archetypes.iter() {
-            if val.has::<T>() {
-                let state = val.get_state::<T>().unwrap();
-                val.borrow::<T>(state);
+        let mut archetype_state = Vec::with_capacity(archetypes.len());
+        for archetype in archetypes.iter() {
+            let state = archetype.get_state::<T>();
+            archetype_state.push(state);
+            if let Some(state) = state {
+                archetype.borrow::<T>(state);
             }
         }
 
         Self {
             entities,
             archetypes,
-            archetype_column_indices,
+            archetype_state,
             _marker,
         }
     }
@@ -49,7 +47,7 @@ impl<'a, T: Component> Column<'a, T> {
             .archetypes
             .get(meta.location.archetype as usize)
             .unwrap();
-        let state = self.archetype_column_indices[meta.location.archetype as usize]
+        let state = self.archetype_state[meta.location.archetype as usize]
             .ok_or_else(MissingComponent::new::<T>)?;
         unsafe {
             let target = archetype
@@ -67,11 +65,9 @@ unsafe impl<'a, T: Component> Sync for Column<'a, T> {}
 
 impl<'a, T: Component> Drop for Column<'a, T> {
     fn drop(&mut self) {
-        self.archetype_column_indices.clear();
-        for val in self.archetypes.iter() {
-            if val.has::<T>() {
-                let state = val.get_state::<T>().unwrap();
-                val.release::<T>(state);
+        for (archetype, &state) in self.archetypes.iter().zip(&self.archetype_state) {
+            if let Some(state) = state {
+                archetype.release::<T>(state);
             }
         }
     }
@@ -81,7 +77,7 @@ impl<'a, T: Component> Drop for Column<'a, T> {
 pub struct ColumnMut<'a, T: Component> {
     entities: &'a [EntityMeta],
     archetypes: &'a [Archetype],
-    archetype_column_indices: Vec<Option<usize>>,
+    archetype_state: Vec<Option<usize>>,
     _marker: PhantomData<T>,
 }
 
@@ -91,20 +87,18 @@ impl<'a, T: Component> ColumnMut<'a, T> {
         archetypes: &'a [Archetype],
         _marker: PhantomData<T>,
     ) -> Self {
-        let mut archetype_column_indices: Vec<Option<usize>> = Vec::new();
-        for i in archetypes.iter() {
-            archetype_column_indices.push(i.get_state::<T>());
-        }
-        for val in archetypes.iter() {
-            if val.has::<T>() {
-                let state = val.get_state::<T>().unwrap();
-                val.borrow_mut::<T>(state);
+        let mut archetype_state = Vec::with_capacity(archetypes.len());
+        for archetype in archetypes.iter() {
+            let state = archetype.get_state::<T>();
+            archetype_state.push(state);
+            if let Some(state) = state {
+                archetype.borrow_mut::<T>(state);
             }
         }
         Self {
             entities,
             archetypes,
-            archetype_column_indices,
+            archetype_state,
             _marker,
         }
     }
@@ -120,7 +114,7 @@ impl<'a, T: Component> ColumnMut<'a, T> {
             .archetypes
             .get(meta.location.archetype as usize)
             .unwrap();
-        let state = self.archetype_column_indices[meta.location.archetype as usize]
+        let state = self.archetype_state[meta.location.archetype as usize]
             .ok_or_else(MissingComponent::new::<T>)?;
         unsafe {
             let target = archetype
@@ -137,11 +131,9 @@ unsafe impl<'a, T: Component> Sync for ColumnMut<'a, T> {}
 
 impl<'a, T: Component> Drop for ColumnMut<'a, T> {
     fn drop(&mut self) {
-        self.archetype_column_indices.clear();
-        for val in self.archetypes.iter() {
-            if val.has::<T>() {
-                let state = val.get_state::<T>().unwrap();
-                val.release_mut::<T>(state);
+        for (archetype, &state) in self.archetypes.iter().zip(&self.archetype_state) {
+            if let Some(state) = state {
+                archetype.release_mut::<T>(state);
             }
         }
     }
