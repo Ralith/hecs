@@ -91,7 +91,7 @@ pub use world::{
 
 // Unstable implementation details needed by the macros
 #[doc(hidden)]
-pub use archetype::TypeInfo;
+pub use archetype::{BorrowError, TypeInfo};
 #[cfg(feature = "macros")]
 #[doc(hidden)]
 pub use lazy_static;

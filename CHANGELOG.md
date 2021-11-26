@@ -17,6 +17,10 @@
   older versions may fail.
 - `ColumnRef` renamed to `ArchetypeColumn`
 
+### Fixed
+- If a query panics due to a dynamic borrow-checking failure, any borrows that query already
+  acquired are released.
+
 # 0.6.5
 
 ### Changed

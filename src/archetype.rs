@@ -127,18 +127,34 @@ impl Archetype {
     }
 
     pub(crate) fn borrow<T: Component>(&self, state: usize) {
-        assert_eq!(self.types[state].id, TypeId::of::<T>());
-
-        if !self.data[state].state.borrow() {
-            panic!("{} already borrowed uniquely", type_name::<T>());
+        if let Err(e) = self.try_borrow::<T>(state) {
+            panic!("{}", e);
         }
     }
 
     pub(crate) fn borrow_mut<T: Component>(&self, state: usize) {
+        if let Err(e) = self.try_borrow_mut::<T>(state) {
+            panic!("{}", e);
+        }
+    }
+
+    pub(crate) fn try_borrow<T: Component>(&self, state: usize) -> Result<(), BorrowError> {
         assert_eq!(self.types[state].id, TypeId::of::<T>());
 
-        if !self.data[state].state.borrow_mut() {
-            panic!("{} already borrowed", type_name::<T>());
+        if self.data[state].state.borrow() {
+            Ok(())
+        } else {
+            Err(BorrowError::Shared(type_name::<T>()))
+        }
+    }
+
+    pub(crate) fn try_borrow_mut<T: Component>(&self, state: usize) -> Result<(), BorrowError> {
+        assert_eq!(self.types[state].id, TypeId::of::<T>());
+
+        if self.data[state].state.borrow_mut() {
+            Ok(())
+        } else {
+            Err(BorrowError::Unique(type_name::<T>()))
         }
     }
 
@@ -624,5 +640,23 @@ impl<T: Component> Clone for ArchetypeColumn<'_, T> {
 impl<T: Component + fmt::Debug> fmt::Debug for ArchetypeColumn<'_, T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.column.fmt(f)
+    }
+}
+
+#[doc(hidden)]
+pub enum BorrowError {
+    /// Error borrowing &T
+    Shared(&'static str),
+    /// Error borrowing &mut T
+    Unique(&'static str),
+}
+
+impl fmt::Display for BorrowError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use BorrowError::*;
+        match *self {
+            Shared(ty) => write!(f, "{} already borrowed uniquely", ty),
+            Unique(ty) => write!(f, "{} already borrowed", ty),
+        }
     }
 }
