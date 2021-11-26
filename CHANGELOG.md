@@ -4,8 +4,8 @@
 - `Or` query combinator, allowing a single query to select entities that satisfy at least one of two
   sub-queries.
 - `EntityRef::has` to efficiently check for the presence of a component without borrowing it
-- `EntityBulider::new_cloneable` constructs an `EntityBuilder` that builds a `ReusableBuiltEntity`,
-  which can be spawned repeatedly by reference.
+- `EntityBuliderClone` helper for working with dynamic collections of
+  components that may be used repeatedly
 - `Satisfies` query combinator, which yields a `bool` without borrowing any components
 
 ### Changed
