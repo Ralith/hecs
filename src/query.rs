@@ -569,8 +569,6 @@ impl<'w, Q: Query> QueryBorrow<'w, Q> {
     }
 
     /// Execute the query
-    ///
-    /// Must be called only once per query.
     // The lifetime narrowing here is required for soundness.
     pub fn iter(&mut self) -> QueryIter<'_, Q> {
         self.borrow();
