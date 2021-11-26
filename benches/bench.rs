@@ -199,7 +199,7 @@ fn build(b: &mut Bencher) {
 
 fn build_cloneable(b: &mut Bencher) {
     let mut world = World::new();
-    let mut builder = EntityBuilder::new_cloneable();
+    let mut builder = EntityBuilderClone::new();
     builder.add(Position(0.0)).add(Velocity(0.0));
     let bundle = builder.build();
     b.iter(|| {
