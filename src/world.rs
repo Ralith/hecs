@@ -775,29 +775,31 @@ impl World {
         self.archetypes_inner().iter()
     }
 
-    /// Efficient random access within a single component type
-    pub fn column<T: Component>(&self) -> Column<'_, T> {
-        let archetypes = self.archetypes.archetypes.as_slice();
-        let entities = self.entities.meta.as_slice();
-        Column::new(entities, archetypes, PhantomData)
-    }
-
-    /// Efficient random access within a single component type
+    /// Borrow every `T` component for efficient random access
     ///
-    /// It's useful for applications that do large amount of random
-    /// access to same Component type
+    /// [`Column::get`] is semantically equivalent to [`World::get`], except that every `T`
+    /// component is borrowed in advance, and repeated calls are much cheaper, at the cost of
+    /// additional work when the [`Column`] is fetched.
     ///
-    /// Since Column borrows every component T in all archetypes
-    /// borrow checker will panic if you try to borrow T before column goes out of scope
+    /// Panics if a unique borrow is outstanding for any `T` component.
     ///
     /// # Example
     /// ```
     /// use::hecs::*;
     /// let mut world = World::new();
     /// let ent = world.spawn((123, "abc"));
-    /// let column_mut = world.column_mut::<i32>();
-    /// assert_eq!(*column_mut.get(ent).unwrap(), 123);
+    /// let column = world.column::<i32>();
+    /// assert_eq!(*column.get(ent).unwrap(), 123);
     /// ```
+    pub fn column<T: Component>(&self) -> Column<'_, T> {
+        let archetypes = self.archetypes.archetypes.as_slice();
+        let entities = self.entities.meta.as_slice();
+        Column::new(entities, archetypes, PhantomData)
+    }
+
+    /// Uniquely borrows every `T` component for efficient random access
+    ///
+    /// See [`World::column`].
     pub fn column_mut<T: Component>(&self) -> ColumnMut<'_, T> {
         let archetypes = self.archetypes.archetypes.as_slice();
         let entities = self.entities.meta.as_slice();
