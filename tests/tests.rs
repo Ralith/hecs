@@ -623,7 +623,7 @@ fn column_get_mut() {
     let mut world = World::new();
     let ent = world.spawn((0, true));
     {
-        let column = world.column_mut::<i32>();
+        let mut column = world.column_mut::<i32>();
         *column.get(ent).unwrap() = 99;
         assert_eq!(*column.get(ent).unwrap(), 99);
     }

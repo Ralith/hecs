@@ -110,7 +110,7 @@ impl<'a, T: Component> ColumnMut<'a, T> {
     }
 
     /// Access the `T` component of `entity`
-    pub fn get(&self, entity: Entity) -> Result<&mut T, ComponentError> {
+    pub fn get(&mut self, entity: Entity) -> Result<&mut T, ComponentError> {
         let meta = self
             .entities
             .get(entity.id as usize)
