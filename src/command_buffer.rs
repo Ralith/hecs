@@ -31,7 +31,7 @@ pub struct CommandBuffer {
     storage: NonNull<u8>,
     layout: Layout,
     cursor: usize,
-    info: Vec<ComponentInfo>,
+    components: Vec<ComponentInfo>,
     ids: Vec<TypeId>,
 }
 
@@ -69,55 +69,46 @@ impl CommandBuffer {
 
         let addr = self.storage.as_ptr().add(offset);
         ptr::copy_nonoverlapping(ptr, addr, ty.layout().size());
-        self.info.push(ComponentInfo {
-            ty_info: ty,
-            offset,
-        });
+        self.components.push(ComponentInfo { ty, offset });
         self.cursor = end;
     }
 
     /// Record an entity spawn operation
     pub fn spawn_at(&mut self, ent: Entity, bundle: impl DynamicBundle) {
-        let len = bundle.type_info().len();
+        let first_component = self.components.len();
         unsafe {
             bundle.put(|ptr, ty| self.add_inner(ptr, ty));
         }
-        let begin = self.entities.last().map_or(0, |x| x.end);
-        let end = begin + len;
         self.entities.push(EntityIndex {
             entity: ent,
-            begin,
-            end,
+            first_component,
         });
     }
 
     /// Run recorded commands on `world`, clearing the command buffer
     pub fn run_on(&mut self, world: &mut World) {
-        let mut mark = self.entities.len() - 1;
-
-        for index in self.entities.iter() {
-            self.info[index.begin..index.end].sort_unstable_by_key(|z| z.ty_info);
+        let mut end = self.components.len();
+        for entity in self.entities.iter().rev() {
+            self.components[entity.first_component..end].sort_unstable_by_key(|z| z.ty);
+            end = entity.first_component;
         }
 
-        for _ in 0..self.entities.len() {
-            let (ent, comps) = self.build(mark);
+        for index in (0..self.entities.len()).rev() {
+            let (ent, comps) = self.build(index);
             world.spawn_at(ent, comps);
-            if mark != 0 {
-                mark -= 1;
-            }
         }
         self.clear();
     }
 
-    fn build(&mut self, mark: usize) -> (Entity, ReadyBuffer<'_>) {
+    fn build(&mut self, index: usize) -> (Entity, RecordedEntity<'_>) {
         self.ids.clear();
         self.ids.extend(
-            self.info[self.entities[mark].begin..self.entities[mark].end]
+            self.components[self.entities[index].first_component..]
                 .iter()
-                .map(|x| x.ty_info.id()),
+                .map(|x| x.ty.id()),
         );
-        let entity = self.entities[mark].entity;
-        (entity, ReadyBuffer { buffer: self, mark })
+        let entity = self.entities[index].entity;
+        (entity, RecordedEntity { cmd: self, index })
     }
 
     /// Drop all recorded commands
@@ -126,8 +117,8 @@ impl CommandBuffer {
         self.entities.clear();
         self.cursor = 0;
         unsafe {
-            for info in self.info.drain(..) {
-                info.ty_info.drop(self.storage.as_ptr().add(info.offset));
+            for info in self.components.drain(..) {
+                info.ty.drop(self.storage.as_ptr().add(info.offset));
             }
         }
     }
@@ -155,7 +146,7 @@ impl Default for CommandBuffer {
             storage: NonNull::dangling(),
             layout: Layout::from_size_align(0, 8).unwrap(),
             cursor: 0,
-            info: Vec::new(),
+            components: Vec::new(),
             ids: Vec::new(),
         }
     }
@@ -163,37 +154,38 @@ impl Default for CommandBuffer {
 
 /// The output of an '[CommandBuffer]` suitable for passing to
 /// [`World::spawn_into`](crate::World::spawn_into)
-struct ReadyBuffer<'a> {
-    buffer: &'a mut CommandBuffer,
-    mark: usize,
+struct RecordedEntity<'a> {
+    cmd: &'a mut CommandBuffer,
+    index: usize,
 }
-unsafe impl DynamicBundle for ReadyBuffer<'_> {
+
+unsafe impl DynamicBundle for RecordedEntity<'_> {
     fn with_ids<T>(&self, f: impl FnOnce(&[TypeId]) -> T) -> T {
-        f(&self.buffer.ids)
+        f(&self.cmd.ids)
     }
 
     fn type_info(&self) -> Vec<TypeInfo> {
-        self.buffer.info[self.buffer.entities[self.mark].begin..self.buffer.entities[self.mark].end]
+        self.cmd.components[self.cmd.entities[self.index].first_component..]
             .iter()
-            .map(|x| x.ty_info)
+            .map(|x| x.ty)
             .collect()
     }
 
     unsafe fn put(self, mut f: impl FnMut(*mut u8, TypeInfo)) {
         for info in self
-            .buffer
-            .info
-            .drain(self.buffer.entities[self.mark].begin..self.buffer.entities[self.mark].end)
+            .cmd
+            .components
+            .drain(self.cmd.entities[self.index].first_component..)
         {
-            let ptr = self.buffer.storage.as_ptr().add(info.offset);
-            f(ptr, info.ty_info);
+            let ptr = self.cmd.storage.as_ptr().add(info.offset);
+            f(ptr, info.ty);
         }
     }
 }
 
 /// Data required to store components and their offset  
 struct ComponentInfo {
-    ty_info: TypeInfo,
+    ty: TypeInfo,
     // Position in 'storage'
     offset: usize,
 }
@@ -201,9 +193,8 @@ struct ComponentInfo {
 /// Data of buffered 'entity' and its relative position in component data
 struct EntityIndex {
     entity: Entity,
-    // Range of associated indices in `CommandBuffer`'s `info` member
-    begin: usize,
-    end: usize,
+    // Position of this entity's first component in `CommandBuffer::info`
+    first_component: usize,
 }
 
 #[cfg(test)]
