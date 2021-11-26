@@ -5,7 +5,7 @@ use alloc::vec::Vec;
 use crate::entities::{EntityMeta, NoSuchEntity};
 use crate::{Archetype, Component, ComponentError, Entity, MissingComponent};
 
-/// Column of a single component
+/// Borrows every `T` component in a world
 pub struct Column<'a, T: Component> {
     entities: &'a [EntityMeta],
     archetypes: &'a [Archetype],
@@ -38,7 +38,7 @@ impl<'a, T: Component> Column<'a, T> {
         }
     }
 
-    /// Get this column's component from entity if it exist
+    /// Access the `T` component of `entity`
     pub fn get(&self, entity: Entity) -> Result<&T, ComponentError> {
         let meta = self
             .entities
@@ -77,7 +77,7 @@ impl<'a, T: Component> Drop for Column<'a, T> {
     }
 }
 
-/// Mutable column of a single component
+/// Uniquely borrows every `T` component in a world
 pub struct ColumnMut<'a, T: Component> {
     entities: &'a [EntityMeta],
     archetypes: &'a [Archetype],
@@ -109,7 +109,7 @@ impl<'a, T: Component> ColumnMut<'a, T> {
         }
     }
 
-    /// Mutably get this column's component from entity if it exist
+    /// Access the `T` component of `entity`
     pub fn get(&self, entity: Entity) -> Result<&mut T, ComponentError> {
         let meta = self
             .entities
