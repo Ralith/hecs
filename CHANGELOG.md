@@ -4,7 +4,7 @@
 - `Or` query combinator, allowing a single query to select entities that satisfy at least one of two
   sub-queries.
 - `EntityRef::has` to efficiently check for the presence of a component without borrowing it
-- `EntityBuliderClone` helper for working with dynamic collections of
+- `EntityBuilderClone` helper for working with dynamic collections of
   components that may be used repeatedly
 - `Satisfies` query combinator, which yields a `bool` without borrowing any components
 - `World::column` and `column_mut` for efficient random access within
