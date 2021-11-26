@@ -146,3 +146,37 @@ impl<'a, T: Component> Drop for ColumnMut<'a, T> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::World;
+
+    #[test]
+    fn borrow_twice() {
+        let mut world = World::new();
+        world.spawn((true, "abc"));
+        let c = world.column_mut::<bool>();
+        drop(c);
+        world.column::<bool>();
+    }
+
+    #[test]
+    #[should_panic(expected = "bool already borrowed uniquely")]
+    fn mut_shared_overlap() {
+        let mut world = World::new();
+        world.spawn((true, "abc"));
+        let c = world.column_mut::<bool>();
+        world.column::<bool>();
+        drop(c);
+    }
+
+    #[test]
+    #[should_panic(expected = "bool already borrowed")]
+    fn shared_mut_overlap() {
+        let mut world = World::new();
+        world.spawn((true, "abc"));
+        let c = world.column::<bool>();
+        world.column_mut::<bool>();
+        drop(c);
+    }
+}
