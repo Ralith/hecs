@@ -115,12 +115,12 @@ impl Archetype {
     /// Get the `T` components of these entities, if present
     ///
     /// Useful for efficient serialization.
-    pub fn get<T: Component>(&self) -> Option<ColumnRef<'_, T>> {
+    pub fn get<T: Component>(&self) -> Option<ArchetypeColumn<'_, T>> {
         let state = self.get_state::<T>()?;
         let ptr = self.get_base::<T>(state);
         let column = unsafe { slice::from_raw_parts_mut(ptr.as_ptr(), self.len as usize) };
         self.borrow::<T>(state);
-        Some(ColumnRef {
+        Some(ArchetypeColumn {
             archetype: self,
             column,
         })
@@ -591,26 +591,26 @@ impl PartialEq for TypeInfo {
 impl Eq for TypeInfo {}
 
 /// Shared reference to a single column of component data in an [`Archetype`]
-pub struct ColumnRef<'a, T: Component> {
+pub struct ArchetypeColumn<'a, T: Component> {
     archetype: &'a Archetype,
     column: &'a [T],
 }
 
-impl<T: Component> Deref for ColumnRef<'_, T> {
+impl<T: Component> Deref for ArchetypeColumn<'_, T> {
     type Target = [T];
     fn deref(&self) -> &[T] {
         self.column
     }
 }
 
-impl<T: Component> Drop for ColumnRef<'_, T> {
+impl<T: Component> Drop for ArchetypeColumn<'_, T> {
     fn drop(&mut self) {
         let state = self.archetype.get_state::<T>().unwrap();
         self.archetype.release::<T>(state);
     }
 }
 
-impl<T: Component> Clone for ColumnRef<'_, T> {
+impl<T: Component> Clone for ArchetypeColumn<'_, T> {
     fn clone(&self) -> Self {
         let state = self.archetype.get_state::<T>().unwrap();
         self.archetype.borrow::<T>(state);
@@ -621,7 +621,7 @@ impl<T: Component> Clone for ColumnRef<'_, T> {
     }
 }
 
-impl<T: Component + fmt::Debug> fmt::Debug for ColumnRef<'_, T> {
+impl<T: Component + fmt::Debug> fmt::Debug for ArchetypeColumn<'_, T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.column.fmt(f)
     }
