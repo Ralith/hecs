@@ -15,7 +15,11 @@
 - Added a niche to `Entity`, making `Option<Entity>` the same size as a bare `Entity`. As a
   consequence, `Entity::from_bits` is now fallible, and deserialization of `Entity` values from
   older versions may fail.
-- `ColumnRef` renamed to `ArchetypeColumn`
+
+### Fixed
+- Compatibility with 32-bit MIPS and PPC
+- Missing `Batch` reexport
+- Missing `ArchetypeColumn` reexport
 
 # 0.6.5
 
