@@ -15,7 +15,7 @@ use crate::Entity;
 use crate::World;
 use crate::{align, DynamicBundle};
 
-/// Records operations for future application to a ['World']
+/// Records operations for future application to a [`World`]
 ///
 /// Useful when operations cannot be applied directly due to ordering concerns or borrow checking.
 ///
