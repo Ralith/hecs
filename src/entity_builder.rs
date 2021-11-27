@@ -373,9 +373,8 @@ impl<M> Default for Common<M> {
     }
 }
 
-/// Type parameter for [`EntityBuilder`]s with cloneable components
 #[derive(Clone)]
-pub struct Cloneable(unsafe fn(*const u8, &mut dyn FnMut(*mut u8, TypeInfo)));
+struct Cloneable(unsafe fn(*const u8, &mut dyn FnMut(*mut u8, TypeInfo)));
 
 impl Cloneable {
     fn new<T: Component + Clone>() -> Self {
