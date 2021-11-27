@@ -1,4 +1,4 @@
-# Unreleased
+# 0.7.0
 
 ### Added
 - `Or` query combinator, allowing a single query to select entities that satisfy at least one of two
