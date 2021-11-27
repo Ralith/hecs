@@ -12,13 +12,9 @@ jobs:
       matrix:
         rust:
           - stable
-          - beta
         features:
           - --all-features
           - --no-default-features
-        exclude:
-          - rust: beta
-            features: --no-default-features
 
     steps:
       - uses: actions/checkout@v1
