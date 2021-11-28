@@ -58,8 +58,8 @@ pub unsafe trait Bundle: DynamicBundle {
         Self: Sized;
 }
 
-/// A dynamically typed collection of components that is also cloneable
-pub unsafe trait DynamicBundleClone: DynamicBundle + Clone {
+/// A dynamically typed collection of cloneable components
+pub unsafe trait DynamicBundleClone: DynamicBundle {
     /// Allow a callback to move all components out of the bundle
     ///
     /// Must invoke `f` only with a valid pointer and the pointee's type and size. `put` may only be
