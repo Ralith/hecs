@@ -167,7 +167,7 @@ impl EntityBuilderClone {
             self.inner.add(
                 (&mut component as *mut T).cast(),
                 TypeInfo::of::<T>(),
-                Cloneable::new::<T>(TypeInfo::of::<T>()),
+                Cloneable::new::<T>(),
             );
             core::mem::forget(component);
         }
@@ -240,7 +240,7 @@ unsafe impl DynamicBundle for &'_ BuiltEntityClone {
     unsafe fn put(self, mut f: impl FnMut(*mut u8, TypeInfo)) {
         for &(_, offset, ref clone) in &self.0.info {
             let ptr = self.0.storage.as_ptr().add(offset);
-            (clone.func)(ptr, clone.type_info, &mut f);
+            (clone.func)(ptr, &mut f);
         }
     }
 }
@@ -389,18 +389,15 @@ impl<M> Default for Common<M> {
 #[derive(Clone)]
 /// Struct providing dynamic clone via callback
 pub struct Cloneable {
-    func: unsafe fn(*const u8, TypeInfo, &mut dyn FnMut(*mut u8, TypeInfo)),
-    // Store type info along with cloneable
-    type_info: TypeInfo,
+    func: unsafe fn(*const u8, &mut dyn FnMut(*mut u8, TypeInfo)),
 }
 
 impl Cloneable {
-    pub(crate) fn new<T: Component + Clone>(type_info: TypeInfo) -> Self {
+    pub(crate) fn new<T: Component + Clone>() -> Self {
         Self {
-            type_info,
-            func: |src, ty, f| unsafe {
+            func: |src, f| unsafe {
                 let mut tmp = (*src.cast::<T>()).clone();
-                f((&mut tmp as *mut T).cast(), ty);
+                f((&mut tmp as *mut T).cast(), TypeInfo::of::<T>());
                 core::mem::forget(tmp);
             },
         }
@@ -419,17 +416,13 @@ impl Clone for Common<Cloneable> {
                 indices: self.indices.clone(),
             };
             for &(_, offset, ref clone) in &self.info {
-                (clone.func)(
-                    self.storage.as_ptr().add(offset),
-                    clone.type_info,
-                    &mut |src, ty| {
-                        result
-                            .storage
-                            .as_ptr()
-                            .add(offset)
-                            .copy_from_nonoverlapping(src, ty.layout().size())
-                    },
-                );
+                (clone.func)(self.storage.as_ptr().add(offset), &mut |src, ty| {
+                    result
+                        .storage
+                        .as_ptr()
+                        .add(offset)
+                        .copy_from_nonoverlapping(src, ty.layout().size())
+                });
             }
             result
         }

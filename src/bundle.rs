@@ -128,7 +128,7 @@ macro_rules! tuple_impl {
                     f(
                         (&mut $name as *mut $name).cast::<u8>(),
                         TypeInfo::of::<$name>(),
-                        Cloneable::new::<$name>(TypeInfo::of::<$name>())
+                        Cloneable::new::<$name>()
                     );
                     mem::forget($name);
                 )*
