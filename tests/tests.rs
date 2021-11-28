@@ -201,6 +201,31 @@ fn build_entity() {
 }
 
 #[test]
+fn build_entity_clone() {
+    let mut world = World::new();
+    let mut entity = EntityBuilderClone::new();
+    entity.add("abc");
+    entity.add(123);
+    let e = world.spawn(&entity.build());
+    let mut entity = EntityBuilderClone::new();
+    entity.add("def");
+    entity.add([0u8; 1024]);
+    entity.add(456);
+    entity.add(789);
+    entity.add_bundle(("yup", 67_usize));
+    entity.add_bundle((5.0_f32, String::from("Foo")));
+    entity.add_bundle((7.0_f32, String::from("Bar"), 42_usize));
+    let f = world.spawn(&entity.build());
+    assert_eq!(*world.get::<&str>(e).unwrap(), "abc");
+    assert_eq!(*world.get::<i32>(e).unwrap(), 123);
+    assert_eq!(*world.get::<&str>(f).unwrap(), "yup");
+    assert_eq!(*world.get::<i32>(f).unwrap(), 789);
+    assert_eq!(*world.get::<usize>(f).unwrap(), 42);
+    assert_eq!(*world.get::<f32>(f).unwrap(), 7.0);
+    assert_eq!(*world.get::<String>(f).unwrap(), "Bar");
+}
+
+#[test]
 fn access_builder_components() {
     let mut world = World::new();
     let mut entity = EntityBuilder::new();
