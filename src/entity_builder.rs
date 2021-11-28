@@ -179,7 +179,7 @@ impl EntityBuilderClone {
     /// If the bundle contains any component which matches the type of a component
     /// already in the `EntityBuilder`, the newly added component from the bundle
     /// will replace the old component and the old component will be dropped.
-    pub fn add_bundle<T: Component + DynamicBundleClone>(&mut self, bundle: T) -> &mut Self {
+    pub fn add_bundle(&mut self, bundle: impl DynamicBundleClone) -> &mut Self {
         unsafe {
             bundle.put_with_clone(|ptr, ty, cloneable| self.inner.add(ptr, ty, cloneable));
         }
