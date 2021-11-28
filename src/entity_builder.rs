@@ -399,7 +399,6 @@ impl Cloneable {
         Self {
             type_info,
             func: |src, ty, f| unsafe {
-                std::dbg!(ty);
                 let mut tmp = (*src.cast::<T>()).clone();
                 f((&mut tmp as *mut T).cast(), ty);
                 core::mem::forget(tmp);

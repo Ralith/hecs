@@ -159,7 +159,6 @@ impl World {
             components.put(|ptr, ty| {
                 archetype.put_dynamic(ptr, ty.id(), ty.layout().size(), index);
             });
-
             self.entities.meta[entity.id as usize].location = Location {
                 archetype: archetype_id,
                 index,

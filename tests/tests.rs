@@ -5,6 +5,8 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
+use std::borrow::Cow;
+
 use hecs::*;
 
 #[test]
@@ -204,10 +206,6 @@ fn build_entity() {
 fn build_entity_clone() {
     let mut world = World::new();
     let mut entity = EntityBuilderClone::new();
-    entity.add("abc");
-    entity.add(123);
-    let e = world.spawn(&entity.build());
-    let mut entity = EntityBuilderClone::new();
     entity.add("def");
     entity.add([0u8; 1024]);
     entity.add(456);
@@ -215,14 +213,23 @@ fn build_entity_clone() {
     entity.add_bundle(("yup", 67_usize));
     entity.add_bundle((5.0_f32, String::from("Foo")));
     entity.add_bundle((7.0_f32, String::from("Bar"), 42_usize));
-    let f = world.spawn(&entity.build());
-    assert_eq!(*world.get::<&str>(e).unwrap(), "abc");
-    assert_eq!(*world.get::<i32>(e).unwrap(), 123);
-    assert_eq!(*world.get::<&str>(f).unwrap(), "yup");
-    assert_eq!(*world.get::<i32>(f).unwrap(), 789);
-    assert_eq!(*world.get::<usize>(f).unwrap(), 42);
-    assert_eq!(*world.get::<f32>(f).unwrap(), 7.0);
-    assert_eq!(*world.get::<String>(f).unwrap(), "Bar");
+    let entity = entity.build();
+    let e = world.spawn(&entity);
+    let f = world.spawn(&entity);
+    let g = world.spawn(&entity);
+    world
+        .insert_one(g, Cow::<'static, str>::from("after"))
+        .unwrap();
+
+    for e in [e, f, g] {
+        assert_eq!(*world.get::<&str>(e).unwrap(), "yup");
+        assert_eq!(*world.get::<i32>(e).unwrap(), 789);
+        assert_eq!(*world.get::<usize>(e).unwrap(), 42);
+        assert_eq!(*world.get::<f32>(e).unwrap(), 7.0);
+        assert_eq!(*world.get::<String>(e).unwrap(), "Bar");
+    }
+
+    assert_eq!(*world.get::<Cow<'static, str>>(g).unwrap(), "after");
 }
 
 #[test]
