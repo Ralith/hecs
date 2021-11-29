@@ -245,6 +245,15 @@ unsafe impl DynamicBundle for &'_ BuiltEntityClone {
     }
 }
 
+unsafe impl DynamicBundleClone for &'_ BuiltEntityClone {
+    unsafe fn put_with_clone(self, mut f: impl FnMut(*mut u8, TypeInfo, DynamicClone)) {
+        for &(_, offset, clone) in &self.0.info {
+            let ptr = self.0.storage.as_ptr().add(offset);
+            (clone.func)(ptr, &mut |src, ty| f(src, ty, clone));
+        }
+    }
+}
+
 impl From<EntityBuilderClone> for BuiltEntityClone {
     fn from(mut x: EntityBuilderClone) -> Self {
         x.inner.info.sort_unstable_by_key(|y| y.0);

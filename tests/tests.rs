@@ -233,6 +233,18 @@ fn build_entity_clone() {
 }
 
 #[test]
+fn build_builder_clone() {
+    let mut a = EntityBuilderClone::new();
+    a.add(String::from("abc"));
+    a.add(123);
+    let mut b = EntityBuilderClone::new();
+    b.add(String::from("def"));
+    b.add_bundle(&a.build());
+    assert_eq!(b.get::<String>(), Some(&String::from("abc")));
+    assert_eq!(b.get::<i32>(), Some(&123));
+}
+
+#[test]
 fn access_builder_components() {
     let mut world = World::new();
     let mut entity = EntityBuilder::new();
