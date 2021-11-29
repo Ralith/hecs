@@ -1,3 +1,8 @@
+# Unreleased
+
+### Added
+- `EntityBuilderClone::add_bundle` accepting bundles of `Clone` components
+
 # 0.7.0
 
 ### Added
