@@ -7,7 +7,7 @@
 
 use crate::alloc::alloc::{alloc, dealloc, Layout};
 use crate::alloc::vec::Vec;
-use crate::bundle::DynamicBundleClone;
+use crate::bundle::{DynamicBundleClone, DynamicClone};
 use core::any::TypeId;
 use core::ptr::{self, NonNull};
 
@@ -149,7 +149,7 @@ impl Drop for BuiltEntity<'_> {
 /// ```
 #[derive(Clone, Default)]
 pub struct EntityBuilderClone {
-    inner: Common<Cloneable>,
+    inner: Common<DynamicClone>,
 }
 
 impl EntityBuilderClone {
@@ -167,7 +167,7 @@ impl EntityBuilderClone {
             self.inner.add(
                 (&mut component as *mut T).cast(),
                 TypeInfo::of::<T>(),
-                Cloneable::new::<T>(),
+                DynamicClone::new::<T>(),
             );
             core::mem::forget(component);
         }
@@ -226,7 +226,7 @@ impl EntityBuilderClone {
 /// Built from, and convertible back into, [`EntityBuilderClone`]. `DynamicBundle` is implemented
 /// for *references to* this type, allowing it to be e.g. spawned repeatedly.
 #[derive(Clone)]
-pub struct BuiltEntityClone(Common<Cloneable>);
+pub struct BuiltEntityClone(Common<DynamicClone>);
 
 unsafe impl DynamicBundle for &'_ BuiltEntityClone {
     fn with_ids<T>(&self, f: impl FnOnce(&[TypeId]) -> T) -> T {
@@ -386,25 +386,7 @@ impl<M> Default for Common<M> {
     }
 }
 
-#[derive(Clone)]
-/// Struct providing dynamic clone via callback
-pub struct Cloneable {
-    func: unsafe fn(*const u8, &mut dyn FnMut(*mut u8, TypeInfo)),
-}
-
-impl Cloneable {
-    pub(crate) fn new<T: Component + Clone>() -> Self {
-        Self {
-            func: |src, f| unsafe {
-                let mut tmp = (*src.cast::<T>()).clone();
-                f((&mut tmp as *mut T).cast(), TypeInfo::of::<T>());
-                core::mem::forget(tmp);
-            },
-        }
-    }
-}
-
-impl Clone for Common<Cloneable> {
+impl Clone for Common<DynamicClone> {
     fn clone(&self) -> Self {
         unsafe {
             let result = Common {
