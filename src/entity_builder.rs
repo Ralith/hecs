@@ -7,6 +7,7 @@
 
 use crate::alloc::alloc::{alloc, dealloc, Layout};
 use crate::alloc::vec::Vec;
+use crate::bundle::DynamicBundleClone;
 use core::any::TypeId;
 use core::ptr::{self, NonNull};
 
@@ -173,6 +174,18 @@ impl EntityBuilderClone {
         self
     }
 
+    /// Add all components in `bundle` to the entity.
+    ///
+    /// If the bundle contains any component which matches the type of a component
+    /// already in the `EntityBuilder`, the newly added component from the bundle
+    /// will replace the old component and the old component will be dropped.
+    pub fn add_bundle(&mut self, bundle: impl DynamicBundleClone) -> &mut Self {
+        unsafe {
+            bundle.put_with_clone(|ptr, ty, cloneable| self.inner.add(ptr, ty, cloneable));
+        }
+        self
+    }
+
     /// Convert into a value whose shared references are [`DynamicBundle`]s suitable for repeated
     /// spawning
     pub fn build(self) -> BuiltEntityClone {
@@ -227,7 +240,7 @@ unsafe impl DynamicBundle for &'_ BuiltEntityClone {
     unsafe fn put(self, mut f: impl FnMut(*mut u8, TypeInfo)) {
         for &(_, offset, ref clone) in &self.0.info {
             let ptr = self.0.storage.as_ptr().add(offset);
-            (clone.0)(ptr, &mut f);
+            (clone.func)(ptr, &mut f);
         }
     }
 }
@@ -374,15 +387,20 @@ impl<M> Default for Common<M> {
 }
 
 #[derive(Clone)]
-struct Cloneable(unsafe fn(*const u8, &mut dyn FnMut(*mut u8, TypeInfo)));
+/// Struct providing dynamic clone via callback
+pub struct Cloneable {
+    func: unsafe fn(*const u8, &mut dyn FnMut(*mut u8, TypeInfo)),
+}
 
 impl Cloneable {
-    fn new<T: Component + Clone>() -> Self {
-        Self(|src, f| unsafe {
-            let mut tmp = (*src.cast::<T>()).clone();
-            f((&mut tmp as *mut T).cast(), TypeInfo::of::<T>());
-            core::mem::forget(tmp);
-        })
+    pub(crate) fn new<T: Component + Clone>() -> Self {
+        Self {
+            func: |src, f| unsafe {
+                let mut tmp = (*src.cast::<T>()).clone();
+                f((&mut tmp as *mut T).cast(), TypeInfo::of::<T>());
+                core::mem::forget(tmp);
+            },
+        }
     }
 }
 
@@ -398,7 +416,7 @@ impl Clone for Common<Cloneable> {
                 indices: self.indices.clone(),
             };
             for &(_, offset, ref clone) in &self.info {
-                (clone.0)(self.storage.as_ptr().add(offset), &mut |src, ty| {
+                (clone.func)(self.storage.as_ptr().add(offset), &mut |src, ty| {
                     result
                         .storage
                         .as_ptr()

@@ -6,6 +6,7 @@
 // copied, modified, or distributed except according to those terms.
 
 use crate::alloc::{vec, vec::Vec};
+use crate::entity_builder::Cloneable;
 use core::any::{type_name, TypeId};
 use core::ptr::NonNull;
 use core::{fmt, mem};
@@ -57,6 +58,17 @@ pub unsafe trait Bundle: DynamicBundle {
         Self: Sized;
 }
 
+/// A dynamically typed collection of cloneable components
+pub unsafe trait DynamicBundleClone: DynamicBundle {
+    /// Allow a callback to move all components out of the bundle
+    ///
+    /// Must invoke `f` only with a valid pointer and the pointee's type and size. `put` may only be
+    /// called at most once on any given value. Provides helper type for cloning
+    /// each type.
+    #[doc(hidden)]
+    unsafe fn put_with_clone(self, f: impl FnMut(*mut u8, TypeInfo, Cloneable));
+}
+
 /// Error indicating that an entity did not have a required component
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct MissingComponent(&'static str);
@@ -100,6 +112,23 @@ macro_rules! tuple_impl {
                     f(
                         (&mut $name as *mut $name).cast::<u8>(),
                         TypeInfo::of::<$name>()
+                    );
+                    mem::forget($name);
+                )*
+            }
+        }
+
+        unsafe impl<$($name: Component + Clone),*> DynamicBundleClone for ($($name,)*) {
+            // Compiler false positive warnings
+            #[allow(unused_variables, unused_mut)]
+            unsafe fn put_with_clone(self, mut f: impl FnMut(*mut u8, TypeInfo, Cloneable)) {
+                #[allow(non_snake_case)]
+                let ($(mut $name,)*) = self;
+                $(
+                    f(
+                        (&mut $name as *mut $name).cast::<u8>(),
+                        TypeInfo::of::<$name>(),
+                        Cloneable::new::<$name>()
                     );
                     mem::forget($name);
                 )*
