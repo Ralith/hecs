@@ -238,7 +238,7 @@ unsafe impl DynamicBundle for &'_ BuiltEntityClone {
     }
 
     unsafe fn put(self, mut f: impl FnMut(*mut u8, TypeInfo)) {
-        for &(_, offset, ref clone) in &self.0.info {
+        for &(_, offset, clone) in &self.0.info {
             let ptr = self.0.storage.as_ptr().add(offset);
             (clone.func)(ptr, &mut f);
         }
