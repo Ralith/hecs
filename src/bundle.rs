@@ -6,7 +6,6 @@
 // copied, modified, or distributed except according to those terms.
 
 use crate::alloc::{vec, vec::Vec};
-use crate::entity_builder::Cloneable;
 use core::any::{type_name, TypeId};
 use core::ptr::NonNull;
 use core::{fmt, mem};
@@ -66,7 +65,25 @@ pub unsafe trait DynamicBundleClone: DynamicBundle {
     /// called at most once on any given value. Provides helper type for cloning
     /// each type.
     #[doc(hidden)]
-    unsafe fn put_with_clone(self, f: impl FnMut(*mut u8, TypeInfo, Cloneable));
+    unsafe fn put_with_clone(self, f: impl FnMut(*mut u8, TypeInfo, DynamicClone));
+}
+
+#[derive(Clone)]
+/// Type-erased [`Clone`] implementation
+pub struct DynamicClone {
+    pub(crate) func: unsafe fn(*const u8, &mut dyn FnMut(*mut u8, TypeInfo)),
+}
+
+impl DynamicClone {
+    pub(crate) fn new<T: Component + Clone>() -> Self {
+        Self {
+            func: |src, f| unsafe {
+                let mut tmp = (*src.cast::<T>()).clone();
+                f((&mut tmp as *mut T).cast(), TypeInfo::of::<T>());
+                core::mem::forget(tmp);
+            },
+        }
+    }
 }
 
 /// Error indicating that an entity did not have a required component
@@ -121,14 +138,14 @@ macro_rules! tuple_impl {
         unsafe impl<$($name: Component + Clone),*> DynamicBundleClone for ($($name,)*) {
             // Compiler false positive warnings
             #[allow(unused_variables, unused_mut)]
-            unsafe fn put_with_clone(self, mut f: impl FnMut(*mut u8, TypeInfo, Cloneable)) {
+            unsafe fn put_with_clone(self, mut f: impl FnMut(*mut u8, TypeInfo, DynamicClone)) {
                 #[allow(non_snake_case)]
                 let ($(mut $name,)*) = self;
                 $(
                     f(
                         (&mut $name as *mut $name).cast::<u8>(),
                         TypeInfo::of::<$name>(),
-                        Cloneable::new::<$name>()
+                        DynamicClone::new::<$name>()
                     );
                     mem::forget($name);
                 )*
