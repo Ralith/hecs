@@ -923,7 +923,7 @@ impl<'q, Q: Query> Iterator for BatchedIter<'q, Q> {
     }
 }
 
-/// A sequence of entities yielded by `BatchedIter`
+/// A sequence of entities yielded by [`BatchedIter`]
 pub struct Batch<'q, Q: Query> {
     meta: &'q [EntityMeta],
     state: ChunkIter<Q>,

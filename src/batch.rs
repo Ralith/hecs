@@ -131,7 +131,7 @@ impl<T> BatchWriter<'_, T> {
     }
 }
 
-/// Error indicating that a `ColumnBatchBuilder` was missing components
+/// Error indicating that a [`ColumnBatchBuilder`] was missing components
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct BatchIncomplete {
     _opaque: (),
