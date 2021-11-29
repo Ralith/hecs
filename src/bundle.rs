@@ -66,7 +66,7 @@ pub unsafe trait DynamicBundleClone: DynamicBundle {
     unsafe fn put_with_clone(self, f: impl FnMut(*mut u8, TypeInfo, DynamicClone));
 }
 
-#[derive(Clone)]
+#[derive(Copy, Clone)]
 /// Type-erased [`Clone`] implementation
 pub struct DynamicClone {
     pub(crate) func: unsafe fn(*const u8, &mut dyn FnMut(*mut u8, TypeInfo)),
