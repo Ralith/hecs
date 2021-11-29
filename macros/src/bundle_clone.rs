@@ -1,7 +1,8 @@
-use proc_macro2::Span;
 use proc_macro2::TokenStream as TokenStream2;
 use quote::quote;
 use syn::{DeriveInput, Error, Result};
+
+use crate::common::struct_fields;
 
 pub fn derive(input: DeriveInput) -> Result<TokenStream2> {
     let ident = input.ident;
@@ -60,29 +61,4 @@ fn add_additional_bounds_to_generic_params(mut generics: syn::Generics) -> syn::
             .push(syn::TypeParamBound::Trait(make_component_trait_bound()))
     });
     generics
-}
-
-fn struct_fields(fields: &syn::Fields) -> (Vec<&syn::Type>, Vec<syn::Member>) {
-    match fields {
-        syn::Fields::Named(ref fields) => fields
-            .named
-            .iter()
-            .map(|f| (&f.ty, syn::Member::Named(f.ident.clone().unwrap())))
-            .unzip(),
-        syn::Fields::Unnamed(ref fields) => fields
-            .unnamed
-            .iter()
-            .enumerate()
-            .map(|(i, f)| {
-                (
-                    &f.ty,
-                    syn::Member::Unnamed(syn::Index {
-                        index: i as u32,
-                        span: Span::call_site(),
-                    }),
-                )
-            })
-            .unzip(),
-        syn::Fields::Unit => (Vec::new(), Vec::new()),
-    }
 }

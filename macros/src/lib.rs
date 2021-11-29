@@ -11,6 +11,8 @@ mod bundle;
 mod bundle_clone;
 mod query;
 
+pub(crate) mod common;
+
 use proc_macro::TokenStream;
 use syn::{parse_macro_input, DeriveInput};
 
