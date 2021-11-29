@@ -245,6 +245,39 @@ fn build_builder_clone() {
 }
 
 #[test]
+#[cfg(feature = "macros")]
+fn build_dynamic_bundle() {
+    #[derive(Bundle, DynamicBundleClone)]
+    struct Foo {
+        x: i32,
+        y: char,
+    }
+
+    let mut world = World::new();
+    let mut entity = EntityBuilderClone::new();
+    entity.add_bundle(Foo { x: 5, y: 'c' });
+    entity.add_bundle((String::from("Bar"), 6.0_f32));
+    entity.add('a');
+    let entity = entity.build();
+    let e = world.spawn(&entity);
+    let f = world.spawn(&entity);
+    let g = world.spawn(&entity);
+
+    world
+        .insert_one(g, Cow::<'static, str>::from("after"))
+        .unwrap();
+
+    for e in [e, f, g] {
+        assert_eq!(*world.get::<i32>(e).unwrap(), 5);
+        assert_eq!(*world.get::<char>(e).unwrap(), 'a');
+        assert_eq!(*world.get::<String>(e).unwrap(), "Bar");
+        assert_eq!(*world.get::<f32>(e).unwrap(), 6.0);
+    }
+
+    assert_eq!(*world.get::<Cow<'static, str>>(g).unwrap(), "after");
+}
+
+#[test]
 fn access_builder_components() {
     let mut world = World::new();
     let mut entity = EntityBuilder::new();

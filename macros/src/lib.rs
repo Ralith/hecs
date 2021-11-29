@@ -8,6 +8,7 @@
 extern crate proc_macro;
 
 mod bundle;
+mod bundle_clone;
 mod query;
 
 use proc_macro::TokenStream;
@@ -34,6 +35,22 @@ use syn::{parse_macro_input, DeriveInput};
 pub fn derive_bundle(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     match bundle::derive(input) {
+        Ok(ts) => ts,
+        Err(e) => e.to_compile_error(),
+    }
+    .into()
+}
+
+/// Implement `DynamicBundleClone` for a struct.
+///
+/// This is an extension macro for bundles which allow them to be cloned, and
+/// subsequently used in `EntityBuilderClone::add_bundle`.
+///
+/// Requires that all fields of the struct implement clone.
+#[proc_macro_derive(DynamicBundleClone)]
+pub fn derive_dynamic_bundle_clone(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    match bundle_clone::derive(input) {
         Ok(ts) => ts,
         Err(e) => e.to_compile_error(),
     }
