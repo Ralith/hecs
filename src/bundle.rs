@@ -30,8 +30,7 @@ pub unsafe trait DynamicBundle {
     fn type_info(&self) -> Vec<TypeInfo>;
     /// Allow a callback to move all components out of the bundle
     ///
-    /// Must invoke `f` only with a valid pointer and the pointee's type and size. `put` may only be
-    /// called at most once on any given value.
+    /// Must invoke `f` only with a valid pointer and the pointee's type and size.
     #[doc(hidden)]
     unsafe fn put(self, f: impl FnMut(*mut u8, TypeInfo));
 }
@@ -61,9 +60,8 @@ pub unsafe trait Bundle: DynamicBundle {
 pub unsafe trait DynamicBundleClone: DynamicBundle {
     /// Allow a callback to move all components out of the bundle
     ///
-    /// Must invoke `f` only with a valid pointer and the pointee's type and size. `put` may only be
-    /// called at most once on any given value. Provides helper type for cloning
-    /// each type.
+    /// Must invoke `f` only with a valid pointer, the pointee's type and size, and a `DynamicClone`
+    /// constructed for the pointee's type.
     #[doc(hidden)]
     unsafe fn put_with_clone(self, f: impl FnMut(*mut u8, TypeInfo, DynamicClone));
 }
