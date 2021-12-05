@@ -28,6 +28,7 @@ pub trait Query {
 pub type QueryItem<'a, Q> = <<Q as Query>::Fetch as Fetch<'a>>::Item;
 
 /// Streaming iterators over contiguous homogeneous ranges of components
+#[allow(clippy::missing_safety_doc)]
 pub unsafe trait Fetch<'a>: Sized {
     /// Type of value to be fetched
     type Item;
