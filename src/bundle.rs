@@ -14,6 +14,7 @@ use crate::archetype::TypeInfo;
 use crate::Component;
 
 /// A dynamically typed collection of components
+#[allow(clippy::missing_safety_doc)]
 pub unsafe trait DynamicBundle {
     /// Returns a `TypeId` uniquely identifying the set of components, if known
     #[doc(hidden)]
@@ -36,6 +37,7 @@ pub unsafe trait DynamicBundle {
 }
 
 /// A statically typed collection of components
+#[allow(clippy::missing_safety_doc)]
 pub unsafe trait Bundle: DynamicBundle {
     #[doc(hidden)]
     fn with_static_ids<T>(f: impl FnOnce(&[TypeId]) -> T) -> T;
@@ -57,6 +59,7 @@ pub unsafe trait Bundle: DynamicBundle {
 }
 
 /// A dynamically typed collection of cloneable components
+#[allow(clippy::missing_safety_doc)]
 pub unsafe trait DynamicBundleClone: DynamicBundle {
     /// Allow a callback to move all components out of the bundle
     ///
