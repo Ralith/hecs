@@ -105,6 +105,17 @@ impl<'a, T: Component> ColumnMut<'a, T> {
 
     /// Access the `T` component of `entity`
     pub fn get(&mut self, entity: Entity) -> Result<&mut T, ComponentError> {
+        unsafe { self.get_unchecked(entity) }
+    }
+
+    /// Access the `T` component of `entity` without unique access to `self`. Allows simultaneous
+    /// access to the components of multiple entities.
+    ///
+    /// # Safety
+    ///
+    /// Must not be invoked while a borrow to any part of the same `T` is live, e.g. due to a prior
+    /// call to `get_unchecked` on the same entity.
+    pub unsafe fn get_unchecked(&self, entity: Entity) -> Result<&mut T, ComponentError> {
         let meta = self
             .entities
             .get(entity.id as usize)
@@ -116,13 +127,11 @@ impl<'a, T: Component> ColumnMut<'a, T> {
             .unwrap();
         let state = self.archetype_state[meta.location.archetype as usize]
             .ok_or_else(MissingComponent::new::<T>)?;
-        unsafe {
-            let target = archetype
-                .get_base::<T>(state)
-                .as_ptr()
-                .add(meta.location.index as usize);
-            Ok(&mut *target)
-        }
+        let target = archetype
+            .get_base::<T>(state)
+            .as_ptr()
+            .add(meta.location.index as usize);
+        Ok(&mut *target)
     }
 }
 
