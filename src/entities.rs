@@ -505,7 +505,10 @@ pub(crate) struct EntityMeta {
 
 impl EntityMeta {
     const EMPTY: EntityMeta = EntityMeta {
-        generation: unsafe { NonZeroU32::new_unchecked(1) },
+        generation: match NonZeroU32::new(1) {
+            Some(x) => x,
+            None => unreachable!(),
+        },
         location: Location {
             archetype: 0,
             index: u32::max_value(), // dummy value, to be filled in
