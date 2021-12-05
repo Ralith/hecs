@@ -4,7 +4,7 @@ error[E0495]: cannot infer an appropriate lifetime for lifetime parameter `'a` d
 3 | #[derive(Query)]
   |          ^^^^^
   |
-note: first, the lifetime cannot outlive the lifetime `'a` as defined on the impl at 3:10...
+note: first, the lifetime cannot outlive the lifetime `'a` as defined here...
  --> $DIR/wrong_lifetime.rs:3:10
   |
 3 | #[derive(Query)]
