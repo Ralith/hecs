@@ -100,7 +100,7 @@ pub use query::Fetch;
 
 #[cfg(feature = "macros")]
 #[doc(hidden)]
-pub use hecs_macros::DynamicClone;
+pub use hecs::DynamicClone;
 #[cfg(feature = "macros")]
 pub use hecs_macros::{Bundle, DynamicBundleClone, Query};
 
