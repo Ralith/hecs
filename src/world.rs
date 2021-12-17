@@ -941,7 +941,7 @@ impl<T: Send + Sync + 'static> Component for T {}
 /// This is just a convenient shorthand for `Send + Sync + Clone + 'static`, and never needs to be
 /// implemented manually.
 pub trait ComponentClone: Send + Sync + Clone + 'static {}
-impl<T: Send + Sync + Clone + 'static> ComponentClone for T {}
+impl<T: Component + Clone> ComponentClone for T {}
 
 /// Iterator over all of a world's entities
 pub struct Iter<'a> {

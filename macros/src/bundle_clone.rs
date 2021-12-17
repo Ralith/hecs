@@ -56,9 +56,9 @@ fn make_component_trait_bound() -> syn::TraitBound {
 }
 
 fn add_additional_bounds_to_generic_params(mut generics: syn::Generics) -> syn::Generics {
-    generics.type_params_mut().for_each(|tp| {
+    for tp in generics.type_params_mut() {
         tp.bounds
             .push(syn::TypeParamBound::Trait(make_component_trait_bound()))
-    });
+    }
     generics
 }

@@ -49,6 +49,9 @@ pub fn derive_bundle(input: TokenStream) -> TokenStream {
 /// subsequently used in `EntityBuilderClone::add_bundle`.
 ///
 /// Requires that all fields of the struct implement clone.
+///
+/// The trait Bundle must also be implemented to be able to be used in
+/// entity builder.
 #[proc_macro_derive(DynamicBundleClone)]
 pub fn derive_dynamic_bundle_clone(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
