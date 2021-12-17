@@ -78,6 +78,33 @@ fn derived_query() {
 }
 
 #[test]
+#[cfg(feature = "macros")]
+fn derived_bundle_clone() {
+    #[derive(Bundle, DynamicBundleClone)]
+    struct Foo {
+        x: i32,
+        y: bool,
+    }
+
+    #[derive(PartialEq, Debug, Query)]
+    struct FooQuery<'a> {
+        x: &'a i32,
+        y: &'a bool,
+    }
+
+    let mut world = World::new();
+    let mut builder = EntityBuilderClone::new();
+    builder.add_bundle(Foo { x: 42, y: false });
+
+    let entity = builder.build();
+    let e = world.spawn(&entity);
+    assert_eq!(
+        world.query_one_mut::<FooQuery>(e).unwrap(),
+        FooQuery { x: &42, y: &false }
+    );
+}
+
+#[test]
 fn query_single_component() {
     let mut world = World::new();
     let e = world.spawn(("abc", 123));
