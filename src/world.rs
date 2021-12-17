@@ -935,14 +935,6 @@ impl From<NoSuchEntity> for QueryOneError {
 pub trait Component: Send + Sync + 'static {}
 impl<T: Send + Sync + 'static> Component for T {}
 
-/// Types that can be cloneable components, implemented automatically for all
-/// `Send + Sync + Clone + 'static` types
-///
-/// This is just a convenient shorthand for `Send + Sync + Clone + 'static`, and never needs to be
-/// implemented manually.
-pub trait ComponentClone: Send + Sync + Clone + 'static {}
-impl<T: Component + Clone> ComponentClone for T {}
-
 /// Iterator over all of a world's entities
 pub struct Iter<'a> {
     archetypes: core::slice::Iter<'a, Archetype>,
