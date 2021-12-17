@@ -67,7 +67,6 @@ pub unsafe trait DynamicBundleClone: DynamicBundle {
 }
 
 #[derive(Copy, Clone)]
-#[doc(hidden)]
 /// Type-erased [`Clone`] implementation
 pub struct DynamicClone {
     pub(crate) func: unsafe fn(*const u8, &mut dyn FnMut(*mut u8, TypeInfo)),
