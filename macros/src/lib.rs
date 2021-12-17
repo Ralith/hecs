@@ -48,7 +48,7 @@ pub fn derive_bundle(input: TokenStream) -> TokenStream {
 /// This is an extension macro for bundles which allow them to be cloned, and
 /// subsequently used in `EntityBuilderClone::add_bundle`.
 ///
-/// Requires that all fields of the struct implement clone.
+/// Requires that all fields of the struct implement Clone.
 ///
 /// The trait Bundle must also be implemented to be able to be used in
 /// entity builder.
