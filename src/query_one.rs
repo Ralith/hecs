@@ -39,7 +39,9 @@ impl<'a, Q: Query> QueryOne<'a, Q> {
         }
         unsafe {
             let state = Q::Fetch::prepare(self.archetype)?;
-            Q::Fetch::borrow(self.archetype, state);
+            if let Err(e) = Q::Fetch::borrow(self.archetype, state) {
+                panic!("{}", e);
+            }
             let fetch = Q::Fetch::execute(self.archetype, state);
             self.borrowed = true;
             Some(fetch.get(self.index as usize))

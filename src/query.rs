@@ -14,7 +14,7 @@ use core::slice::Iter as SliceIter;
 use crate::alloc::boxed::Box;
 use crate::archetype::Archetype;
 use crate::entities::EntityMeta;
-use crate::{Component, Entity, World};
+use crate::{BorrowError, Component, Entity, World};
 
 /// A collection of component types to fetch from a [`World`](crate::World)
 pub trait Query {
@@ -44,7 +44,7 @@ pub unsafe trait Fetch<'a>: Sized {
     fn access(archetype: &Archetype) -> Option<Access>;
 
     /// Acquire dynamic borrows from `archetype`
-    fn borrow(archetype: &Archetype, state: Self::State);
+    fn borrow(archetype: &Archetype, state: Self::State) -> Result<(), BorrowError>;
     /// Look up state for `archetype` if it should be traversed
     fn prepare(archetype: &Archetype) -> Option<Self::State>;
     /// Construct a `Fetch` for `archetype` based on the associated state
@@ -100,8 +100,8 @@ unsafe impl<'a, T: Component> Fetch<'a> for FetchRead<T> {
         }
     }
 
-    fn borrow(archetype: &Archetype, state: Self::State) {
-        archetype.borrow::<T>(state);
+    fn borrow(archetype: &Archetype, state: Self::State) -> Result<(), BorrowError> {
+        archetype.try_borrow::<T>(state)
     }
     fn prepare(archetype: &Archetype) -> Option<Self::State> {
         archetype.get_state::<T>()
@@ -146,8 +146,8 @@ unsafe impl<'a, T: Component> Fetch<'a> for FetchWrite<T> {
         }
     }
 
-    fn borrow(archetype: &Archetype, state: Self::State) {
-        archetype.borrow_mut::<T>(state);
+    fn borrow(archetype: &Archetype, state: Self::State) -> Result<(), BorrowError> {
+        archetype.try_borrow_mut::<T>(state)
     }
     #[allow(clippy::needless_question_mark)]
     fn prepare(archetype: &Archetype) -> Option<Self::State> {
@@ -189,10 +189,11 @@ unsafe impl<'a, T: Fetch<'a>> Fetch<'a> for TryFetch<T> {
         Some(T::access(archetype).unwrap_or(Access::Iterate))
     }
 
-    fn borrow(archetype: &Archetype, state: Self::State) {
+    fn borrow(archetype: &Archetype, state: Self::State) -> Result<(), BorrowError> {
         if let Some(state) = state {
-            T::borrow(archetype, state);
+            T::borrow(archetype, state)?;
         }
+        Ok(())
     }
     fn prepare(archetype: &Archetype) -> Option<Self::State> {
         Some(T::prepare(archetype))
@@ -327,8 +328,15 @@ unsafe impl<'a, L: Fetch<'a>, R: Fetch<'a>> Fetch<'a> for FetchOr<L, R> {
         L::access(archetype).max(R::access(archetype))
     }
 
-    fn borrow(archetype: &Archetype, state: Self::State) {
-        state.map(|l| L::borrow(archetype, l), |r| R::borrow(archetype, r));
+    fn borrow(archetype: &Archetype, state: Self::State) -> Result<(), BorrowError> {
+        let (l, r) = state.split();
+        if let Some(l) = l {
+            L::borrow(archetype, l)?;
+        }
+        if let Some(r) = r {
+            R::borrow(archetype, r)?;
+        }
+        Ok(())
     }
 
     fn prepare(archetype: &Archetype) -> Option<Self::State> {
@@ -396,7 +404,7 @@ unsafe impl<'a, T: Component, F: Fetch<'a>> Fetch<'a> for FetchWithout<T, F> {
         }
     }
 
-    fn borrow(archetype: &Archetype, state: Self::State) {
+    fn borrow(archetype: &Archetype, state: Self::State) -> Result<(), BorrowError> {
         F::borrow(archetype, state)
     }
     fn prepare(archetype: &Archetype) -> Option<Self::State> {
@@ -466,7 +474,7 @@ unsafe impl<'a, T: Component, F: Fetch<'a>> Fetch<'a> for FetchWith<T, F> {
         }
     }
 
-    fn borrow(archetype: &Archetype, state: Self::State) {
+    fn borrow(archetype: &Archetype, state: Self::State) -> Result<(), BorrowError> {
         F::borrow(archetype, state)
     }
     fn prepare(archetype: &Archetype) -> Option<Self::State> {
@@ -533,7 +541,9 @@ unsafe impl<'a, F: Fetch<'a>> Fetch<'a> for FetchSatisfies<F> {
         F::access(archetype).map(|_| Access::Iterate)
     }
 
-    fn borrow(_archetype: &Archetype, _state: Self::State) {}
+    fn borrow(_archetype: &Archetype, _state: Self::State) -> Result<(), BorrowError> {
+        Ok(())
+    }
     fn prepare(archetype: &Archetype) -> Option<Self::State> {
         Some(F::prepare(archetype).is_some())
     }
@@ -589,10 +599,17 @@ impl<'w, Q: Query> QueryBorrow<'w, Q> {
         if self.borrowed {
             return;
         }
-        for x in self.archetypes {
-            // TODO: Release prior borrows on failure?
+        for (i, x) in self.archetypes.iter().enumerate() {
             if let Some(state) = Q::Fetch::prepare(x) {
-                Q::Fetch::borrow(x, state);
+                if let Err(e) = Q::Fetch::borrow(x, state) {
+                    // Release the borrows we acquired so the `World` remains in a consistent state
+                    for x in &self.archetypes[..i] {
+                        if let Some(state) = Q::Fetch::prepare(x) {
+                            Q::Fetch::release(x, state)
+                        }
+                    }
+                    panic!("{}", e);
+                }
             }
         }
         self.borrowed = true;
@@ -970,9 +987,10 @@ macro_rules! tuple_impl {
             }
 
             #[allow(unused_variables, non_snake_case, clippy::unused_unit)]
-            fn borrow(archetype: &Archetype, state: Self::State) {
+            fn borrow(archetype: &Archetype, state: Self::State) -> Result<(), BorrowError> {
                 let ($($name,)*) = state;
-                $($name::borrow(archetype, $name);)*
+                $($name::borrow(archetype, $name)?;)*
+                Ok(())
             }
             #[allow(unused_variables)]
             fn prepare(archetype: &Archetype) -> Option<Self::State> {
@@ -1094,8 +1112,14 @@ impl<'q, Q: Query> PreparedQueryBorrow<'q, Q> {
         archetypes: &'q [Archetype],
         state: &'q [(usize, <Q::Fetch as Fetch<'static>>::State)],
     ) -> Self {
-        for (idx, state) in state {
-            Q::Fetch::borrow(&archetypes[*idx], *state);
+        for (i, &(idx, archetype_state)) in state.iter().enumerate() {
+            if let Err(e) = Q::Fetch::borrow(&archetypes[idx], archetype_state) {
+                // Release the borrows we acquired so the `World` remains in a consistent state
+                for &(idx, archetype_state) in &state[..i] {
+                    Q::Fetch::release(&archetypes[idx], archetype_state)
+                }
+                panic!("{}", e);
+            }
         }
 
         Self {

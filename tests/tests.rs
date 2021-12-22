@@ -673,3 +673,22 @@ fn column_get_mut() {
     }
     assert_eq!(*world.get::<i32>(ent).unwrap(), 99);
 }
+
+#[cfg(feature = "std")]
+#[test]
+fn consistent_borrows_after_panic() {
+    use std::panic;
+
+    let mut world = World::new();
+    world.spawn(("abc", 123));
+    let mut q = world.query::<&mut i32>();
+    let q_iter = q.iter();
+    std::dbg!();
+    let result = panic::catch_unwind(|| {
+        let mut q = world.query::<(&&str, &i32)>();
+        let _ = q.iter();
+    });
+    assert!(result.is_err());
+    let mut q = world.query::<&mut &str>();
+    let _ = q.iter();
+}

@@ -26,6 +26,10 @@
 - Missing `Batch` reexport
 - Missing `ArchetypeColumn` reexport
 
+### Fixed
+- If a query panics due to a dynamic borrow-checking failure, any borrows that query already
+  acquired are released.
+
 # 0.6.5
 
 ### Changed
