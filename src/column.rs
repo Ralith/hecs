@@ -1,4 +1,5 @@
 use core::marker::PhantomData;
+use core::ptr::NonNull;
 
 use alloc::vec::Vec;
 
@@ -9,7 +10,7 @@ use crate::{Archetype, Component, ComponentError, Entity, MissingComponent};
 pub struct Column<'a, T: Component> {
     entities: &'a [EntityMeta],
     archetypes: &'a [Archetype],
-    archetype_state: Vec<Option<usize>>,
+    archetype_state: Vec<Option<(usize, NonNull<T>)>>,
     _marker: PhantomData<T>,
 }
 
@@ -19,14 +20,17 @@ impl<'a, T: Component> Column<'a, T> {
         archetypes: &'a [Archetype],
         _marker: PhantomData<T>,
     ) -> Self {
-        let mut archetype_state = Vec::with_capacity(archetypes.len());
-        for archetype in archetypes.iter() {
-            let state = archetype.get_state::<T>();
-            archetype_state.push(state);
-            if let Some(state) = state {
-                archetype.borrow::<T>(state);
-            }
-        }
+        let archetype_state = archetypes
+            .iter()
+            .map(|archetype| {
+                let state = archetype.get_state::<T>();
+                state.map(|state| {
+                    archetype.borrow::<T>(state);
+                    let base = archetype.get_base::<T>(state);
+                    (state, base)
+                })
+            })
+            .collect();
 
         Self {
             entities,
@@ -43,17 +47,10 @@ impl<'a, T: Component> Column<'a, T> {
             .get(entity.id as usize)
             .filter(|meta| meta.generation == entity.generation)
             .ok_or(NoSuchEntity)?;
-        let archetype = self
-            .archetypes
-            .get(meta.location.archetype as usize)
-            .unwrap();
-        let state = self.archetype_state[meta.location.archetype as usize]
+        let (_state, base) = self.archetype_state[meta.location.archetype as usize]
             .ok_or_else(MissingComponent::new::<T>)?;
         unsafe {
-            let target = archetype
-                .get_base::<T>(state)
-                .as_ptr()
-                .add(meta.location.index as usize);
+            let target = base.as_ptr().add(meta.location.index as usize);
 
             Ok(&*target)
         }
@@ -65,9 +62,9 @@ unsafe impl<'a, T: Component> Sync for Column<'a, T> {}
 
 impl<'a, T: Component> Drop for Column<'a, T> {
     fn drop(&mut self) {
-        for (archetype, &state) in self.archetypes.iter().zip(&self.archetype_state) {
-            if let Some(state) = state {
-                archetype.release::<T>(state);
+        for (archetype, state) in self.archetypes.iter().zip(&self.archetype_state) {
+            if let Some((state, _base)) = state {
+                archetype.release::<T>(*state);
             }
         }
     }
@@ -77,7 +74,7 @@ impl<'a, T: Component> Drop for Column<'a, T> {
 pub struct ColumnMut<'a, T: Component> {
     entities: &'a [EntityMeta],
     archetypes: &'a [Archetype],
-    archetype_state: Vec<Option<usize>>,
+    archetype_state: Vec<Option<(usize, NonNull<T>)>>,
     _marker: PhantomData<T>,
 }
 
@@ -87,14 +84,18 @@ impl<'a, T: Component> ColumnMut<'a, T> {
         archetypes: &'a [Archetype],
         _marker: PhantomData<T>,
     ) -> Self {
-        let mut archetype_state = Vec::with_capacity(archetypes.len());
-        for archetype in archetypes.iter() {
-            let state = archetype.get_state::<T>();
-            archetype_state.push(state);
-            if let Some(state) = state {
-                archetype.borrow_mut::<T>(state);
-            }
-        }
+        let archetype_state = archetypes
+            .iter()
+            .map(|archetype| {
+                let state = archetype.get_state::<T>();
+                state.map(|state| {
+                    archetype.borrow_mut::<T>(state);
+                    let base = archetype.get_base::<T>(state);
+                    (state, base)
+                })
+            })
+            .collect();
+
         Self {
             entities,
             archetypes,
@@ -121,16 +122,9 @@ impl<'a, T: Component> ColumnMut<'a, T> {
             .get(entity.id as usize)
             .filter(|meta| meta.generation == entity.generation)
             .ok_or(NoSuchEntity)?;
-        let archetype = self
-            .archetypes
-            .get(meta.location.archetype as usize)
-            .unwrap();
-        let state = self.archetype_state[meta.location.archetype as usize]
+        let (_state, base) = self.archetype_state[meta.location.archetype as usize]
             .ok_or_else(MissingComponent::new::<T>)?;
-        let target = archetype
-            .get_base::<T>(state)
-            .as_ptr()
-            .add(meta.location.index as usize);
+        let target = base.as_ptr().add(meta.location.index as usize);
         Ok(&mut *target)
     }
 }
@@ -140,9 +134,9 @@ unsafe impl<'a, T: Component> Sync for ColumnMut<'a, T> {}
 
 impl<'a, T: Component> Drop for ColumnMut<'a, T> {
     fn drop(&mut self) {
-        for (archetype, &state) in self.archetypes.iter().zip(&self.archetype_state) {
-            if let Some(state) = state {
-                archetype.release_mut::<T>(state);
+        for (archetype, state) in self.archetypes.iter().zip(&self.archetype_state) {
+            if let Some((state, _base)) = state {
+                archetype.release_mut::<T>(*state);
             }
         }
     }
