@@ -51,7 +51,7 @@ fn make_component_trait_bound() -> syn::TraitBound {
         paren_token: None,
         modifier: syn::TraitBoundModifier::None,
         lifetimes: None,
-        path: syn::parse_quote!(::hecs::ComponentClone),
+        path: syn::parse_quote!(::std::clone::Clone),
     }
 }
 

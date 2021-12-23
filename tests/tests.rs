@@ -81,26 +81,36 @@ fn derived_query() {
 #[cfg(feature = "macros")]
 fn derived_bundle_clone() {
     #[derive(Bundle, DynamicBundleClone)]
-    struct Foo {
+    struct Foo<T: Clone + Component> {
         x: i32,
         y: bool,
+        z: T,
     }
 
     #[derive(PartialEq, Debug, Query)]
     struct FooQuery<'a> {
         x: &'a i32,
         y: &'a bool,
+        z: &'a String,
     }
 
     let mut world = World::new();
     let mut builder = EntityBuilderClone::new();
-    builder.add_bundle(Foo { x: 42, y: false });
+    builder.add_bundle(Foo {
+        x: 42,
+        y: false,
+        z: String::from("Foo"),
+    });
 
     let entity = builder.build();
     let e = world.spawn(&entity);
     assert_eq!(
         world.query_one_mut::<FooQuery>(e).unwrap(),
-        FooQuery { x: &42, y: &false }
+        FooQuery {
+            x: &42,
+            y: &false,
+            z: &String::from("Foo"),
+        }
     );
 }
 
