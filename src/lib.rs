@@ -80,8 +80,9 @@ pub use entities::{Entity, NoSuchEntity};
 pub use entity_builder::{BuiltEntity, BuiltEntityClone, EntityBuilder, EntityBuilderClone};
 pub use entity_ref::{EntityRef, Ref, RefMut};
 pub use query::{
-    Access, Batch, BatchedIter, Or, PreparedQuery, PreparedQueryBorrow, PreparedQueryIter, Query,
-    QueryBorrow, QueryItem, QueryIter, QueryMut, QueryShared, Satisfies, With, Without,
+    Access, Batch, BatchedIter, Or, PreparedQuery, PreparedQueryBorrow, PreparedQueryIter,
+    PreparedView, Query, QueryBorrow, QueryItem, QueryIter, QueryMut, QueryShared, Satisfies, With,
+    Without,
 };
 pub use query_one::QueryOne;
 pub use world::{

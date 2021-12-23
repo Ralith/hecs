@@ -218,6 +218,21 @@ fn access_column(b: &mut Bencher) {
         let _comp = bencher::black_box(column.get(entc).unwrap());
     });
 }
+
+fn access_view(b: &mut Bencher) {
+    let mut world = World::new();
+    let _enta = world.spawn((Position(0.0), Velocity(0.0)));
+    let _entb = world.spawn((true, 12));
+    let entc = world.spawn((Position(3.0),));
+    let _entd = world.spawn((13, true, 4.0));
+    let mut query = PreparedQuery::<&Position>::new();
+    let mut query = query.query(&world);
+    let view = query.view();
+    b.iter(|| {
+        let _comp = bencher::black_box(view.get(entc).unwrap());
+    });
+}
+
 fn spawn_buffered(b: &mut Bencher) {
     let mut world = World::new();
     let mut buffer = CommandBuffer::new();
@@ -244,6 +259,7 @@ benchmark_group!(
     build,
     build_cloneable,
     access_column,
+    access_view,
     spawn_buffered,
 );
 benchmark_main!(benches);
