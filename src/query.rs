@@ -1097,6 +1097,23 @@ impl<Q: Query> PreparedQuery<Q> {
 
         unsafe { PreparedQueryIter::new(meta, archetypes, state.iter()) }
     }
+
+    /// Provide random access to query results for a uniquely borrow world
+    pub fn view_mut<'q>(&'q mut self, world: &'q mut World) -> PreparedView<'q, Q> {
+        assert_borrow::<Q>();
+
+        if self.memo != world.memo() {
+            *self = Self::prepare(world);
+        }
+
+        let meta = world.entities_meta();
+        let archetypes = world.archetypes_inner();
+
+        let state: &'q [(usize, <Q::Fetch as Fetch<'q>>::State)] =
+            unsafe { mem::transmute(&*self.state) };
+
+        unsafe { PreparedView::new(meta, archetypes, state.iter()) }
+    }
 }
 
 /// Combined borrow of a [`PreparedQuery`] and a [`World`]
