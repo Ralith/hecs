@@ -11,7 +11,7 @@ use core::mem;
 use core::ptr::NonNull;
 use core::slice::Iter as SliceIter;
 
-use crate::alloc::boxed::Box;
+use crate::alloc::{boxed::Box, vec::Vec};
 use crate::archetype::Archetype;
 use crate::entities::EntityMeta;
 use crate::{Component, Entity, World};
@@ -1131,6 +1131,14 @@ impl<'q, Q: Query> PreparedQueryBorrow<'q, Q> {
 
         unsafe { PreparedQueryIter::new(self.meta, self.archetypes, state.iter()) }
     }
+
+    /// Provides random access to the results of the prepared query
+    pub fn view<'i>(&'i mut self) -> PreparedView<'i, Q> {
+        let state: &'i [(usize, <Q::Fetch as Fetch<'i>>::State)] =
+            unsafe { mem::transmute(self.state) };
+
+        unsafe { PreparedView::new(self.meta, self.archetypes, state.iter()) }
+    }
 }
 
 impl<Q: Query> Drop for PreparedQueryBorrow<'_, Q> {
@@ -1215,6 +1223,66 @@ impl<Q: Query> ExactSizeIterator for PreparedQueryIter<'_, Q> {
             .map(|(idx, _)| self.archetypes[*idx].len() as usize)
             .sum::<usize>()
             + self.iter.remaining()
+    }
+}
+
+/// Provides random access to the results of a prepared query
+pub struct PreparedView<'q, Q: Query> {
+    meta: &'q [EntityMeta],
+    fetch: Vec<Option<Q::Fetch>>,
+}
+
+impl<'q, Q: Query> PreparedView<'q, Q> {
+    /// # Safety
+    ///
+    /// `'q` must be sufficient to guarantee that `Q` cannot violate borrow safety, either with
+    /// dynamic borrow checks or by representing exclusive access to the `World`.
+    unsafe fn new(
+        meta: &'q [EntityMeta],
+        archetypes: &'q [Archetype],
+        state: SliceIter<'q, (usize, <Q::Fetch as Fetch<'q>>::State)>,
+    ) -> Self {
+        let mut fetch = (0..archetypes.len()).map(|_| None).collect::<Vec<_>>();
+
+        for (idx, state) in state {
+            let archetype = &archetypes[*idx];
+            fetch[*idx] = Some(Q::Fetch::execute(archetype, *state));
+        }
+
+        Self { meta, fetch }
+    }
+
+    /// Retrieve the query results corresponding to `entity`
+    ///
+    /// Will yield `None` if the entity does not exist or does not match the query.
+    ///
+    /// Does not require exclusive access to the map, but is defined only for queries yielding only shared references.
+    pub fn get<'m>(&'m self, entity: Entity) -> Option<QueryItem<'q, Q>>
+    where
+        Q: QueryShared,
+    {
+        let meta = self.meta.get(entity.id as usize)?;
+        if meta.generation != entity.generation {
+            return None;
+        }
+
+        self.fetch[meta.location.archetype as usize]
+            .as_ref()
+            .map(|fetch| unsafe { fetch.get(meta.location.index as usize) })
+    }
+
+    /// Retrieve the query results corresponding to `entity`
+    ///
+    /// Will yield `None` if the entity does not exist or does not match the query.
+    pub fn get_mut<'m>(&'m mut self, entity: Entity) -> Option<QueryItem<'q, Q>> {
+        let meta = self.meta.get(entity.id as usize)?;
+        if meta.generation != entity.generation {
+            return None;
+        }
+
+        self.fetch[meta.location.archetype as usize]
+            .as_ref()
+            .map(|fetch| unsafe { fetch.get(meta.location.index as usize) })
     }
 }
 

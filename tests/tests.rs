@@ -222,6 +222,23 @@ fn invalidate_prepared_query() {
 }
 
 #[test]
+fn random_access_via_view() {
+    let mut world = World::new();
+    let e = world.spawn(("abc", 123));
+    let f = world.spawn(("def",));
+
+    let mut query = PreparedQuery::<(&i32, &&str)>::default();
+    let mut query = query.query(&world);
+    let mut view = query.view();
+
+    let (i, s) = view.get(e).unwrap();
+    assert_eq!(*i, 123);
+    assert_eq!(*s, "abc");
+
+    assert!(view.get_mut(f).is_none());
+}
+
+#[test]
 fn build_entity() {
     let mut world = World::new();
     let mut entity = EntityBuilder::new();
