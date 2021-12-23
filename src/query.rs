@@ -22,6 +22,10 @@ pub trait Query {
     type Fetch: for<'a> Fetch<'a>;
 }
 
+/// Marker trait indicating whether a given [`Query`] will not produce unique references
+#[allow(clippy::missing_safety_doc)]
+pub unsafe trait QueryShared {}
+
 /// Type of values yielded by a query
 ///
 /// Once rust offers generic associated types, this will be moved into [`Query`].
@@ -79,6 +83,8 @@ pub enum Access {
 impl<'a, T: Component> Query for &'a T {
     type Fetch = FetchRead<T>;
 }
+
+unsafe impl<'a, T> QueryShared for &'a T {}
 
 #[doc(hidden)]
 pub struct FetchRead<T>(NonNull<T>);
@@ -172,6 +178,8 @@ unsafe impl<'a, T: Component> Fetch<'a> for FetchWrite<T> {
 impl<T: Query> Query for Option<T> {
     type Fetch = TryFetch<T::Fetch>;
 }
+
+unsafe impl<T: QueryShared> QueryShared for Option<T> {}
 
 #[doc(hidden)]
 pub struct TryFetch<T>(Option<T>);
@@ -311,6 +319,8 @@ impl<L: Query, R: Query> Query for Or<L, R> {
     type Fetch = FetchOr<L::Fetch, R::Fetch>;
 }
 
+unsafe impl<L: QueryShared, R: QueryShared> QueryShared for Or<L, R> {}
+
 #[doc(hidden)]
 pub struct FetchOr<L, R>(Or<L, R>);
 
@@ -375,6 +385,8 @@ pub struct Without<T, Q>(PhantomData<(Q, fn(T))>);
 impl<T: Component, Q: Query> Query for Without<T, Q> {
     type Fetch = FetchWithout<T, Q::Fetch>;
 }
+
+unsafe impl<T, Q: QueryShared> QueryShared for Without<T, Q> {}
 
 #[doc(hidden)]
 pub struct FetchWithout<T, F>(F, PhantomData<fn(T)>);
@@ -446,6 +458,8 @@ impl<T: Component, Q: Query> Query for With<T, Q> {
     type Fetch = FetchWith<T, Q::Fetch>;
 }
 
+unsafe impl<T, Q: QueryShared> QueryShared for With<T, Q> {}
+
 #[doc(hidden)]
 pub struct FetchWith<T, F>(F, PhantomData<fn(T)>);
 
@@ -516,6 +530,8 @@ pub struct Satisfies<Q>(PhantomData<Q>);
 impl<Q: Query> Query for Satisfies<Q> {
     type Fetch = FetchSatisfies<Q::Fetch>;
 }
+
+unsafe impl<Q> QueryShared for Satisfies<Q> {}
 
 #[doc(hidden)]
 pub struct FetchSatisfies<F>(bool, PhantomData<F>);
@@ -1005,6 +1021,8 @@ macro_rules! tuple_impl {
         impl<$($name: Query),*> Query for ($($name,)*) {
             type Fetch = ($($name::Fetch,)*);
         }
+
+        unsafe impl<$($name: QueryShared),*> QueryShared for ($($name,)*) {}
     };
 }
 
@@ -1027,7 +1045,7 @@ impl<Q: Query> PreparedQuery<Q> {
     /// Create a prepared query which is not yet attached to any world
     pub fn new() -> Self {
         Self {
-            // This memo will not match any world as the first ID will 1.
+            // This memo will not match any world as the first ID will be 1.
             memo: (0, 0),
             state: Default::default(),
         }
