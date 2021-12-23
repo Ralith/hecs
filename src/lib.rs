@@ -73,7 +73,7 @@ mod world;
 
 pub use archetype::{Archetype, ArchetypeColumn};
 pub use batch::{BatchIncomplete, BatchWriter, ColumnBatch, ColumnBatchBuilder, ColumnBatchType};
-pub use bundle::{Bundle, DynamicBundle, MissingComponent};
+pub use bundle::{Bundle, DynamicBundle, DynamicBundleClone, MissingComponent};
 pub use column::{Column, ColumnMut};
 pub use command_buffer::CommandBuffer;
 pub use entities::{Entity, NoSuchEntity};
@@ -92,6 +92,8 @@ pub use world::{
 // Unstable implementation details needed by the macros
 #[doc(hidden)]
 pub use archetype::TypeInfo;
+#[doc(hidden)]
+pub use bundle::DynamicClone;
 #[cfg(feature = "macros")]
 #[doc(hidden)]
 pub use lazy_static;
@@ -99,7 +101,7 @@ pub use lazy_static;
 pub use query::Fetch;
 
 #[cfg(feature = "macros")]
-pub use hecs_macros::{Bundle, Query};
+pub use hecs_macros::{Bundle, DynamicBundleClone, Query};
 
 fn align(x: usize, alignment: usize) -> usize {
     debug_assert!(alignment.is_power_of_two());

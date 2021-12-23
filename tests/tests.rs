@@ -78,6 +78,43 @@ fn derived_query() {
 }
 
 #[test]
+#[cfg(feature = "macros")]
+fn derived_bundle_clone() {
+    #[derive(Bundle, DynamicBundleClone)]
+    struct Foo<T: Clone + Component> {
+        x: i32,
+        y: bool,
+        z: T,
+    }
+
+    #[derive(PartialEq, Debug, Query)]
+    struct FooQuery<'a> {
+        x: &'a i32,
+        y: &'a bool,
+        z: &'a String,
+    }
+
+    let mut world = World::new();
+    let mut builder = EntityBuilderClone::new();
+    builder.add_bundle(Foo {
+        x: 42,
+        y: false,
+        z: String::from("Foo"),
+    });
+
+    let entity = builder.build();
+    let e = world.spawn(&entity);
+    assert_eq!(
+        world.query_one_mut::<FooQuery>(e).unwrap(),
+        FooQuery {
+            x: &42,
+            y: &false,
+            z: &String::from("Foo"),
+        }
+    );
+}
+
+#[test]
 fn query_single_component() {
     let mut world = World::new();
     let e = world.spawn(("abc", 123));
@@ -242,6 +279,39 @@ fn build_builder_clone() {
     b.add_bundle(&a.build());
     assert_eq!(b.get::<String>(), Some(&String::from("abc")));
     assert_eq!(b.get::<i32>(), Some(&123));
+}
+
+#[test]
+#[cfg(feature = "macros")]
+fn build_dynamic_bundle() {
+    #[derive(Bundle, DynamicBundleClone)]
+    struct Foo {
+        x: i32,
+        y: char,
+    }
+
+    let mut world = World::new();
+    let mut entity = EntityBuilderClone::new();
+    entity.add_bundle(Foo { x: 5, y: 'c' });
+    entity.add_bundle((String::from("Bar"), 6.0_f32));
+    entity.add('a');
+    let entity = entity.build();
+    let e = world.spawn(&entity);
+    let f = world.spawn(&entity);
+    let g = world.spawn(&entity);
+
+    world
+        .insert_one(g, Cow::<'static, str>::from("after"))
+        .unwrap();
+
+    for e in [e, f, g] {
+        assert_eq!(*world.get::<i32>(e).unwrap(), 5);
+        assert_eq!(*world.get::<char>(e).unwrap(), 'a');
+        assert_eq!(*world.get::<String>(e).unwrap(), "Bar");
+        assert_eq!(*world.get::<f32>(e).unwrap(), 6.0);
+    }
+
+    assert_eq!(*world.get::<Cow<'static, str>>(g).unwrap(), "after");
 }
 
 #[test]
