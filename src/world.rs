@@ -730,8 +730,102 @@ impl World {
         entity: Entity,
         components: T,
     ) -> Result<S, ComponentError> {
-        let bundle = self.remove::<S>(entity)?;
-        self.insert(entity, components)?;
+        self.flush();
+
+        // Gather current metadata
+        let loc = self.entities.get_mut(entity)?;
+        let old_index = loc.index;
+        let source_arch = &self.archetypes.archetypes[loc.archetype as usize];
+
+        // Move out of the source archetype, or bail out if a component is missing
+        let bundle = unsafe {
+            S::get(|ty| source_arch.get_dynamic(ty.id(), ty.layout().size(), old_index))?
+        };
+
+        // Find the intermediate archetype ID
+        let intermediate = match self.remove_edges.get(&(loc.archetype, TypeId::of::<S>())) {
+            Some(&x) => x,
+            None => {
+                let removed = S::with_static_ids(|ids| ids.iter().copied().collect::<HashSet<_>>());
+                let info = source_arch
+                    .types()
+                    .iter()
+                    .cloned()
+                    .filter(|x| !removed.contains(&x.id()))
+                    .collect::<Vec<_>>();
+                let elements = info.iter().map(|x| x.id()).collect::<Box<_>>();
+                let index = self.archetypes.get(&*elements, move || info);
+                self.remove_edges
+                    .insert((loc.archetype, TypeId::of::<S>()), index);
+                index
+            }
+        };
+
+        // Find the target archetype ID
+        let target_storage;
+        let target = match components.key() {
+            None => {
+                target_storage = self.archetypes.get_insert_target(intermediate, &components);
+                &target_storage
+            }
+            Some(key) => match self.insert_edges.get(&(intermediate, key)) {
+                Some(x) => x,
+                None => {
+                    let t = self.archetypes.get_insert_target(intermediate, &components);
+                    self.insert_edges.entry((intermediate, key)).or_insert(t)
+                }
+            },
+        };
+
+        unsafe {
+            // Drop the components we're overwriting
+            let source_arch = &mut self.archetypes.archetypes[loc.archetype as usize];
+            for &ty in &target.replaced {
+                let ptr = source_arch
+                    .get_dynamic(ty.id(), ty.layout().size(), loc.index)
+                    .unwrap();
+                ty.drop(ptr.as_ptr());
+            }
+
+            if target.index == loc.archetype {
+                // Update components in the current archetype
+                let arch = &mut self.archetypes.archetypes[loc.archetype as usize];
+                components.put(|ptr, ty| {
+                    arch.put_dynamic(ptr, ty.id(), ty.layout().size(), loc.index);
+                });
+                return Ok(bundle);
+            }
+
+            let (source_arch, target_arch) = index2(
+                &mut self.archetypes.archetypes,
+                loc.archetype as usize,
+                target.index as usize,
+            );
+
+            // Allocate storage in the archetype and update the entity's location to address it
+            let target_index = target_arch.allocate(entity.id);
+            loc.archetype = target.index;
+            loc.index = target_index;
+
+            // Move the new components
+            components.put(|ptr, ty| {
+                target_arch.put_dynamic(ptr, ty.id(), ty.layout().size(), target_index);
+            });
+
+            // Move the components we're keeping
+            for &ty in &target.retained {
+                let src = source_arch
+                    .get_dynamic(ty.id(), ty.layout().size(), old_index)
+                    .unwrap();
+                target_arch.put_dynamic(src.as_ptr(), ty.id(), ty.layout().size(), target_index)
+            }
+
+            // Free storage in the old archetype
+            if let Some(moved) = source_arch.remove(old_index, false) {
+                self.entities.meta[moved as usize].location.index = old_index;
+            }
+        }
+
         Ok(bundle)
     }
 
