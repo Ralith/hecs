@@ -568,6 +568,21 @@ fn remove_missing() {
 }
 
 #[test]
+fn exchange_components() {
+    let mut world = World::new();
+
+    let entity = world.spawn(("abc".to_owned(), 123));
+    assert!(world.get::<String>(entity).is_ok());
+    assert!(world.get::<i32>(entity).is_ok());
+    assert!(world.get::<bool>(entity).is_err());
+
+    world.exchange_one::<String, _>(entity, true).unwrap();
+    assert!(world.get::<String>(entity).is_err());
+    assert!(world.get::<i32>(entity).is_ok());
+    assert!(world.get::<bool>(entity).is_ok());
+}
+
+#[test]
 fn reserve() {
     let mut world = World::new();
     let a = world.reserve_entity();

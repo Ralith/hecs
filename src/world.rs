@@ -721,6 +721,32 @@ impl World {
         self.remove::<(T,)>(entity).map(|(x,)| x)
     }
 
+    /// Remove `S` components from `entity` and then `components`
+    ///
+    /// This has the same effect as calling [`remove::<S>`](Self::remove) and then [`insert::<T>`](Self::insert),
+    /// but is more efficient as the intermediate archetype after removal but before insertion is skipped.
+    pub fn exchange<S: Bundle + 'static, T: DynamicBundle>(
+        &mut self,
+        entity: Entity,
+        components: T,
+    ) -> Result<S, ComponentError> {
+        let bundle = self.remove::<S>(entity)?;
+        self.insert(entity, components)?;
+        Ok(bundle)
+    }
+
+    /// Remove the `S` component from `entity` and then add `component`
+    ///
+    /// See [`exchange`](Self::exchange).
+    pub fn exchange_one<S: Component, T: Component>(
+        &mut self,
+        entity: Entity,
+        component: T,
+    ) -> Result<S, ComponentError> {
+        self.exchange::<(S,), (T,)>(entity, (component,))
+            .map(|(x,)| x)
+    }
+
     /// Borrow the `T` component of `entity` without safety checks
     ///
     /// Should only be used as a building block for safe abstractions.
