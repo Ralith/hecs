@@ -1,3 +1,13 @@
+# Unreleased
+
+### Added
+- `World::exchange` provides an optimized path for a remove immediately followed by an insert
+- Efficient random access can be performed within queries using `QueryBorrow::view` and similar
+  methods, a generalization of `Column`/`ColumnMut`.
+
+### Changed
+- `World::column`/`column_mut` deprecated in favor of views.
+
 # 0.7.1
 
 ### Added
