@@ -31,9 +31,6 @@ pub struct Archetype {
     entities: Box<[u32]>,
     /// One allocation per type, in the same order as `types`
     data: Box<[Data]>,
-    /// Maps static bundle types to the archetype that an entity from this archetype is moved to
-    /// after removing the components from that bundle.
-    pub(crate) remove_edges: TypeIdMap<u32>,
 }
 
 impl Archetype {
@@ -70,7 +67,6 @@ impl Archetype {
                     storage: NonNull::new(max_align as *mut u8).unwrap(),
                 })
                 .collect(),
-            remove_edges: HashMap::default(),
         }
     }
 
