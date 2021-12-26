@@ -660,7 +660,6 @@ impl World {
 
         // Gather current metadata
         let loc = self.entities.get_mut(entity)?;
-        let old_archetype = loc.archetype;
         let old_index = loc.index;
         let source_arch = &self.archetypes.archetypes[loc.archetype as usize];
 
@@ -670,23 +669,8 @@ impl World {
         };
 
         // Find the target archetype ID
-        let target = match self.remove_edges.get(&(old_archetype, TypeId::of::<T>())) {
-            Some(&x) => x,
-            None => {
-                let removed = T::with_static_ids(|ids| ids.iter().copied().collect::<HashSet<_>>());
-                let info = source_arch
-                    .types()
-                    .iter()
-                    .cloned()
-                    .filter(|x| !removed.contains(&x.id()))
-                    .collect::<Vec<_>>();
-                let elements = info.iter().map(|x| x.id()).collect::<Box<_>>();
-                let index = self.archetypes.get(&*elements, move || info);
-                self.remove_edges
-                    .insert((old_archetype, TypeId::of::<T>()), index);
-                index
-            }
-        };
+        let target =
+            Self::remove_target::<T>(&mut self.archetypes, &mut self.remove_edges, loc.archetype);
 
         // Store components to the target archetype and update metadata
         if loc.archetype != target {
@@ -712,6 +696,31 @@ impl World {
         }
 
         Ok(bundle)
+    }
+
+    fn remove_target<T: Bundle + 'static>(
+        archetypes: &mut ArchetypeSet,
+        remove_edges: &mut IndexTypeIdMap<u32>,
+        old_archetype: u32,
+    ) -> u32 {
+        match remove_edges.get(&(old_archetype, TypeId::of::<T>())) {
+            Some(&x) => x,
+            None => {
+                let removed = T::with_static_ids(|ids| ids.iter().copied().collect::<HashSet<_>>());
+                let info = archetypes.archetypes[old_archetype as usize]
+                    .types()
+                    .iter()
+                    .cloned()
+                    .filter(|x| !removed.contains(&x.id()))
+                    .collect::<Vec<_>>();
+                let elements = info.iter().map(|x| x.id()).collect::<Box<_>>();
+                let index = archetypes.get(&*elements, move || info);
+
+                remove_edges.insert((old_archetype, TypeId::of::<T>()), index);
+
+                index
+            }
+        }
     }
 
     /// Remove the `T` component from `entity`
@@ -742,26 +751,10 @@ impl World {
             S::get(|ty| source_arch.get_dynamic(ty.id(), ty.layout().size(), old_index))?
         };
 
-        // Find the intermediate archetype ID
-        let intermediate = match self.remove_edges.get(&(loc.archetype, TypeId::of::<S>())) {
-            Some(&x) => x,
-            None => {
-                let removed = S::with_static_ids(|ids| ids.iter().copied().collect::<HashSet<_>>());
-                let info = source_arch
-                    .types()
-                    .iter()
-                    .cloned()
-                    .filter(|x| !removed.contains(&x.id()))
-                    .collect::<Vec<_>>();
-                let elements = info.iter().map(|x| x.id()).collect::<Box<_>>();
-                let index = self.archetypes.get(&*elements, move || info);
-                self.remove_edges
-                    .insert((loc.archetype, TypeId::of::<S>()), index);
-                index
-            }
-        };
-
         // Find the target archetype ID
+        let intermediate =
+            Self::remove_target::<S>(&mut self.archetypes, &mut self.remove_edges, loc.archetype);
+
         let target_storage;
         let target = match components.key() {
             None => {
