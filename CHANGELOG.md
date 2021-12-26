@@ -1,4 +1,4 @@
-# Unreleased
+# 0.7.2
 
 ### Added
 - `World::exchange` provides an optimized path for a remove immediately followed by an insert
