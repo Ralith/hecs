@@ -13,7 +13,7 @@ use core::hash::{BuildHasherDefault, Hasher};
 use core::marker::PhantomData;
 use spin::Mutex;
 
-use core::{fmt, mem, ptr};
+use core::{fmt, ptr};
 
 #[cfg(feature = "std")]
 use std::error::Error;
@@ -553,23 +553,34 @@ impl World {
         components: impl DynamicBundle,
     ) -> Result<(), NoSuchEntity> {
         self.flush();
-        let loc = self.entities.get_mut(entity)?;
 
+        let loc = self.entities.get(entity)?;
+        self.insert_inner(entity, components, loc.archetype, loc)
+    }
+
+    /// The implementation backing [`insert`](Self::insert) exposed so that it can also be used by [`exchange`](Self::exchange).
+    ///
+    /// Note that `graph_origin` is always equal to `loc.archetype` during insertion. Only for exchange, `graph_origin` identifies
+    /// the intermediate archetype which would be reached after removal and before insertion even though
+    /// the actual component data still resides in `loc.archetype`.
+    fn insert_inner(
+        &mut self,
+        entity: Entity,
+        components: impl DynamicBundle,
+        graph_origin: u32,
+        loc: Location,
+    ) -> Result<(), NoSuchEntity> {
         let target_storage;
         let target = match components.key() {
             None => {
-                target_storage = self
-                    .archetypes
-                    .get_insert_target(loc.archetype, &components);
+                target_storage = self.archetypes.get_insert_target(graph_origin, &components);
                 &target_storage
             }
-            Some(key) => match self.insert_edges.get(&(loc.archetype, key)) {
+            Some(key) => match self.insert_edges.get(&(graph_origin, key)) {
                 Some(x) => x,
                 None => {
-                    let t = self
-                        .archetypes
-                        .get_insert_target(loc.archetype, &components);
-                    self.insert_edges.entry((loc.archetype, key)).or_insert(t)
+                    let t = self.archetypes.get_insert_target(graph_origin, &components);
+                    self.insert_edges.entry((graph_origin, key)).or_insert(t)
                 }
             },
         };
@@ -601,8 +612,9 @@ impl World {
 
             // Allocate storage in the archetype and update the entity's location to address it
             let target_index = target_arch.allocate(entity.id);
-            loc.archetype = target.index;
-            let old_index = mem::replace(&mut loc.index, target_index);
+            let meta = &mut self.entities.meta[entity.id as usize];
+            meta.location.archetype = target.index;
+            meta.location.index = target_index;
 
             // Move the new components
             components.put(|ptr, ty| {
@@ -612,14 +624,14 @@ impl World {
             // Move the components we're keeping
             for &ty in &target.retained {
                 let src = source_arch
-                    .get_dynamic(ty.id(), ty.layout().size(), old_index)
+                    .get_dynamic(ty.id(), ty.layout().size(), loc.index)
                     .unwrap();
                 target_arch.put_dynamic(src.as_ptr(), ty.id(), ty.layout().size(), target_index)
             }
 
             // Free storage in the old archetype
-            if let Some(moved) = source_arch.remove(old_index, false) {
-                self.entities.meta[moved as usize].location.index = old_index;
+            if let Some(moved) = source_arch.remove(loc.index, false) {
+                self.entities.meta[moved as usize].location.index = loc.index;
             }
         }
         Ok(())
@@ -742,82 +754,20 @@ impl World {
         self.flush();
 
         // Gather current metadata
-        let loc = self.entities.get_mut(entity)?;
-        let old_index = loc.index;
-        let source_arch = &self.archetypes.archetypes[loc.archetype as usize];
+        let loc = self.entities.get(entity)?;
 
         // Move out of the source archetype, or bail out if a component is missing
+        let source_arch = &self.archetypes.archetypes[loc.archetype as usize];
+
         let bundle = unsafe {
-            S::get(|ty| source_arch.get_dynamic(ty.id(), ty.layout().size(), old_index))?
+            S::get(|ty| source_arch.get_dynamic(ty.id(), ty.layout().size(), loc.index))?
         };
 
-        // Find the target archetype ID
+        // Find the intermediate archetype ID
         let intermediate =
             Self::remove_target::<S>(&mut self.archetypes, &mut self.remove_edges, loc.archetype);
 
-        let target_storage;
-        let target = match components.key() {
-            None => {
-                target_storage = self.archetypes.get_insert_target(intermediate, &components);
-                &target_storage
-            }
-            Some(key) => match self.insert_edges.get(&(intermediate, key)) {
-                Some(x) => x,
-                None => {
-                    let t = self.archetypes.get_insert_target(intermediate, &components);
-                    self.insert_edges.entry((intermediate, key)).or_insert(t)
-                }
-            },
-        };
-
-        unsafe {
-            // Drop the components we're overwriting
-            let source_arch = &mut self.archetypes.archetypes[loc.archetype as usize];
-            for &ty in &target.replaced {
-                let ptr = source_arch
-                    .get_dynamic(ty.id(), ty.layout().size(), loc.index)
-                    .unwrap();
-                ty.drop(ptr.as_ptr());
-            }
-
-            if target.index == loc.archetype {
-                // Update components in the current archetype
-                let arch = &mut self.archetypes.archetypes[loc.archetype as usize];
-                components.put(|ptr, ty| {
-                    arch.put_dynamic(ptr, ty.id(), ty.layout().size(), loc.index);
-                });
-                return Ok(bundle);
-            }
-
-            let (source_arch, target_arch) = index2(
-                &mut self.archetypes.archetypes,
-                loc.archetype as usize,
-                target.index as usize,
-            );
-
-            // Allocate storage in the archetype and update the entity's location to address it
-            let target_index = target_arch.allocate(entity.id);
-            loc.archetype = target.index;
-            loc.index = target_index;
-
-            // Move the new components
-            components.put(|ptr, ty| {
-                target_arch.put_dynamic(ptr, ty.id(), ty.layout().size(), target_index);
-            });
-
-            // Move the components we're keeping
-            for &ty in &target.retained {
-                let src = source_arch
-                    .get_dynamic(ty.id(), ty.layout().size(), old_index)
-                    .unwrap();
-                target_arch.put_dynamic(src.as_ptr(), ty.id(), ty.layout().size(), target_index)
-            }
-
-            // Free storage in the old archetype
-            if let Some(moved) = source_arch.remove(old_index, false) {
-                self.entities.meta[moved as usize].location.index = old_index;
-            }
-        }
+        self.insert_inner(entity, components, intermediate, loc)?;
 
         Ok(bundle)
     }
