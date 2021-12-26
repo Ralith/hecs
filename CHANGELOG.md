@@ -1,3 +1,8 @@
+# Unreleased
+
+### Added
+- `get_unchecked` methods on `View` and `PreparedView` for overlapping borrows
+
 # 0.7.2
 
 ### Added

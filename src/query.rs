@@ -1306,6 +1306,15 @@ impl<'q, Q: Query> View<'q, Q> {
     ///
     /// Will yield `None` if the entity does not exist or does not match the query.
     pub fn get_mut<'m>(&'m mut self, entity: Entity) -> Option<QueryItem<'q, Q>> {
+        unsafe { self.get_unchecked(entity) }
+    }
+
+    /// Like `get_mut`, but allows simultaneous access to multiple entities
+    ///
+    /// # Safety
+    ///
+    /// Must not be invoked while any unique borrow of the fetched components of `entity` is live.
+    pub unsafe fn get_unchecked(&self, entity: Entity) -> Option<QueryItem<'q, Q>> {
         let meta = self.meta.get(entity.id as usize)?;
         if meta.generation != entity.generation {
             return None;
@@ -1313,7 +1322,7 @@ impl<'q, Q: Query> View<'q, Q> {
 
         self.fetch[meta.location.archetype as usize]
             .as_ref()
-            .map(|fetch| unsafe { fetch.get(meta.location.index as usize) })
+            .map(|fetch| fetch.get(meta.location.index as usize))
     }
 }
 
@@ -1367,6 +1376,15 @@ impl<'q, Q: Query> PreparedView<'q, Q> {
     ///
     /// Will yield `None` if the entity does not exist or does not match the query.
     pub fn get_mut<'m>(&'m mut self, entity: Entity) -> Option<QueryItem<'q, Q>> {
+        unsafe { self.get_unchecked(entity) }
+    }
+
+    /// Like `get_mut`, but allows simultaneous access to multiple entities
+    ///
+    /// # Safety
+    ///
+    /// Must not be invoked while any unique borrow of the fetched components of `entity` is live.
+    pub unsafe fn get_unchecked(&self, entity: Entity) -> Option<QueryItem<'q, Q>> {
         let meta = self.meta.get(entity.id as usize)?;
         if meta.generation != entity.generation {
             return None;
@@ -1374,7 +1392,7 @@ impl<'q, Q: Query> PreparedView<'q, Q> {
 
         self.fetch[meta.location.archetype as usize]
             .as_ref()
-            .map(|fetch| unsafe { fetch.get(meta.location.index as usize) })
+            .map(|fetch| fetch.get(meta.location.index as usize))
     }
 }
 
