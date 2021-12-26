@@ -143,6 +143,7 @@ impl<'a, T: Component> Drop for ColumnMut<'a, T> {
 }
 
 #[cfg(test)]
+#[allow(deprecated)]
 mod tests {
     use crate::World;
 
