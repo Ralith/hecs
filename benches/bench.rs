@@ -85,6 +85,21 @@ fn insert(b: &mut Bencher) {
     });
 }
 
+fn insert_remove(b: &mut Bencher) {
+    let mut world = World::new();
+    let entities = world
+        .spawn_batch((0..1_000).map(|_| (Position(0.0), Velocity(0.0))))
+        .collect::<Vec<_>>();
+    let mut entities = entities.iter().cycle();
+    b.iter(|| {
+        let e = *entities.next().unwrap();
+        world.remove_one::<Velocity>(e).unwrap();
+        world.insert_one(e, true).unwrap();
+        world.remove_one::<bool>(e).unwrap();
+        world.insert_one(e, Velocity(0.0)).unwrap();
+    });
+}
+
 fn iterate_100k(b: &mut Bencher) {
     let mut world = World::new();
     for i in 0..100_000 {
@@ -250,6 +265,7 @@ benchmark_group!(
     spawn_batch,
     remove,
     insert,
+    insert_remove,
     iterate_100k,
     iterate_mut_100k,
     iterate_uncached_100_by_50,
