@@ -742,7 +742,7 @@ impl World {
         self.remove::<(T,)>(entity).map(|(x,)| x)
     }
 
-    /// Remove `S` components from `entity` and then `components`
+    /// Remove `S` components from `entity` and then add `components`
     ///
     /// This has the same effect as calling [`remove::<S>`](Self::remove) and then [`insert::<T>`](Self::insert),
     /// but is more efficient as the intermediate archetype after removal but before insertion is skipped.
