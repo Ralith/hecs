@@ -9,6 +9,7 @@ use crate::alloc::{vec, vec::Vec};
 use core::any::TypeId;
 use core::borrow::Borrow;
 use core::convert::TryFrom;
+use core::hash::{BuildHasherDefault, Hasher};
 use core::marker::PhantomData;
 use spin::Mutex;
 
@@ -50,6 +51,9 @@ pub struct World {
     archetypes: ArchetypeSet,
     /// Maps statically-typed bundle types to archetypes
     bundle_to_archetype: TypeIdMap<u32>,
+    /// Maps source archetype and static bundle types to the archetype that an entity is moved to
+    /// after removing the components from that bundle.
+    remove_edges: IndexTypeIdMap<u32>,
     id: u64,
 }
 
@@ -69,6 +73,7 @@ impl World {
             entities: Entities::default(),
             archetypes: ArchetypeSet::new(),
             bundle_to_archetype: HashMap::default(),
+            remove_edges: HashMap::default(),
             id,
         }
     }
@@ -653,6 +658,7 @@ impl World {
 
         // Gather current metadata
         let loc = self.entities.get_mut(entity)?;
+        let old_archetype = loc.archetype;
         let old_index = loc.index;
         let source_arch = &self.archetypes.archetypes[loc.archetype as usize];
 
@@ -662,7 +668,7 @@ impl World {
         };
 
         // Find the target archetype ID
-        let target = match source_arch.remove_edges.get(&TypeId::of::<T>()) {
+        let target = match self.remove_edges.get(&(old_archetype, TypeId::of::<T>())) {
             Some(&x) => x,
             None => {
                 let removed = T::with_static_ids(|ids| ids.iter().copied().collect::<HashSet<_>>());
@@ -674,9 +680,8 @@ impl World {
                     .collect::<Vec<_>>();
                 let elements = info.iter().map(|x| x.id()).collect::<Box<_>>();
                 let index = self.archetypes.get(&*elements, move || info);
-                self.archetypes.archetypes[loc.archetype as usize]
-                    .remove_edges
-                    .insert(TypeId::of::<T>(), index);
+                self.remove_edges
+                    .insert((old_archetype, TypeId::of::<T>()), index);
                 index
             }
         };
@@ -1243,6 +1248,29 @@ struct InsertTarget {
     retained: Vec<TypeInfo>,
     /// ID of the target archetype
     index: u32,
+}
+
+type IndexTypeIdMap<V> = HashMap<(u32, TypeId), V, BuildHasherDefault<IndexTypeIdHasher>>;
+
+#[derive(Default)]
+struct IndexTypeIdHasher(u64);
+
+impl Hasher for IndexTypeIdHasher {
+    fn write_u32(&mut self, index: u32) {
+        self.0 ^= u64::from(index);
+    }
+
+    fn write_u64(&mut self, type_id: u64) {
+        self.0 ^= type_id;
+    }
+
+    fn write(&mut self, _bytes: &[u8]) {
+        unreachable!()
+    }
+
+    fn finish(&self) -> u64 {
+        self.0
+    }
 }
 
 #[cfg(test)]
