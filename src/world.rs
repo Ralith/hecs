@@ -52,6 +52,9 @@ pub struct World {
     /// Maps statically-typed bundle types to archetypes
     bundle_to_archetype: TypeIdMap<u32>,
     /// Maps source archetype and static bundle types to the archetype that an entity is moved to
+    /// after inserting the components from that bundle.
+    insert_edges: IndexTypeIdMap<InsertTarget>,
+    /// Maps source archetype and static bundle types to the archetype that an entity is moved to
     /// after removing the components from that bundle.
     remove_edges: IndexTypeIdMap<u32>,
     id: u64,
@@ -73,6 +76,7 @@ impl World {
             entities: Entities::default(),
             archetypes: ArchetypeSet::new(),
             bundle_to_archetype: HashMap::default(),
+            insert_edges: HashMap::default(),
             remove_edges: HashMap::default(),
             id,
         }
@@ -559,15 +563,13 @@ impl World {
                     .get_insert_target(loc.archetype, &components);
                 &target_storage
             }
-            Some(key) => match self.archetypes.insert_edges[loc.archetype as usize].get(&key) {
+            Some(key) => match self.insert_edges.get(&(loc.archetype, key)) {
                 Some(x) => x,
                 None => {
                     let t = self
                         .archetypes
                         .get_insert_target(loc.archetype, &components);
-                    self.archetypes.insert_edges[loc.archetype as usize]
-                        .entry(key)
-                        .or_insert(t)
+                    self.insert_edges.entry((loc.archetype, key)).or_insert(t)
                 }
             },
         };
@@ -1128,10 +1130,6 @@ struct ArchetypeSet {
     index: HashMap<Box<[TypeId]>, u32>,
     archetypes: Vec<Archetype>,
     generation: u64,
-    /// Maps static bundle types to the archetype that an entity from this archetype is moved to
-    /// after inserting the components from that bundle. Stored separately from archetypes to avoid
-    /// borrowck difficulties in `World::insert`.
-    insert_edges: Vec<TypeIdMap<InsertTarget>>,
 }
 
 impl ArchetypeSet {
@@ -1141,7 +1139,6 @@ impl ArchetypeSet {
             index: Some((Box::default(), 0)).into_iter().collect(),
             archetypes: vec![Archetype::new(Vec::new())],
             generation: 0,
-            insert_edges: vec![HashMap::default()],
         }
     }
 
@@ -1198,7 +1195,6 @@ impl ArchetypeSet {
     }
 
     fn post_insert(&mut self) {
-        self.insert_edges.push(HashMap::default());
         self.generation += 1;
     }
 
