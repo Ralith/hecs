@@ -1324,6 +1324,45 @@ impl<'q, Q: Query> View<'q, Q> {
             .as_ref()
             .map(|fetch| fetch.get(meta.location.index as usize))
     }
+
+    /// Like `get_mut`, but allows checked simultaneous access to multiple entities
+    ///
+    /// For N > 3, the check for distinct entities will clone the array and take O(N log N) time.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use hecs::World;
+    /// let mut world = World::new();
+    ///
+    /// let a = world.spawn((1, 1.0));
+    /// let b = world.spawn((2, 4.0));
+    /// let c = world.spawn((3, 9.0));
+    ///
+    /// let mut query = world.query_mut::<&mut i32>();
+    /// let mut view = query.view();
+    /// let [a,b,c] = view.get_mut_n([a, b, c]);
+    ///
+    /// assert_eq!(*a.unwrap(), 1);
+    /// assert_eq!(*b.unwrap(), 2);
+    /// assert_eq!(*c.unwrap(), 3);
+    /// ```
+    pub fn get_mut_n<const N: usize>(
+        &mut self,
+        entities: [Entity; N],
+    ) -> [Option<QueryItem<'q, Q>>; N] {
+        assert_distinct(&entities);
+
+        let mut items = [(); N].map(|()| None);
+
+        for (item, entity) in items.iter_mut().zip(entities) {
+            unsafe {
+                *item = self.get_unchecked(entity);
+            }
+        }
+
+        items
+    }
 }
 
 /// Provides random access to the results of a prepared query
@@ -1394,8 +1433,46 @@ impl<'q, Q: Query> PreparedView<'q, Q> {
             .as_ref()
             .map(|fetch| fetch.get(meta.location.index as usize))
     }
+
+    /// Like `get_mut`, but allows checked simultaneous access to multiple entities
+    ///
+    /// See [`View::get_mut_n`] for details.
+    pub fn get_mut_n<const N: usize>(
+        &mut self,
+        entities: [Entity; N],
+    ) -> [Option<QueryItem<'q, Q>>; N] {
+        assert_distinct(&entities);
+
+        let mut items = [(); N].map(|()| None);
+
+        for (item, entity) in items.iter_mut().zip(entities) {
+            unsafe {
+                *item = self.get_unchecked(entity);
+            }
+        }
+
+        items
+    }
 }
 
+fn assert_distinct<const N: usize>(entities: &[Entity; N]) {
+    match N {
+        1 => (),
+        2 => assert_ne!(entities[0], entities[1]),
+        3 => {
+            assert_ne!(entities[0], entities[1]);
+            assert_ne!(entities[1], entities[2]);
+            assert_ne!(entities[2], entities[0]);
+        }
+        _ => {
+            let mut entities = *entities;
+            entities.sort_unstable();
+            for index in 0..N - 1 {
+                assert_ne!(entities[index], entities[index + 1]);
+            }
+        }
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;

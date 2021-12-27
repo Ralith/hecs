@@ -256,6 +256,21 @@ fn random_access_via_view_mut() {
 }
 
 #[test]
+#[should_panic]
+fn simultaneous_access_must_be_non_overlapping() {
+    let mut world = World::new();
+    let a = world.spawn((1,));
+    let b = world.spawn((2,));
+    let c = world.spawn((3,));
+    let d = world.spawn((4,));
+
+    let mut query = world.query_mut::<&mut i32>();
+    let mut view = query.view();
+
+    view.get_mut_n([a, d, c, b, a]);
+}
+
+#[test]
 fn build_entity() {
     let mut world = World::new();
     let mut entity = EntityBuilder::new();
