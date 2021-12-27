@@ -5,7 +5,7 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
-use crate::alloc::{vec, vec::Vec};
+use crate::alloc::vec::Vec;
 use core::any::{type_name, TypeId};
 use core::ptr::NonNull;
 use core::{fmt, mem};
@@ -44,7 +44,7 @@ pub unsafe trait Bundle: DynamicBundle {
 
     /// Obtain the fields' TypeInfos, sorted by descending alignment then id
     #[doc(hidden)]
-    fn static_type_info() -> Vec<TypeInfo>;
+    fn with_static_type_info<T>(f: impl FnOnce(&[TypeInfo]) -> T) -> T;
 
     /// Construct `Self` by moving components out of pointers fetched by `f`
     ///
@@ -120,7 +120,7 @@ macro_rules! tuple_impl {
             }
 
             fn type_info(&self) -> Vec<TypeInfo> {
-                Self::static_type_info()
+                Self::with_static_type_info(|info| info.to_vec())
             }
 
             #[allow(unused_variables, unused_mut)]
@@ -166,10 +166,11 @@ macro_rules! tuple_impl {
                 f(&ids)
             }
 
-            fn static_type_info() -> Vec<TypeInfo> {
-                let mut xs = vec![$(TypeInfo::of::<$name>()),*];
+            fn with_static_type_info<T>(f: impl FnOnce(&[TypeInfo]) -> T) -> T {
+                const N: usize = count!($($name),*);
+                let mut xs: [TypeInfo; N] = [$(TypeInfo::of::<$name>()),*];
                 xs.sort_unstable();
-                xs
+                f(&xs)
             }
 
             #[allow(unused_variables, unused_mut)]

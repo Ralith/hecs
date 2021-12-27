@@ -50,7 +50,7 @@ fn gen_dynamic_bundle_impl(
             }
 
             fn type_info(&self) -> ::std::vec::Vec<::hecs::TypeInfo> {
-                <Self as ::hecs::Bundle>::static_type_info()
+                <Self as ::hecs::Bundle>::with_static_type_info(|info| info.to_vec())
             }
 
             #[allow(clippy::forget_copy)]
@@ -109,10 +109,11 @@ fn gen_bundle_impl(
                 #with_static_ids_body
             }
 
-            fn static_type_info() -> ::std::vec::Vec<::hecs::TypeInfo> {
-                let mut info = ::std::vec![#(::hecs::TypeInfo::of::<#tys>()),*];
+            #[allow(non_camel_case_types)]
+            fn with_static_type_info<__hecs__T>(f: impl ::std::ops::FnOnce(&[::hecs::TypeInfo]) -> __hecs__T) -> __hecs__T {
+                let mut info: [::hecs::TypeInfo; #num_tys] = [#(::hecs::TypeInfo::of::<#tys>()),*];
                 info.sort_unstable();
-                info
+                f(&info)
             }
 
             unsafe fn get(
@@ -137,7 +138,8 @@ fn gen_unit_struct_bundle_impl(ident: syn::Ident, generics: &syn::Generics) -> T
         unsafe impl #impl_generics ::hecs::Bundle for #ident #ty_generics #where_clause {
             #[allow(non_camel_case_types)]
             fn with_static_ids<__hecs__T>(f: impl ::std::ops::FnOnce(&[::std::any::TypeId]) -> __hecs__T) -> __hecs__T { f(&[]) }
-            fn static_type_info() -> ::std::vec::Vec<::hecs::TypeInfo> { ::std::vec::Vec::new() }
+            #[allow(non_camel_case_types)]
+            fn with_static_type_info<__hecs__T>(f: impl ::std::ops::FnOnce(&[::hecs::TypeInfo]) -> __hecs__T) -> __hecs__T { f(&[]) }
 
             unsafe fn get(
                 mut f: impl ::std::ops::FnMut(::hecs::TypeInfo) -> ::std::option::Option<::std::ptr::NonNull<u8>>,

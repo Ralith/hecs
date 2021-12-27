@@ -327,7 +327,9 @@ impl World {
             .bundle_to_archetype
             .entry(TypeId::of::<T>())
             .or_insert_with(|| {
-                T::with_static_ids(|ids| archetypes.get(ids, &|| T::static_type_info()))
+                T::with_static_ids(|ids| {
+                    archetypes.get(ids, &|| T::with_static_type_info(|info| info.to_vec()))
+                })
             });
 
         self.archetypes.archetypes[archetype_id as usize].reserve(additional);
@@ -718,13 +720,14 @@ impl World {
         match remove_edges.entry((old_archetype, TypeId::of::<T>())) {
             Entry::Occupied(entry) => *entry.into_mut(),
             Entry::Vacant(entry) => {
-                let removed = T::static_type_info();
-                let info = archetypes.archetypes[old_archetype as usize]
-                    .types()
-                    .iter()
-                    .filter(|x| removed.binary_search(x).is_err())
-                    .cloned()
-                    .collect::<Vec<_>>();
+                let info = T::with_static_type_info(|removed| {
+                    archetypes.archetypes[old_archetype as usize]
+                        .types()
+                        .iter()
+                        .filter(|x| removed.binary_search(x).is_err())
+                        .cloned()
+                        .collect::<Vec<_>>()
+                });
                 let elements = info.iter().map(|x| x.id()).collect::<Box<_>>();
                 let index = archetypes.get(&*elements, move || info);
                 *entry.insert(index)
