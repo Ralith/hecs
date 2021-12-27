@@ -28,12 +28,12 @@ jobs:
       - uses: actions-rs/cargo@v1
         with:
           command: build
-          args: --all-targets ${{ matrix.features }}
+          args: -p hecs --all-targets ${{ matrix.features }}
 
       - uses: actions-rs/cargo@v1
         with:
           command: test
-          args: ${{ matrix.features }}
+          args: -p hecs ${{ matrix.features }}
 
   lint:
     runs-on: ubuntu-latest
