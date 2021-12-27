@@ -18,7 +18,10 @@ use core::{fmt, ptr};
 #[cfg(feature = "std")]
 use std::error::Error;
 
-use hashbrown::{HashMap, HashSet};
+use hashbrown::{
+    hash_map::{Entry, HashMap},
+    HashSet,
+};
 
 use crate::alloc::boxed::Box;
 use crate::archetype::{Archetype, TypeIdMap, TypeInfo};
@@ -576,11 +579,11 @@ impl World {
                 target_storage = self.archetypes.get_insert_target(graph_origin, &components);
                 &target_storage
             }
-            Some(key) => match self.insert_edges.get(&(graph_origin, key)) {
-                Some(x) => x,
-                None => {
-                    let t = self.archetypes.get_insert_target(graph_origin, &components);
-                    self.insert_edges.entry((graph_origin, key)).or_insert(t)
+            Some(key) => match self.insert_edges.entry((graph_origin, key)) {
+                Entry::Occupied(entry) => entry.into_mut(),
+                Entry::Vacant(entry) => {
+                    let target = self.archetypes.get_insert_target(graph_origin, &components);
+                    entry.insert(target)
                 }
             },
         };
@@ -715,9 +718,9 @@ impl World {
         remove_edges: &mut IndexTypeIdMap<u32>,
         old_archetype: u32,
     ) -> u32 {
-        match remove_edges.get(&(old_archetype, TypeId::of::<T>())) {
-            Some(&x) => x,
-            None => {
+        match remove_edges.entry((old_archetype, TypeId::of::<T>())) {
+            Entry::Occupied(entry) => *entry.into_mut(),
+            Entry::Vacant(entry) => {
                 let removed = T::with_static_ids(|ids| ids.iter().copied().collect::<HashSet<_>>());
                 let info = archetypes.archetypes[old_archetype as usize]
                     .types()
@@ -727,10 +730,7 @@ impl World {
                     .collect::<Vec<_>>();
                 let elements = info.iter().map(|x| x.id()).collect::<Box<_>>();
                 let index = archetypes.get(&*elements, move || info);
-
-                remove_edges.insert((old_archetype, TypeId::of::<T>()), index);
-
-                index
+                *entry.insert(index)
             }
         }
     }
@@ -1230,8 +1230,6 @@ impl ArchetypeSet {
 
     /// Returns archetype ID and starting location index
     fn insert_batch(&mut self, archetype: Archetype) -> (u32, u32) {
-        use hashbrown::hash_map::Entry;
-
         let ids = archetype
             .types()
             .iter()
