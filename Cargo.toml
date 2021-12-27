@@ -9,6 +9,7 @@ repository = "https://github.com/Ralith/hecs"
 readme = "README.md"
 keywords = ["ecs", "entity"]
 categories = ["data-structures", "game-engines", "no-std"]
+rust-version = "1.57"
 
 [package.metadata.docs.rs]
 all-features = true
