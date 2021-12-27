@@ -101,7 +101,7 @@ pub use lazy_static;
 pub use query::Fetch;
 
 #[cfg(feature = "macros")]
-pub use hecs_macros::{Bundle, DynamicBundleClone, Query};
+pub use hecs_macros::{Bundle, Query};
 
 fn align(x: usize, alignment: usize) -> usize {
     debug_assert!(alignment.is_power_of_two());
