@@ -18,10 +18,7 @@ use core::{fmt, ptr};
 #[cfg(feature = "std")]
 use std::error::Error;
 
-use hashbrown::{
-    hash_map::{Entry, HashMap},
-    HashSet,
-};
+use hashbrown::hash_map::{Entry, HashMap};
 
 use crate::alloc::boxed::Box;
 use crate::archetype::{Archetype, TypeIdMap, TypeInfo};
@@ -721,12 +718,12 @@ impl World {
         match remove_edges.entry((old_archetype, TypeId::of::<T>())) {
             Entry::Occupied(entry) => *entry.into_mut(),
             Entry::Vacant(entry) => {
-                let removed = T::with_static_ids(|ids| ids.iter().copied().collect::<HashSet<_>>());
+                let removed = T::static_type_info();
                 let info = archetypes.archetypes[old_archetype as usize]
                     .types()
                     .iter()
+                    .filter(|x| removed.binary_search(x).is_err())
                     .cloned()
-                    .filter(|x| !removed.contains(&x.id()))
                     .collect::<Vec<_>>();
                 let elements = info.iter().map(|x| x.id()).collect::<Box<_>>();
                 let index = archetypes.get(&*elements, move || info);
