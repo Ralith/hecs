@@ -407,7 +407,7 @@ impl World {
     }
 
     pub(crate) fn memo(&self) -> (u64, u64) {
-        (self.id, self.archetypes.generation)
+        (self.id, self.archetypes.generation())
     }
 
     pub(crate) fn entities_meta(&self) -> &[EntityMeta] {
@@ -897,7 +897,7 @@ impl World {
     /// assert_ne!(initial_gen, world.archetypes_generation());
     /// ```
     pub fn archetypes_generation(&self) -> ArchetypesGeneration {
-        ArchetypesGeneration(self.archetypes.generation)
+        ArchetypesGeneration(self.archetypes.generation())
     }
 
     /// Number of currently live entities
@@ -1194,7 +1194,6 @@ struct ArchetypeSet {
     /// Maps sorted component type sets to archetypes
     index: HashMap<Box<[TypeId]>, u32>,
     archetypes: Vec<Archetype>,
-    generation: u64,
 }
 
 impl ArchetypeSet {
@@ -1203,7 +1202,6 @@ impl ArchetypeSet {
         Self {
             index: Some((Box::default(), 0)).into_iter().collect(),
             archetypes: vec![Archetype::new(Vec::new())],
-            generation: 0,
         }
     }
 
@@ -1224,7 +1222,6 @@ impl ArchetypeSet {
         self.archetypes.push(Archetype::new(info));
         let old = self.index.insert(components, x);
         debug_assert!(old.is_none(), "inserted duplicate archetype");
-        self.post_insert();
         x
     }
 
@@ -1251,14 +1248,13 @@ impl ArchetypeSet {
                 let id = self.archetypes.len() as u32;
                 self.archetypes.push(archetype);
                 x.insert(id);
-                self.post_insert();
                 (id, 0)
             }
         }
     }
 
-    fn post_insert(&mut self) {
-        self.generation += 1;
+    fn generation(&self) -> u64 {
+        self.archetypes.len() as u64
     }
 
     fn get_insert_target(&mut self, src: u32, components: &impl DynamicBundle) -> InsertTarget {
