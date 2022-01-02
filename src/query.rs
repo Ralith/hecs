@@ -1042,7 +1042,7 @@ smaller_tuples_too!(tuple_impl, O, N, M, L, K, J, I, H, G, F, E, D, C, B, A);
 
 /// A prepared query can be stored independently of the [`World`] to amortize query set-up costs.
 pub struct PreparedQuery<Q: Query> {
-    memo: (u64, u64),
+    memo: (u64, u32),
     state: Box<[(usize, <Q::Fetch as Fetch<'static>>::State)]>,
     fetch: Box<[Option<Q::Fetch>]>,
 }
