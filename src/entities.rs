@@ -390,9 +390,16 @@ impl Entities {
     pub fn contains(&self, entity: Entity) -> bool {
         // Note that out-of-range IDs are considered to be "contained" because
         // they must be reserved IDs that we haven't flushed yet.
-        self.meta
-            .get(entity.id as usize)
-            .map_or(true, |meta| meta.generation == entity.generation)
+        match self.meta.get(entity.id as usize) {
+            Some(meta) => meta.generation == entity.generation,
+            None => {
+                // Check if this could have been obtained from `reserve_entity`
+                let free = self.free_cursor.load(Ordering::Relaxed);
+                entity.generation.get() == 1
+                    && free < 0
+                    && (entity.id as isize) < (free.abs() + self.meta.len() as isize)
+            }
+        }
     }
 
     pub fn clear(&mut self) {
@@ -688,6 +695,14 @@ mod tests {
         for _ in 0..3 {
             let entity = e.reserve_entity();
             assert!(e.contains(entity));
+            assert!(!e.contains(Entity {
+                id: entity.id,
+                generation: NonZeroU32::new(2).unwrap(),
+            }));
+            assert!(!e.contains(Entity {
+                id: entity.id + 1,
+                generation: NonZeroU32::new(1).unwrap(),
+            }));
         }
     }
 
