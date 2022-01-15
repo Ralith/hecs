@@ -14,6 +14,9 @@ use crate::archetype::TypeInfo;
 use crate::Component;
 
 /// A dynamically typed collection of components
+///
+/// Bundles composed of exactly the same types are semantically equivalent, regardless of order. The
+/// interface of this trait is a private implementation detail.
 #[allow(clippy::missing_safety_doc)]
 pub unsafe trait DynamicBundle {
     /// Returns a `TypeId` uniquely identifying the set of components, if known
@@ -37,6 +40,9 @@ pub unsafe trait DynamicBundle {
 }
 
 /// A statically typed collection of components
+///
+/// Bundles composed of exactly the same types are semantically equivalent, regardless of order. The
+/// interface of this trait is a private implementation detail.
 #[allow(clippy::missing_safety_doc)]
 pub unsafe trait Bundle: DynamicBundle {
     #[doc(hidden)]

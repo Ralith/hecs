@@ -17,6 +17,8 @@ use crate::entities::EntityMeta;
 use crate::{Component, Entity, World};
 
 /// A collection of component types to fetch from a [`World`](crate::World)
+///
+/// The interface of this trait is a private implementation detail.
 pub trait Query {
     #[doc(hidden)]
     type Fetch: for<'a> Fetch<'a>;
