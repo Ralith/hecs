@@ -1,3 +1,8 @@
+# 0.7.5
+
+### Changed
+- Bump hashbrown version
+
 # 0.7.4
 
 ### Added
