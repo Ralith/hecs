@@ -1,7 +1,21 @@
 # Unreleased
 
 ### Added
-- `get_unchecked` methods on `View` and `PreparedView` for overlapping borrows
+- `get_unchecked` and `get_mut_n` methods on `View` and `PreparedView` for overlapping borrows
+
+### Changed
+- Minimum supported Rust version is now explicit in Cargo.toml, currently 1.57
+- Several internal optimizations thanks to Adam Reichold
+
+### Fixed
+- `derive(DynamicBundleClone)` had an unintended dependency on `DynamicClone` being in scope
+- `World::len` was incorrect following `World::clear`
+- Missing re-export of `PreparedView`
+
+# 0.7.3
+
+### Fixed
+- Insufficiently strict hecs-macros version constraints
 
 # 0.7.2
 
