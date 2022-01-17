@@ -1,4 +1,4 @@
-# Unreleased
+# 0.7.4
 
 ### Added
 - `get_unchecked` and `get_mut_n` methods on `View` and `PreparedView` for overlapping borrows
