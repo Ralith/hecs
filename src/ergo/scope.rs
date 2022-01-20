@@ -181,7 +181,19 @@ impl<'a> ErgoScope<'a> {
         Ok(())
     }
 
-    // TODO add contains
+    /// Destroy an entity and all its components
+    pub fn contains(&self, entity: Entity) -> bool {
+        // TODO ensure there are no active locks on the component data
+        if self.access.is_entity_overridden(entity) {
+            let mut override_map = self.override_data.borrow_mut();
+            let data = override_map
+                .get_mut(&entity)
+                .expect("override data not present despite entity being marked as overriden");
+            !matches!(data, EntityOverride::Deleted)
+        } else {
+            self.world.contains(entity)
+        }
+    }
 }
 
 impl<'a> Drop for ErgoScope<'a> {
@@ -560,6 +572,7 @@ mod test {
         {
             let ergo_scope = ErgoScope::new(&mut world);
             assert!(ergo_scope.despawn(e).is_ok());
+            assert!(!ergo_scope.contains(e));
 
             assert!(ergo_scope.get::<i32>(e).is_err());
         }
@@ -570,4 +583,6 @@ mod test {
 
     // TODO write a test demonstrating behaviour of getting a ptr to world-owned component,
     // then removing the component, then adding a new component of the same type
+
+    // TODO write tests for panic cases in borrowing
 }
