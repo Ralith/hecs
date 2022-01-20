@@ -1,5 +1,4 @@
-use core::{any::TypeId, arch, cell::RefCell, ptr::NonNull};
-use std::{fs::remove_dir, thread::LocalKey};
+use core::{any::TypeId, cell::RefCell, ptr::NonNull};
 
 use alloc::vec::Vec;
 use hashbrown::HashMap;
@@ -36,9 +35,6 @@ impl<'a> ErgoScope<'a> {
     }
 
     /// Returns a `ComponentRef` to the `T` component of `entity`
-    ///
-    /// Panics if the component is already uniquely borrowed from another entity with the same
-    /// components.
     pub fn get<T: Component>(&self, entity: Entity) -> Result<ComponentRef<T>, ComponentError> {
         if !self.access.is_entity_overridden(entity) {
             let location = self.world.entities().get(entity)?;
