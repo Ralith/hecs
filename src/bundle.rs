@@ -109,6 +109,7 @@ impl MissingComponent {
         Self::Static(type_name::<T>())
     }
 
+    /// Construct an error representing a missing type described by TypeInfo
     pub fn new_dynamic(ty: TypeInfo) -> Self {
         Self::Dynamic(ty)
     }
