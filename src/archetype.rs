@@ -560,6 +560,16 @@ impl TypeInfo {
     pub fn drop_shim(&self) -> unsafe fn(*mut u8) {
         self.drop
     }
+
+    #[cfg(debug_assertions)]
+    pub(crate) fn name(&self) -> Option<&str> {
+        Some(self.type_name)
+    }
+
+    #[cfg(not(debug_assertions))]
+    pub(crate) fn name(&self) -> Option<&str> {
+        None
+    }
 }
 
 impl PartialOrd for TypeInfo {
