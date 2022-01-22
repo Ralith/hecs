@@ -1,11 +1,12 @@
 use alloc::{boxed::Box, vec::Vec};
 use core::{
+    any::TypeId,
     cell::{Cell, RefCell},
     ops::{Deref, DerefMut},
-    ptr::NonNull,
+    ptr::{null_mut, NonNull},
 };
 
-use crate::{Component, Entity, World};
+use crate::{Component, Entity, TypeInfo, World};
 
 pub(super) type BitsetChunk = usize;
 #[derive(Default)]
@@ -19,6 +20,10 @@ impl BitVec {
 }
 
 pub(super) struct ComponentAccess {
+    /// entity ID
+    entity: Cell<Entity>,
+    // component type ID
+    component_type: Cell<TypeInfo>,
     /// address to the component data
     data_addr: Cell<*mut u8>,
     /// number of references to this [ComponentAccess]. max 255 refs
@@ -29,6 +34,8 @@ pub(super) struct ComponentAccess {
 impl Default for ComponentAccess {
     fn default() -> Self {
         Self {
+            entity: Cell::new(Entity::from_bits(u64::MAX).unwrap()),
+            component_type: Cell::new(TypeInfo::of::<()>()),
             data_addr: Cell::new(core::ptr::null_mut()),
             refs: Default::default(),
             borrow_counter: Default::default(),
@@ -91,6 +98,9 @@ impl ComponentAccess {
         );
         self.borrow_counter.set(0);
     }
+    fn has_borrow(&self) -> bool {
+        self.borrow_counter.get() != 0
+    }
 }
 
 const COMPONENT_ACCESS_CHUNK_SIZE: usize = 32;
@@ -114,18 +124,43 @@ impl AccessControl {
             .resize(world.len() as usize / BitVec::chunk_bit_size() + 1, 0);
     }
 
+    pub(super) unsafe fn update_data_ptr(
+        &self,
+        entity: Entity,
+        component_type: &TypeInfo,
+        new_ptr: *mut u8,
+    ) {
+        let chunk_list = self.borrow_counter_chunks.borrow_mut();
+        for chunk in chunk_list.iter() {
+            for comp_access in chunk.iter() {
+                if comp_access.entity.get() == entity
+                    && comp_access.component_type.get() == *component_type
+                {
+                    comp_access.data_addr.set(new_ptr);
+                }
+            }
+        }
+    }
+
     pub unsafe fn get_typed_component_ref<T: Component>(
         &self,
+        entity: Entity,
+        comp_type: &TypeInfo,
         addr: NonNull<u8>,
     ) -> ComponentRef<T> {
-        let component_ref = self.get_component_ref(addr);
+        let component_ref = self.get_component_ref(entity, comp_type, addr);
         ComponentRef {
             component_ref,
             phantom: Default::default(),
         }
     }
 
-    pub fn get_component_ref(&self, addr: NonNull<u8>) -> GenericComponentRef {
+    pub fn get_component_ref(
+        &self,
+        entity: Entity,
+        component_type: &TypeInfo,
+        addr: NonNull<u8>,
+    ) -> GenericComponentRef {
         let mut chunk_list = self.borrow_counter_chunks.borrow_mut();
         // see if there are any active access items
         for chunk in chunk_list.iter() {
@@ -141,6 +176,8 @@ impl AccessControl {
             for comp_access in chunk.iter() {
                 if comp_access.refs.get() == 0 {
                     comp_access.data_addr.set(addr.as_ptr());
+                    comp_access.entity.set(entity);
+                    comp_access.component_type.set(*component_type);
                     comp_access.increment_refs();
                     return GenericComponentRef::new(comp_access as *const ComponentAccess);
                 }
@@ -151,6 +188,8 @@ impl AccessControl {
         chunk_list.push(Box::new(Default::default()));
         let new_item = &chunk_list.last_mut().unwrap()[0];
         new_item.data_addr.set(addr.as_ptr());
+        new_item.entity.set(entity);
+        new_item.component_type.set(*component_type);
         new_item.increment_refs();
         GenericComponentRef::new(new_item as *const ComponentAccess)
     }
@@ -163,6 +202,17 @@ impl AccessControl {
                 }
             }
         }
+    }
+
+    pub(super) fn has_active_borrows(&self, entity: Entity, comp_type: TypeId) -> bool {
+        for chunk in self.borrow_counter_chunks.borrow().iter() {
+            for item in chunk.iter() {
+                if item.entity.get() == entity && item.component_type.get().id() == comp_type {
+                    return item.has_borrow();
+                }
+            }
+        }
+        false
     }
 
     pub(super) fn is_entity_overridden(&self, entity: Entity) -> bool {
@@ -306,6 +356,13 @@ pub struct ComponentRef<T: Component> {
 impl<T: Component> ComponentRef<T> {
     pub fn read(&self) -> Ref<T> {
         let access = unsafe { &*self.component_ref.access_ptr };
+        if access.data_addr.get() == null_mut() {
+            panic!(
+                "Component read attempted on removed component {} for entity {:?}",
+                access.component_type.get().name().unwrap_or(""),
+                access.entity.get()
+            );
+        }
         access.increment_read();
 
         Ref {
@@ -315,6 +372,13 @@ impl<T: Component> ComponentRef<T> {
     }
     pub fn write(&mut self) -> RefMut<T> {
         let access = unsafe { &*self.component_ref.access_ptr };
+        if access.data_addr.get() == null_mut() {
+            panic!(
+                "Component write attempted on removed component {} for entity {:?}",
+                access.component_type.get().name().unwrap_or(""),
+                access.entity.get()
+            );
+        }
         access.take_write_lock();
         RefMut {
             access_ptr: self.component_ref.access_ptr,

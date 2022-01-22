@@ -1,4 +1,8 @@
-use core::{any::TypeId, cell::RefCell, ptr::NonNull};
+use core::{
+    any::TypeId,
+    cell::RefCell,
+    ptr::{null_mut, NonNull},
+};
 
 use alloc::vec::Vec;
 use hashbrown::HashMap;
@@ -39,15 +43,17 @@ impl<'a> ErgoScope<'a> {
         if !self.access.is_entity_overridden(entity) {
             let location = self.world.entities().get(entity)?;
             let archetype = &self.world.archetypes_inner()[location.archetype as usize];
-            let type_id = TypeId::of::<T>();
+            let type_info = TypeInfo::of::<T>();
             let layout = alloc::alloc::Layout::new::<T>().pad_to_align();
             unsafe {
                 let addr = archetype
-                    .get_dynamic(type_id, layout.size(), location.index)
+                    .get_dynamic(type_info.id(), layout.size(), location.index)
                     .ok_or(ComponentError::MissingComponent(
                         MissingComponent::new::<T>(),
                     ))?;
-                Ok(self.access.get_typed_component_ref(addr))
+                Ok(self
+                    .access
+                    .get_typed_component_ref(entity, &type_info, addr))
             }
         } else {
             let override_map = self.override_data.borrow();
@@ -59,13 +65,15 @@ impl<'a> ErgoScope<'a> {
                     return Err(ComponentError::NoSuchEntity);
                 }
                 EntityOverride::Changed(data) => {
-                    let type_id = TypeId::of::<T>();
-                    let addr =
-                        data.get_data_ptr(type_id)
-                            .ok_or(ComponentError::MissingComponent(
-                                MissingComponent::new::<T>(),
-                            ))?;
-                    unsafe { Ok(self.access.get_typed_component_ref(addr)) }
+                    let type_info = TypeInfo::of::<T>();
+                    let addr = data.get_data_ptr(type_info.id()).ok_or(
+                        ComponentError::MissingComponent(MissingComponent::new::<T>()),
+                    )?;
+                    unsafe {
+                        Ok(self
+                            .access
+                            .get_typed_component_ref(entity, &type_info, addr))
+                    }
                 }
             }
         }
@@ -101,7 +109,12 @@ impl<'a> ErgoScope<'a> {
                 EntityOverride::Changed(data) => {
                     unsafe {
                         components.put(|src_ptr, type_info| {
-                            data.put_component(type_info, src_ptr);
+                            if self.access.has_active_borrows(entity, type_info.id()) {
+                                panic!("Component {:?} on entity {:?} has an active borrow when inserting component", entity, type_info.id());
+                            }
+                            if let Some(new_ptr) = data.put_component(type_info, src_ptr) {
+                                self.access.update_data_ptr(entity, &type_info, new_ptr);
+                            }
                         });
                     }
                     return Ok(());
@@ -113,7 +126,12 @@ impl<'a> ErgoScope<'a> {
             // then put the new components in the data
             unsafe {
                 components.put(|ptr, ty| {
-                    override_data.put_component(ty, ptr);
+                    if self.access.has_active_borrows(entity, ty.id()) {
+                        panic!("Component {:?} on entity {:?} has an active borrow when inserting component", entity, ty.id());
+                    }
+                    if let Some(new_ptr) = override_data.put_component(ty, ptr) {
+                        self.access.update_data_ptr(entity, &ty, new_ptr);
+                    }
                 });
             };
             self.override_data
@@ -124,11 +142,17 @@ impl<'a> ErgoScope<'a> {
         }
     }
 
+    /// Remove the `T` component from `entity`
+    ///
+    /// See [`remove`](Self::remove).
+    pub fn remove_one<T: Component>(&self, entity: Entity) -> Result<T, ComponentError> {
+        self.remove::<(T,)>(entity).map(|(x,)| x)
+    }
+
     /// Remove components from `entity`
     ///
     /// When removing a single component, see [`remove_one`](Self::remove_one) for convenience.
     pub fn remove<T: Bundle + 'static>(&self, entity: Entity) -> Result<T, ComponentError> {
-        // TODO ensure there are no active locks on the component data
         if !self.access.is_entity_overridden(entity) {
             // if we don't have override data, create it before proceeding
             let override_data = EntityOverrideData::from_world(&self.world, entity)?;
@@ -147,9 +171,14 @@ impl<'a> ErgoScope<'a> {
             EntityOverride::Deleted => Err(ComponentError::NoSuchEntity),
             EntityOverride::Changed(existing_data) => unsafe {
                 let removed_data = T::get(|ty| existing_data.get_data_ptr(ty.id()))?;
-                T::with_static_ids(|type_ids| {
-                    for ty in type_ids {
-                        existing_data.remove_assume_moved(*ty);
+                T::with_static_type_info(|types| {
+                    for ty in types {
+                        if self.access.has_active_borrows(entity, ty.id()) {
+                            panic!("Component {:?} on entity {:?} has an active borrow when removing component", entity, ty.id());
+                        }
+                        if existing_data.remove_assume_moved(ty.id()) {
+                            self.access.update_data_ptr(entity, &ty, null_mut());
+                        }
                     }
                 });
                 Ok(removed_data)
@@ -159,7 +188,6 @@ impl<'a> ErgoScope<'a> {
 
     /// Destroy an entity and all its components
     pub fn despawn(&self, entity: Entity) -> Result<(), NoSuchEntity> {
-        // TODO ensure there are no active locks on the component data
         if !self.access.is_entity_overridden(entity) {
             // if we don't have override data, create it before proceeding
             let override_data = EntityOverrideData::from_world(&self.world, entity)?;
@@ -170,16 +198,26 @@ impl<'a> ErgoScope<'a> {
             self.access.set_entity_overridden(entity);
         }
         let mut override_map = self.override_data.borrow_mut();
-        let data = override_map
+        let entity_override = override_map
             .get_mut(&entity)
             .expect("override data not present despite entity being marked as overriden");
-        *data = EntityOverride::Deleted;
+        match entity_override {
+            EntityOverride::Deleted => return Err(NoSuchEntity),
+            EntityOverride::Changed(data) => unsafe {
+                for ty in &data.types {
+                    if self.access.has_active_borrows(entity, ty.id()) {
+                        panic!("Component {:?} on entity {:?} has an active borrow when despawning entity", entity, ty.id());
+                    }
+                    self.access.update_data_ptr(entity, &ty, null_mut());
+                }
+            },
+        }
+        *entity_override = EntityOverride::Deleted;
         Ok(())
     }
 
-    /// Destroy an entity and all its components
+    /// Whether `entity` still exists
     pub fn contains(&self, entity: Entity) -> bool {
-        // TODO ensure there are no active locks on the component data
         if self.access.is_entity_overridden(entity) {
             let mut override_map = self.override_data.borrow_mut();
             let data = override_map
@@ -209,33 +247,43 @@ enum ComponentData {
 }
 
 impl ComponentData {
-    // Moves src_ptr into the ComponentData, replacing the existing data
-    fn replace(&mut self, type_info: &TypeInfo, src_ptr: NonNull<u8>) {
+    // Moves data at src_ptr into the ComponentData, replacing the existing data
+    // Returns the new pointer if the operation caused the underlying storage to change
+    unsafe fn replace(&mut self, type_info: &TypeInfo, src_ptr: NonNull<u8>) -> Option<*mut u8> {
         match self {
             ComponentData::ScopeOwned(data) => {
                 if src_ptr != *data {
-                    unsafe { type_info.drop(data.as_ptr()) }
-                    *data = src_ptr;
+                    type_info.drop(data.as_ptr());
+                    core::ptr::copy_nonoverlapping(
+                        src_ptr.as_ptr(),
+                        data.as_ptr(),
+                        type_info.layout().size(),
+                    );
                 }
+                None
             }
             ComponentData::WorldOwned(_, data) => {
                 if src_ptr != *data {
-                    unsafe { type_info.drop(data.as_ptr()) }
-                    *data = src_ptr;
+                    type_info.drop(data.as_ptr());
+                    core::ptr::copy_nonoverlapping(
+                        src_ptr.as_ptr(),
+                        data.as_ptr(),
+                        type_info.layout().size(),
+                    );
                 }
+                None
             }
             ComponentData::Removed => {
                 // TODO maybe we can use a more efficient storage similar to EntityBuilder?
-                unsafe {
-                    let dst_ptr = alloc::alloc::alloc(type_info.layout());
-                    assert!(!dst_ptr.is_null(), "allocation failed");
-                    core::ptr::copy_nonoverlapping(
-                        src_ptr.as_ptr(),
-                        dst_ptr,
-                        type_info.layout().size(),
-                    );
-                    *self = ComponentData::ScopeOwned(NonNull::new_unchecked(dst_ptr));
-                }
+                let dst_ptr = alloc::alloc::alloc(type_info.layout());
+                assert!(!dst_ptr.is_null(), "allocation failed");
+                core::ptr::copy_nonoverlapping(
+                    src_ptr.as_ptr(),
+                    dst_ptr,
+                    type_info.layout().size(),
+                );
+                *self = ComponentData::ScopeOwned(NonNull::new_unchecked(dst_ptr));
+                Some(dst_ptr)
             }
         }
     }
@@ -297,15 +345,17 @@ impl Drop for EntityOverrideData {
 
 impl EntityOverrideData {
     // Moves a component into self, adding or replacing existing data
-    unsafe fn put_component(&mut self, type_info: TypeInfo, src_ptr: *mut u8) {
+    unsafe fn put_component(&mut self, type_info: TypeInfo, src_ptr: *mut u8) -> Option<*mut u8> {
         match self.get_component_data_mut(type_info.id()) {
             Some(data) => data.replace(&type_info, NonNull::new(src_ptr).unwrap()),
-            None => {
-                self.add_new_component(type_info, src_ptr);
-            }
+            None => self.add_new_component(type_info, src_ptr),
         }
     }
-    unsafe fn add_new_component(&mut self, type_info: TypeInfo, src_ptr: *mut u8) {
+    unsafe fn add_new_component(
+        &mut self,
+        type_info: TypeInfo,
+        src_ptr: *mut u8,
+    ) -> Option<*mut u8> {
         self.types.push(type_info);
         let dst_ptr = alloc::alloc::alloc(type_info.layout());
         assert!(!dst_ptr.is_null(), "allocation failed");
@@ -313,6 +363,7 @@ impl EntityOverrideData {
         self.components
             .push(ComponentData::ScopeOwned(NonNull::new_unchecked(dst_ptr)));
         self.ensure_sorted();
+        Some(dst_ptr)
     }
 
     fn get_component_data_mut(&mut self, type_id: TypeId) -> Option<&mut ComponentData> {
@@ -370,19 +421,25 @@ impl EntityOverrideData {
     }
 
     /// Frees scope-owned memory without dropping the data,
-    /// effectively assuming it has been moved
-    unsafe fn remove_assume_moved(&mut self, id: TypeId) {
+    /// effectively assuming it has been moved.
+    unsafe fn remove_assume_moved(&mut self, id: TypeId) -> bool {
         if let Some(idx) = self.types.iter().position(|t| t.id() == id) {
             let ty = self.types[idx];
             let data = &mut self.components[idx];
             match data {
-                ComponentData::WorldOwned(..) => *data = ComponentData::Removed,
+                ComponentData::WorldOwned(..) => {
+                    *data = ComponentData::Removed;
+                    true
+                }
                 ComponentData::ScopeOwned(ptr) => {
                     alloc::alloc::dealloc(ptr.as_ptr(), ty.layout());
-                    *data = ComponentData::Removed
+                    *data = ComponentData::Removed;
+                    true
                 }
-                _ => {}
+                _ => false,
             }
+        } else {
+            false
         }
     }
 
@@ -460,7 +517,6 @@ mod test {
     fn ergo_get_write() {
         let mut world = World::new();
         let e = world.spawn((5i32, 1.5f32));
-        assert!(world.len() == 1);
         let ergo_scope = ErgoScope::new(&mut world);
         let mut component = ergo_scope.get::<f32>(e).expect("failed to get component");
         *component.write() = 2.5f32;
@@ -475,10 +531,39 @@ mod test {
     }
 
     #[test]
+    #[should_panic]
+    fn ergo_read_panic_write_active() {
+        let mut world = World::new();
+        let e = world.spawn((5i32,));
+        assert!(world.len() == 1);
+        let ergo_scope = ErgoScope::new(&mut world);
+        let mut write = ergo_scope.get::<i32>(e).expect("failed to get component");
+        let write = write.write();
+        let read = ergo_scope.get::<i32>(e).expect("failed to get component");
+        read.read();
+        drop(write);
+        drop(read);
+    }
+
+    #[test]
+    #[should_panic]
+    fn ergo_write_panic_read_active() {
+        let mut world = World::new();
+        let e = world.spawn((5i32,));
+        assert!(world.len() == 1);
+        let ergo_scope = ErgoScope::new(&mut world);
+        let read = ergo_scope.get::<i32>(e).expect("failed to get component");
+        let read = read.read();
+        let mut write = ergo_scope.get::<i32>(e).expect("failed to get component");
+        write.write();
+        drop(read);
+        drop(write);
+    }
+
+    #[test]
     fn ergo_insert() {
         let mut world = World::new();
         let e = world.spawn((5i32, 1.5f32));
-        assert!(world.len() == 1);
         {
             let ergo_scope = ErgoScope::new(&mut world);
 
@@ -520,10 +605,26 @@ mod test {
     }
 
     #[test]
+    #[should_panic]
+    fn ergo_insert_panic_active_borrows() {
+        let mut world = World::new();
+        let e = world.spawn((5i32, 1.5f32));
+        {
+            let ergo_scope = ErgoScope::new(&mut world);
+            let component = ergo_scope.get::<i32>(e).expect("failed to get component");
+
+            let component_borrow = component.read();
+            ergo_scope
+                .insert(e, (8i32,))
+                .expect("failed to insert component");
+            drop(component_borrow);
+        }
+    }
+
+    #[test]
     fn ergo_remove() {
         let mut world = World::new();
         let e = world.spawn((5i32, 1.5f32));
-        assert!(world.len() == 1);
         {
             let ergo_scope = ErgoScope::new(&mut world);
 
@@ -561,10 +662,26 @@ mod test {
     }
 
     #[test]
+    #[should_panic]
+    fn ergo_remove_panic_active_borrow() {
+        let mut world = World::new();
+        let e = world.spawn((5i32, 1.5f32));
+        {
+            let ergo_scope = ErgoScope::new(&mut world);
+            let component = ergo_scope.get::<i32>(e).expect("failed to get component");
+
+            let component_borrow = component.read();
+            ergo_scope
+                .remove::<(i32,)>(e)
+                .expect("failed to remove component");
+            drop(component_borrow);
+        }
+    }
+
+    #[test]
     fn ergo_despawn() {
         let mut world = World::new();
         let e = world.spawn((5i32, 1.5f32));
-        assert!(world.len() == 1);
         {
             let ergo_scope = ErgoScope::new(&mut world);
             assert!(ergo_scope.despawn(e).is_ok());
@@ -577,8 +694,54 @@ mod test {
         assert!(world.get::<i32>(e).is_err());
     }
 
+    #[should_panic]
+    #[test]
+    fn ergo_despawn_panic_active_borrow() {
+        let mut world = World::new();
+        let e = world.spawn((5i32, 1.5f32));
+        {
+            let ergo_scope = ErgoScope::new(&mut world);
+            let component = ergo_scope.get::<i32>(e).expect("failed to get component");
+
+            let component_borrow = component.read();
+            ergo_scope.despawn(e).expect("failed to despawn entity");
+            drop(component_borrow);
+        }
+    }
+
+    #[test]
+    fn ergo_reuse_refs() {
+        let mut world = World::new();
+        let e = world.spawn((5i32, 1.5f32));
+        {
+            let ergo_scope = ErgoScope::new(&mut world);
+            let component = ergo_scope.get::<i32>(e).expect("failed to get component");
+
+            ergo_scope
+                .remove_one::<i32>(e)
+                .expect("failed to remove component");
+            ergo_scope
+                .insert_one(e, 8i32)
+                .expect("failed to insert component");
+            assert_eq!(*component.read(), 8i32);
+        }
+    }
+
+    #[should_panic]
+    #[test]
+    fn ergo_read_panic_removed_component() {
+        let mut world = World::new();
+        let e = world.spawn((5i32, 1.5f32));
+        {
+            let ergo_scope = ErgoScope::new(&mut world);
+            let component = ergo_scope.get::<i32>(e).expect("failed to get component");
+
+            ergo_scope
+                .remove_one::<i32>(e)
+                .expect("failed to remove component");
+            assert_eq!(*component.read(), 5i32);
+        }
+    }
     // TODO write a test demonstrating behaviour of getting a ptr to world-owned component,
     // then removing the component, then adding a new component of the same type
-
-    // TODO write tests for panic cases in borrowing
 }
