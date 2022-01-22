@@ -23,8 +23,8 @@ use crate::alloc::boxed::Box;
 use crate::archetype::{Archetype, TypeIdMap, TypeInfo};
 use crate::entities::{Entities, EntityMeta, Location, ReserveEntitiesIterator};
 use crate::{
-    Bundle, ColumnBatch, ComponentRef, DynamicBundle, Entity, EntityRef, Fetch, MissingComponent,
-    NoSuchEntity, Query, QueryBorrow, QueryItem, QueryMut, QueryOne, TakenEntity,
+    Bundle, ColumnBatch, ComponentRef, DynamicBundle, Entity, EntityBuilder, EntityRef, Fetch,
+    MissingComponent, NoSuchEntity, Query, QueryBorrow, QueryItem, QueryMut, QueryOne, TakenEntity,
 };
 
 /// An unordered collection of entities, each having any number of distinctly typed components
@@ -671,7 +671,7 @@ impl World {
         &mut self,
         entity: Entity,
         removed: &[TypeInfo],
-    ) -> Result<EntityBuilder<()>, ComponentError> {
+    ) -> Result<EntityBuilder, ComponentError> {
         self.flush();
 
         // Gather current metadata
@@ -689,7 +689,7 @@ impl World {
         let elements = info.iter().map(|x| x.id()).collect::<Box<_>>();
         let target = self.archetypes.get(&*elements, move || info);
 
-        let mut builder = EntityBuilder::<()>::new();
+        let mut builder = EntityBuilder::new();
         // Store components to the target archetype and update metadata
         if loc.archetype != target {
             let source_arch = &self.archetypes.archetypes[loc.archetype as usize];
@@ -703,7 +703,7 @@ impl World {
                         .ok_or(ComponentError::MissingComponent(
                             MissingComponent::new_dynamic(*ty),
                         ))?;
-                    builder.add_inner(ptr.as_ptr(), *ty, ());
+                    builder.inner.add(ptr.as_ptr(), *ty, ());
                 }
             }
             unsafe {

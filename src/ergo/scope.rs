@@ -8,8 +8,8 @@ use alloc::vec::Vec;
 use hashbrown::HashMap;
 
 use crate::{
-    entities::Location, Bundle, Component, ComponentError, DynamicBundle, Entity, EntityBuilder,
-    MissingComponent, NoSuchEntity, TypeInfo, World,
+    entities::Location, Bundle, Component, ComponentError, DynamicBundle, Entity, MissingComponent,
+    NoSuchEntity, TypeInfo, World,
 };
 
 use super::access::*;
