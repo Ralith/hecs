@@ -109,7 +109,7 @@ impl<'a> ErgoScope<'a> {
                     unsafe {
                         components.put(|src_ptr, type_info| {
                             if self.access.has_active_borrows(entity, type_info.id()) {
-                                panic!("Component {:?} on entity {:?} has an active borrow when inserting component", entity, type_info.id());
+                                panic!("Component {} on entity {:?} has an active borrow when inserting component", type_info.name().unwrap_or(""), entity);
                             }
                             if let Some(new_ptr) = data.put_component(type_info, src_ptr) {
                                 self.access.update_data_ptr(entity, &type_info, new_ptr);
@@ -126,7 +126,7 @@ impl<'a> ErgoScope<'a> {
             unsafe {
                 components.put(|ptr, ty| {
                     if self.access.has_active_borrows(entity, ty.id()) {
-                        panic!("Component {:?} on entity {:?} has an active borrow when inserting component", entity, ty.id());
+                        panic!("Component {} on entity {:?} has an active borrow when inserting component", ty.name().unwrap_or(""), entity);
                     }
                     if let Some(new_ptr) = override_data.put_component(ty, ptr) {
                         self.access.update_data_ptr(entity, &ty, new_ptr);
@@ -173,7 +173,7 @@ impl<'a> ErgoScope<'a> {
                 T::with_static_type_info(|types| {
                     for ty in types {
                         if self.access.has_active_borrows(entity, ty.id()) {
-                            panic!("Component {:?} on entity {:?} has an active borrow when removing component", entity, ty.id());
+                            panic!("Component {} on entity {:?} has an active borrow when removing component", ty.name().unwrap_or(""), entity);
                         }
                         if existing_data.remove_assume_moved(ty.id()) {
                             self.access.update_data_ptr(entity, &ty, null_mut());
@@ -205,7 +205,7 @@ impl<'a> ErgoScope<'a> {
             EntityOverride::Changed(data) => unsafe {
                 for ty in &data.types {
                     if self.access.has_active_borrows(entity, ty.id()) {
-                        panic!("Component {:?} on entity {:?} has an active borrow when despawning entity", entity, ty.id());
+                        panic!("Component {} on entity {:?} has an active borrow when despawning entity", ty.name().unwrap_or(""), entity);
                     }
                     self.access.update_data_ptr(entity, &ty, null_mut());
                 }
