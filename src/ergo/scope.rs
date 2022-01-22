@@ -98,7 +98,6 @@ impl<'a> ErgoScope<'a> {
         entity: Entity,
         components: impl DynamicBundle,
     ) -> Result<(), NoSuchEntity> {
-        // TODO ensure there are no active locks on affected component data
         if self.access.is_entity_overridden(entity) {
             let mut override_map = self.override_data.borrow_mut();
             let data = override_map
@@ -742,6 +741,4 @@ mod test {
             assert_eq!(*component.read(), 5i32);
         }
     }
-    // TODO write a test demonstrating behaviour of getting a ptr to world-owned component,
-    // then removing the component, then adding a new component of the same type
 }
