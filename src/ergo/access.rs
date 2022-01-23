@@ -160,14 +160,14 @@ impl AccessControl {
         entity: Entity,
         component_type: &TypeInfo,
         addr: NonNull<u8>,
-    ) -> GenericComponentRef {
+    ) -> DynComponentRef {
         let mut chunk_list = self.borrow_counter_chunks.borrow_mut();
         // see if there are any active access items
         for chunk in chunk_list.iter() {
             for comp_access in chunk.iter() {
                 if comp_access.data_addr.get() == addr.as_ptr() {
                     comp_access.increment_refs();
-                    return GenericComponentRef::new(comp_access as *const ComponentAccess);
+                    return DynComponentRef::new(comp_access as *const ComponentAccess);
                 }
             }
         }
@@ -179,7 +179,7 @@ impl AccessControl {
                     comp_access.entity.set(entity);
                     comp_access.component_type.set(*component_type);
                     comp_access.increment_refs();
-                    return GenericComponentRef::new(comp_access as *const ComponentAccess);
+                    return DynComponentRef::new(comp_access as *const ComponentAccess);
                 }
             }
         }
@@ -191,7 +191,7 @@ impl AccessControl {
         new_item.entity.set(entity);
         new_item.component_type.set(*component_type);
         new_item.increment_refs();
-        GenericComponentRef::new(new_item as *const ComponentAccess)
+        DynComponentRef::new(new_item as *const ComponentAccess)
     }
 
     pub(super) fn expect_zero_refs(&self) {
@@ -232,66 +232,66 @@ impl AccessControl {
     }
 }
 
-pub struct GenericComponentRef {
+pub struct DynComponentRef {
     access_ptr: *const ComponentAccess,
 }
-impl Drop for GenericComponentRef {
+impl Drop for DynComponentRef {
     fn drop(&mut self) {
         let access = unsafe { &*self.access_ptr };
         access.decrement_refs();
     }
 }
-impl GenericComponentRef {
+impl DynComponentRef {
     fn new(access: *const ComponentAccess) -> Self {
         Self { access_ptr: access }
     }
-    pub unsafe fn read(&self) -> GenericRef<'_> {
+    pub unsafe fn read(&self) -> DynRef<'_> {
         let access = &*self.access_ptr;
         access.increment_read();
-        GenericRef {
+        DynRef {
             access_ptr: self.access_ptr,
             phantom: Default::default(),
         }
     }
-    pub unsafe fn write(&self) -> GenericRefMut<'_> {
+    pub unsafe fn write(&self) -> DynRefMut<'_> {
         let access = &*self.access_ptr;
         access.take_write_lock();
-        GenericRefMut {
+        DynRefMut {
             access_ptr: self.access_ptr,
             phantom: Default::default(),
         }
     }
 }
 
-pub struct GenericRef<'a> {
+pub struct DynRef<'a> {
     access_ptr: *const ComponentAccess,
     phantom: core::marker::PhantomData<&'a ()>,
 }
-impl<'a> Drop for GenericRef<'a> {
+impl<'a> Drop for DynRef<'a> {
     fn drop(&mut self) {
         let access = unsafe { &*self.access_ptr };
         access.decrement_read();
     }
 }
 
-impl<'a> GenericRef<'a> {
+impl<'a> DynRef<'a> {
     pub fn ptr(&self) -> Option<NonNull<u8>> {
         NonNull::new(unsafe { &*self.access_ptr }.data_addr.get())
     }
 }
 
-pub struct GenericRefMut<'a> {
+pub struct DynRefMut<'a> {
     access_ptr: *const ComponentAccess,
     phantom: core::marker::PhantomData<&'a mut ()>,
 }
-impl<'a> Drop for GenericRefMut<'a> {
+impl<'a> Drop for DynRefMut<'a> {
     fn drop(&mut self) {
         let access = unsafe { &*self.access_ptr };
         access.release_write_lock();
     }
 }
 
-impl<'a> GenericRefMut<'a> {
+impl<'a> DynRefMut<'a> {
     pub fn ptr(&self) -> Option<NonNull<u8>> {
         NonNull::new(unsafe { &*self.access_ptr }.data_addr.get())
     }
@@ -349,7 +349,7 @@ impl<'a, T: Component> DerefMut for RefMut<'a, T> {
 }
 
 pub struct ComponentRef<T: Component> {
-    component_ref: GenericComponentRef,
+    component_ref: DynComponentRef,
     phantom: core::marker::PhantomData<T>,
 }
 
