@@ -275,8 +275,8 @@ impl<'a> Drop for GenericRef<'a> {
 }
 
 impl<'a> GenericRef<'a> {
-    pub fn ptr(&self) -> NonNull<u8> {
-        unsafe { NonNull::new_unchecked((&*self.access_ptr).data_addr.get()) }
+    pub fn ptr(&self) -> Option<NonNull<u8>> {
+        NonNull::new(unsafe { &*self.access_ptr }.data_addr.get())
     }
 }
 
@@ -292,8 +292,8 @@ impl<'a> Drop for GenericRefMut<'a> {
 }
 
 impl<'a> GenericRefMut<'a> {
-    pub fn ptr(&self) -> NonNull<u8> {
-        unsafe { NonNull::new_unchecked((&*self.access_ptr).data_addr.get()) }
+    pub fn ptr(&self) -> Option<NonNull<u8>> {
+        NonNull::new(unsafe { &*self.access_ptr }.data_addr.get())
     }
 }
 
