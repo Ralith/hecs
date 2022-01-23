@@ -194,14 +194,13 @@ impl AccessControl {
         DynComponentRef::new(new_item as *const ComponentAccess)
     }
 
-    pub(super) fn expect_zero_refs(&self) {
+    pub(super) fn has_active_refs(&self) -> bool {
         for chunk in self.borrow_counter_chunks.borrow().iter() {
             for item in chunk.iter() {
-                if item.refs.get() > 0 {
-                    panic!("active references when dropping ErgoScope");
-                }
+                return item.refs.get() > 0;
             }
         }
+        false
     }
 
     pub(super) fn has_active_borrows(&self, entity: Entity, comp_type: TypeId) -> bool {

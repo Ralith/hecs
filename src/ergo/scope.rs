@@ -231,7 +231,12 @@ impl<'a> ErgoScope<'a> {
 
 impl<'a> Drop for ErgoScope<'a> {
     fn drop(&mut self) {
-        self.access.expect_zero_refs();
+        if self.access.has_active_refs() {
+            // Since there may be active ComponentRefs, we must leak AccessControl's heap
+            // allocated memory so that the pointers remain valid
+            core::mem::forget(core::mem::take(&mut self.access));
+            panic!("active references when dropping ErgoScope");
+        }
         for (entity, data) in self.override_data.borrow_mut().drain() {
             data.move_to_world(entity, &mut self.world);
         }
