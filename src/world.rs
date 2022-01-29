@@ -26,6 +26,7 @@ use crate::entities::{Entities, EntityMeta, Location, ReserveEntitiesIterator};
 use crate::{
     Bundle, Column, ColumnBatch, ColumnMut, DynamicBundle, Entity, EntityRef, Fetch,
     MissingComponent, NoSuchEntity, Query, QueryBorrow, QueryItem, QueryMut, QueryOne, Ref, RefMut,
+    TakenEntity,
 };
 
 /// An unordered collection of entities, each having any number of distinctly typed components
@@ -302,6 +303,8 @@ impl World {
     }
 
     /// Destroy an entity and all its components
+    ///
+    /// See also [`take`](Self::take).
     pub fn despawn(&mut self, entity: Entity) -> Result<(), NoSuchEntity> {
         self.flush();
         let loc = self.entities.free(entity)?;
@@ -876,6 +879,23 @@ impl World {
         let archetypes = self.archetypes.archetypes.as_slice();
         let entities = self.entities.meta.as_slice();
         ColumnMut::new(entities, archetypes, PhantomData)
+    }
+
+    /// Despawn `entity`, yielding a [`DynamicBundle`] of its components
+    ///
+    /// Useful for moving entities between worlds.
+    pub fn take(&mut self, entity: Entity) -> Result<TakenEntity<'_>, NoSuchEntity> {
+        self.flush();
+        let loc = self.entities.get(entity)?;
+        let archetype = &mut self.archetypes.archetypes[loc.archetype as usize];
+        unsafe {
+            Ok(TakenEntity::new(
+                &mut self.entities,
+                entity,
+                archetype,
+                loc.index,
+            ))
+        }
     }
 
     /// Returns a distinct value after `archetypes` is changed
