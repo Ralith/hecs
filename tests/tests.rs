@@ -820,3 +820,19 @@ fn len() {
     world.clear();
     assert_eq!(world.len(), 0);
 }
+
+#[test]
+fn take() {
+    let mut world_a = World::new();
+    let e = world_a.spawn(("abc".to_string(), 42));
+    let f = world_a.spawn(("def".to_string(), 17));
+    let mut world_b = World::new();
+    let e2 = world_b.spawn(world_a.take(e).unwrap());
+    assert!(!world_a.contains(e));
+    assert_eq!(*world_b.get::<String>(e2).unwrap(), "abc");
+    assert_eq!(*world_b.get::<i32>(e2).unwrap(), 42);
+    assert_eq!(*world_a.get::<String>(f).unwrap(), "def");
+    assert_eq!(*world_a.get::<i32>(f).unwrap(), 17);
+    world_b.take(e2).unwrap();
+    assert!(!world_b.contains(e2));
+}

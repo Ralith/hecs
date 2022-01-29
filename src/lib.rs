@@ -69,6 +69,7 @@ mod query;
 mod query_one;
 #[cfg(any(feature = "row-serialize", feature = "column-serialize"))]
 pub mod serialize;
+mod take;
 mod world;
 
 pub use archetype::{Archetype, ArchetypeColumn};
@@ -85,6 +86,7 @@ pub use query::{
     With, Without,
 };
 pub use query_one::QueryOne;
+pub use take::TakenEntity;
 pub use world::{
     ArchetypesGeneration, Component, ComponentError, Iter, QueryOneError, SpawnBatchIter,
     SpawnColumnBatchIter, World,

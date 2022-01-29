@@ -26,6 +26,7 @@ use crate::{Access, Component, Query};
 /// [`World`](crate::World).
 pub struct Archetype {
     types: Vec<TypeInfo>,
+    type_ids: Box<[TypeId]>,
     index: OrderedTypeIdMap<usize>,
     len: u32,
     entities: Box<[u32]>,
@@ -58,6 +59,7 @@ impl Archetype {
         let component_count = types.len();
         Self {
             index: OrderedTypeIdMap::new(types.iter().enumerate().map(|(i, ty)| (ty.id, i))),
+            type_ids: types.iter().map(|ty| ty.id()).collect(),
             types,
             entities: Box::new([]),
             len: 0,
@@ -176,6 +178,10 @@ impl Archetype {
 
     pub(crate) fn types(&self) -> &[TypeInfo] {
         &self.types
+    }
+
+    pub(crate) fn type_ids(&self) -> &[TypeId] {
+        &self.type_ids
     }
 
     /// Enumerate the types of the components of entities stored in this archetype.
