@@ -65,6 +65,8 @@ mod command_buffer;
 mod entities;
 mod entity_builder;
 mod entity_ref;
+#[cfg(feature = "parallel-iterators")]
+mod parallel;
 mod query;
 mod query_one;
 #[cfg(any(feature = "row-serialize", feature = "column-serialize"))]
@@ -91,6 +93,9 @@ pub use world::{
     ArchetypesGeneration, Component, ComponentError, Iter, QueryOneError, SpawnBatchIter,
     SpawnColumnBatchIter, World,
 };
+
+#[cfg(feature = "parallel-iterators")]
+pub use parallel::*;
 
 // Unstable implementation details needed by the macros
 #[doc(hidden)]
