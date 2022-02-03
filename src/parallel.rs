@@ -56,6 +56,10 @@ impl From<u64> for Inner {
 struct InnerStore(AtomicU64);
 
 impl InnerStore {
+    pub fn new() -> Self {
+        Self(AtomicU64::new(0))
+    }
+
     pub fn load(&self) -> Inner {
         let value = self.0.load(Ordering::Acquire);
         Inner {
@@ -83,7 +87,8 @@ impl From<Inner> for u64 {
     }
 }
 
-struct ParallelIter<'a, Q: Query> {
+#[derive(Clone)]
+pub struct ParallelIter<'a, Q: Query> {
     meta: &'a [EntityMeta],
     archetypes: &'a [Archetype],
     archetype: usize,
@@ -93,11 +98,14 @@ struct ParallelIter<'a, Q: Query> {
     _phantom: std::marker::PhantomData<Q>,
 }
 
+// The iterator is safe to send between threads but not
+// sync obviously.
+unsafe impl<'a, Q: Query> Send for ParallelIter<'a, Q> {}
+
 impl<'a, Q: Query> ParallelIter<'a, Q> {
-    pub fn new(
+    pub(crate) fn new(
         meta: &'a [EntityMeta],
         archetypes: &'a [Archetype],
-        store: Arc<InnerStore>,
         partition: usize,
     ) -> Self {
         Self {
@@ -105,7 +113,7 @@ impl<'a, Q: Query> ParallelIter<'a, Q> {
             archetypes,
             archetype: 0,
             range: (0, 0),
-            store,
+            store: Arc::new(InnerStore::new()),
             partition,
             _phantom: std::marker::PhantomData,
         }

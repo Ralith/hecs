@@ -19,7 +19,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 maintenance = { status = "actively-developed" }
 
 [features]
-default = ["std", "parallel-iterators"]
+default = ["std"]
 std = []
 # Enables derive(Bundle)
 macros = ["hecs-macros", "lazy_static"]

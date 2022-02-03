@@ -836,3 +836,63 @@ fn take() {
     world_b.take(e2).unwrap();
     assert!(!world_b.contains(e2));
 }
+
+#[cfg(feature = "parallel-iterators")]
+#[test]
+fn parallel_iterator() {
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc, Barrier,
+    };
+    use std::thread;
+
+    let mut world = World::new();
+
+    const ENTITY_COUNT: usize = 100000;
+    for i in 0_u32..ENTITY_COUNT as u32 {
+        world.spawn((i, 1234_usize));
+    }
+
+    const THREAD_COUNT: usize = 4;
+    let counter = Arc::new(AtomicUsize::new(0));
+    let start_barrier = Arc::new(Barrier::new(THREAD_COUNT));
+
+    // HACK: Testing only!!!!
+    // This is a testing only solution to scoping issues when working
+    // with raw unscoped threads.  It is 'safe' here because we immediately
+    // join the threads thus guaranteeing proper scope, but it is logically
+    // unsound since the threads could leak for various error cases.
+    let scoped_world: &'static mut World = unsafe { std::mem::transmute(&mut world) };
+    let mut borrow: QueryBorrow<'static, (&u32, &usize)> = scoped_world.query::<(&u32, &usize)>();
+    let iter: ParallelIter<'static, (&u32, &usize)> =
+        unsafe { std::mem::transmute(borrow.par_iter(1000)) };
+
+    // Spawn the threads to perform the iteration.
+    // They will pause on the barrier until all have been spawned.
+    let handles = (0..THREAD_COUNT)
+        .map(|_| {
+            thread::Builder::new()
+                .spawn({
+                    let start_barrier = start_barrier.clone();
+                    let iter = iter.clone();
+                    let counter = counter.clone();
+                    move || {
+                        start_barrier.wait();
+
+                        for _ in iter {
+                            counter.fetch_add(1, Ordering::SeqCst);
+                        }
+                    }
+                })
+                .unwrap()
+        })
+        .collect::<Vec<_>>();
+
+    // Join the threads before testing completion.
+    handles
+        .into_iter()
+        .for_each(move |handle| handle.join().expect("Thread failure!"));
+
+    // Check that we iterated everything.
+    assert_eq!(counter.load(Ordering::SeqCst), ENTITY_COUNT);
+}

@@ -16,6 +16,9 @@ use crate::archetype::Archetype;
 use crate::entities::EntityMeta;
 use crate::{Component, Entity, World};
 
+#[cfg(feature = "parallel-iterators")]
+use crate::parallel::ParallelIter;
+
 /// A collection of component types to fetch from a [`World`](crate::World)
 ///
 /// The interface of this trait is a private implementation detail.
@@ -592,6 +595,12 @@ impl<'w, Q: Query> QueryBorrow<'w, Q> {
     pub fn iter(&mut self) -> QueryIter<'_, Q> {
         self.borrow();
         unsafe { QueryIter::new(self.meta, self.archetypes.iter()) }
+    }
+
+    /// Execute the query with a parallel execution safe iterator.
+    #[cfg(feature = "parallel-iterators")]
+    pub fn par_iter(&mut self, partition_size: usize) -> ParallelIter<'_, Q> {
+        ParallelIter::new(self.meta, self.archetypes, partition_size)
     }
 
     /// Provide random access to the query results
