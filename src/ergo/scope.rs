@@ -12,15 +12,18 @@ use crate::{
     NoSuchEntity, TypeInfo, World,
 };
 
-use super::access::*;
+use super::{
+    access::*,
+    query::{Query, QueryBorrow},
+};
 
 pub struct ErgoScope<'a> {
     original_world_ref: &'a mut World,
     // We have to take ownership by core::mem::swap-ing the World into the scope,
     // since it'd otherwise be possible to core::mem::forget the ErgoScope to avoid
     // invoking the `Drop` impl, which is required for soundness.
-    world: World,
-    access: AccessControl,
+    pub(super) world: World,
+    pub(super) access: AccessControl,
     override_data: RefCell<HashMap<Entity, EntityOverride>>,
 }
 
@@ -56,24 +59,33 @@ impl<'a> ErgoScope<'a> {
                     .get_typed_component_ref(entity, &type_info, addr))
             }
         } else {
-            let override_map = self.override_data.borrow();
-            let data = override_map
-                .get(&entity)
-                .expect("override data not present despite entity being marked as overriden");
-            match data {
-                EntityOverride::Deleted => {
-                    return Err(ComponentError::NoSuchEntity);
-                }
-                EntityOverride::Changed(data) => {
-                    let type_info = TypeInfo::of::<T>();
-                    let addr = data.get_data_ptr(type_info.id()).ok_or(
-                        ComponentError::MissingComponent(MissingComponent::new::<T>()),
-                    )?;
-                    unsafe {
-                        Ok(self
-                            .access
-                            .get_typed_component_ref(entity, &type_info, addr))
-                    }
+            self.get_overriden(entity)
+        }
+    }
+
+    pub(super) fn get_overriden<T: Component>(
+        &self,
+        entity: Entity,
+    ) -> Result<ComponentRef<T>, ComponentError> {
+        let override_map = self.override_data.borrow();
+        let data = override_map
+            .get(&entity)
+            .expect("override data not present despite entity being marked as overriden");
+        match data {
+            EntityOverride::Deleted => {
+                return Err(ComponentError::NoSuchEntity);
+            }
+            EntityOverride::Changed(data) => {
+                let type_info = TypeInfo::of::<T>();
+                let addr =
+                    data.get_data_ptr(type_info.id())
+                        .ok_or(ComponentError::MissingComponent(
+                            MissingComponent::new::<T>(),
+                        ))?;
+                unsafe {
+                    Ok(self
+                        .access
+                        .get_typed_component_ref(entity, &type_info, addr))
                 }
             }
         }
@@ -215,6 +227,21 @@ impl<'a> ErgoScope<'a> {
         Ok(())
     }
 
+    pub(super) fn has_component<T: Component>(&self, entity: Entity) -> bool {
+        if self.access.is_entity_overridden(entity) {
+            let mut override_map = self.override_data.borrow_mut();
+            let data = override_map
+                .get_mut(&entity)
+                .expect("override data not present despite entity being marked as overriden");
+            match data {
+                EntityOverride::Deleted => false,
+                EntityOverride::Changed(data) => data.get_data_ptr(TypeId::of::<T>()).is_some(),
+            }
+        } else {
+            self.world.get::<T>(entity).is_ok()
+        }
+    }
+
     /// Whether `entity` still exists
     pub fn contains(&self, entity: Entity) -> bool {
         if self.access.is_entity_overridden(entity) {
@@ -226,6 +253,47 @@ impl<'a> ErgoScope<'a> {
         } else {
             self.world.contains(entity)
         }
+    }
+
+    /// Iterate over all entities that have certain components.
+    ///
+    /// Calling `iter` on the returned value yields `(Entity, Q)` tuples, where `Q` is some query
+    /// type. A query type is any type for which an implementation of [`Query`] exists, e.g. `&T`,
+    /// `&mut T`, a tuple of query types, or an `Option` wrapping a query type, where `T` is any
+    /// component type. Components queried with `&mut` must only appear once. Entities which do not
+    /// have a component type referenced outside of an `Option` will be skipped.
+    ///
+    /// Entities are yielded in arbitrary order.
+    ///
+    /// The returned [`QueryBorrow`] can be further transformed with combinator methods; see its
+    /// documentation for details.
+    ///
+    /// Iterating a query yields references with lifetimes bound to the [`QueryBorrow`] returned
+    /// here. To ensure those are invalidated, the return value of this method must be dropped for
+    /// its dynamic borrows from the world to be released. Similarly, lifetime rules ensure that
+    /// references obtained from a query cannot outlive the [`QueryBorrow`].
+    ///
+    /// # Example
+    /// ```
+    /// # use hecs::*;
+    /// let mut world = World::new();
+    /// let a = world.spawn((123, true, "abc"));
+    /// let b = world.spawn((456, false));
+    /// let c = world.spawn((42, "def"));
+    /// let entities = world.query::<(&i32, &bool)>()
+    ///     .iter()
+    ///     .map(|(e, (&i, &b))| (e, i, b)) // Copy out of the world
+    ///     .collect::<Vec<_>>();
+    /// assert_eq!(entities.len(), 2);
+    /// assert!(entities.contains(&(a, 123, true)));
+    /// assert!(entities.contains(&(b, 456, false)));
+    /// ```
+    pub fn query<Q: Query>(&self) -> QueryBorrow<'_, Q> {
+        QueryBorrow::new(
+            self,
+            &self.world.entities().meta,
+            self.world.archetypes_inner(),
+        )
     }
 }
 

@@ -144,7 +144,8 @@ impl<'a> Iterator for ReserveEntitiesIterator<'a> {
 impl<'a> ExactSizeIterator for ReserveEntitiesIterator<'a> {}
 
 #[derive(Default)]
-pub(crate) struct Entities {
+#[doc(hidden)]
+pub struct Entities {
     pub meta: Vec<EntityMeta>,
 
     // The `pending` and `free_cursor` fields describe three sets of Entity IDs
@@ -530,7 +531,8 @@ impl Entities {
 }
 
 #[derive(Copy, Clone)]
-pub(crate) struct EntityMeta {
+#[doc(hidden)]
+pub struct EntityMeta {
     pub generation: NonZeroU32,
     pub location: Location,
 }
@@ -549,7 +551,8 @@ impl EntityMeta {
 }
 
 #[derive(Copy, Clone)]
-pub(crate) struct Location {
+#[doc(hidden)]
+pub struct Location {
     pub archetype: u32,
     pub index: u32,
 }
@@ -568,7 +571,8 @@ impl fmt::Display for NoSuchEntity {
 impl Error for NoSuchEntity {}
 
 #[derive(Clone)]
-pub(crate) struct AllocManyState {
+#[doc(hidden)]
+pub struct AllocManyState {
     pub pending_end: usize,
     fresh: Range<u32>,
 }

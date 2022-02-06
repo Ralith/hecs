@@ -105,7 +105,8 @@ impl ComponentAccess {
 
 const COMPONENT_ACCESS_CHUNK_SIZE: usize = 32;
 #[derive(Default)]
-pub(super) struct AccessControl {
+#[doc(hidden)]
+pub struct AccessControl {
     /// bitset for whether an entity's metadata is defined by the World or in the scope wrapper
     entity_overrides: RefCell<BitVec>,
     /// allocated chunks of [ComponentAccess]s
@@ -217,7 +218,7 @@ impl AccessControl {
     pub(super) fn is_entity_overridden(&self, entity: Entity) -> bool {
         let overrides = self.entity_overrides.borrow();
         let idx = entity.id;
-        let override_bitchunk = idx * BitsetChunk::BITS;
+        let override_bitchunk = idx / BitsetChunk::BITS;
         let bit_mask = 1 << (idx % BitsetChunk::BITS);
         (overrides.storage[override_bitchunk as usize] & bit_mask) != 0
     }
@@ -225,7 +226,7 @@ impl AccessControl {
     pub(super) fn set_entity_overridden(&self, entity: Entity) {
         let mut overrides = self.entity_overrides.borrow_mut();
         let idx = entity.id;
-        let override_bitchunk = idx * BitsetChunk::BITS;
+        let override_bitchunk = idx / BitsetChunk::BITS;
         let bit_mask = 1 << (idx % BitsetChunk::BITS);
         overrides.storage[override_bitchunk as usize] |= bit_mask;
     }
@@ -233,6 +234,15 @@ impl AccessControl {
 
 pub struct DynComponentRef {
     access_ptr: *const ComponentAccess,
+}
+impl Clone for DynComponentRef {
+    fn clone(&self) -> Self {
+        let access = unsafe { &*self.access_ptr };
+        access.increment_refs();
+        Self {
+            access_ptr: self.access_ptr.clone(),
+        }
+    }
 }
 impl Drop for DynComponentRef {
     fn drop(&mut self) {
@@ -347,6 +357,7 @@ impl<'a, T: Component> DerefMut for RefMut<'a, T> {
     }
 }
 
+#[derive(Clone)]
 pub struct ComponentRef<T: Component> {
     component_ref: DynComponentRef,
     phantom: core::marker::PhantomData<T>,
