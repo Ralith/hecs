@@ -8,8 +8,6 @@
 use core::any::TypeId;
 use core::ptr::{self, NonNull};
 
-use alloc::boxed::Box;
-
 use crate::alloc::alloc::{alloc, dealloc, Layout};
 use crate::alloc::vec::Vec;
 use crate::archetype::TypeInfo;
@@ -33,7 +31,7 @@ use crate::{Bundle, Entity};
 pub struct CommandBuffer {
     entities: Vec<EntityIndex>,
     despawn_ent: Vec<Entity>,
-    remove_comps: Vec<Box<dyn Fn(&mut World)>>,
+    remove_comps: Vec<RemovedComps>,
     storage: NonNull<u8>,
     layout: Layout,
     cursor: usize,
@@ -94,10 +92,17 @@ impl CommandBuffer {
     }
 
     /// Remove components from `entity` if they exist
-    pub fn remove<T: Bundle + 'static + Sync + Send>(&mut self, ent: Entity) {
-        self.remove_comps.push(Box::new(move |w: &mut World| {
-            w.remove::<T>(ent).unwrap();
-        }));
+    pub fn remove<T: Bundle + 'static>(&mut self, ent: Entity) {
+        pub fn remove_bundle_and_ignore_result<T: Bundle + 'static>(
+            world: &mut World,
+            ents: Entity,
+        ) {
+            let _ = world.remove::<T>(ents);
+        }
+        self.remove_comps.push(RemovedComps {
+            remove: remove_bundle_and_ignore_result::<T>,
+            entity: ent,
+        });
     }
 
     /// Despawn `entity` from World
@@ -142,7 +147,7 @@ impl CommandBuffer {
         }
 
         for comp in self.remove_comps.iter() {
-            comp(world);
+            (comp.remove)(world, comp.entity);
         }
 
         for entity in self.despawn_ent.iter() {
@@ -251,6 +256,11 @@ struct EntityIndex {
     first_component: usize,
 }
 
+/// Data required to remove components from 'entity'
+struct RemovedComps {
+    remove: fn(&mut World, Entity),
+    entity: Entity,
+}
 #[cfg(test)]
 mod tests {
     use super::*;
