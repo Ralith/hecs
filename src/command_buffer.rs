@@ -8,12 +8,14 @@
 use core::any::TypeId;
 use core::ptr::{self, NonNull};
 
+use alloc::boxed::Box;
+
 use crate::alloc::alloc::{alloc, dealloc, Layout};
 use crate::alloc::vec::Vec;
 use crate::archetype::TypeInfo;
-use crate::Entity;
 use crate::World;
 use crate::{align, DynamicBundle};
+use crate::{Bundle, Entity};
 
 /// Records operations for future application to a [`World`]
 ///
@@ -30,6 +32,8 @@ use crate::{align, DynamicBundle};
 /// ```
 pub struct CommandBuffer {
     entities: Vec<EntityIndex>,
+    despawn_ent: Vec<Entity>,
+    remove_comps: Vec<Box<dyn Fn(&mut World)>>,
     storage: NonNull<u8>,
     layout: Layout,
     cursor: usize,
@@ -89,6 +93,19 @@ impl CommandBuffer {
         });
     }
 
+    /// Remove components from `entity` if they exist
+    pub fn remove<T: Bundle + 'static + Sync + Send>(&mut self, ent: Entity) {
+        self.remove_comps.push(Box::new(move |w: &mut World| {
+            w.remove::<T>(ent).unwrap();
+            
+        }));
+    }
+
+    /// Despawn `entity` from World 
+    pub fn despawn(&mut self, entity: Entity) {
+        self.despawn_ent.push(entity);
+    }
+
     /// Spawn a new entity with `components`
     ///
     /// If the [`Entity`] is needed immediately, consider combining [`World::reserve_entity`] with
@@ -124,6 +141,15 @@ impl CommandBuffer {
                 }
             }
         }
+
+        for comp in self.remove_comps.iter() {
+            comp(world);
+        }
+
+        for entity in self.despawn_ent.iter() {
+            world.despawn(*entity).unwrap();
+        }
+
         self.clear();
     }
 
@@ -175,6 +201,8 @@ impl Default for CommandBuffer {
             cursor: 0,
             components: Vec::new(),
             ids: Vec::new(),
+            despawn_ent: Vec::new(),
+            remove_comps: Vec::new(),
         }
     }
 }
