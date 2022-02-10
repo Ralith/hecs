@@ -97,11 +97,10 @@ impl CommandBuffer {
     pub fn remove<T: Bundle + 'static + Sync + Send>(&mut self, ent: Entity) {
         self.remove_comps.push(Box::new(move |w: &mut World| {
             w.remove::<T>(ent).unwrap();
-            
         }));
     }
 
-    /// Despawn `entity` from World 
+    /// Despawn `entity` from World
     pub fn despawn(&mut self, entity: Entity) {
         self.despawn_ent.push(entity);
     }
