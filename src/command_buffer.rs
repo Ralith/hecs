@@ -148,7 +148,7 @@ impl CommandBuffer {
         }
 
         for entity in self.despawn_ent.iter() {
-            world.despawn(*entity).unwrap();
+            let _ = world.despawn(*entity);
         }
 
         self.clear();
