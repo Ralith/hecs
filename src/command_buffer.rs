@@ -30,8 +30,8 @@ use crate::{Bundle, Entity};
 /// ```
 pub struct CommandBuffer {
     entities: Vec<EntityIndex>,
-    despawn_ent: Vec<Entity>,
     remove_comps: Vec<RemovedComps>,
+    despawn_ent: Vec<Entity>,
     storage: NonNull<u8>,
     layout: Layout,
     cursor: usize,
@@ -175,6 +175,8 @@ impl CommandBuffer {
                 info.ty.drop(self.storage.as_ptr().add(info.offset));
             }
         }
+        self.remove_comps.clear();
+        self.despawn_ent.clear();
     }
 }
 
