@@ -463,9 +463,10 @@ fn despawn_buffered_entity() {
     let mut world = World::new();
     let mut buffer = CommandBuffer::new();
     let ent = world.spawn((1, true));
+    buffer.despawn(ent);
 
     buffer.run_on(&mut world);
-    assert!(world.contains(ent));
+    assert!(!world.contains(ent));
 }
 
 #[test]
@@ -477,7 +478,8 @@ fn remove_buffered_component() {
     buffer.remove::<(i32, &str)>(ent);
     buffer.run_on(&mut world);
 
-    assert!(world.get::<(i32, &str)>(ent).is_err());
+    assert!(world.get::<&str>(ent).is_err());
+    assert!(world.get::<i32>(ent).is_err());
 }
 
 #[test]

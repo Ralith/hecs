@@ -93,7 +93,7 @@ impl CommandBuffer {
 
     /// Remove components from `entity` if they exist
     pub fn remove<T: Bundle + 'static>(&mut self, ent: Entity) {
-        pub fn remove_bundle_and_ignore_result<T: Bundle + 'static>(
+        fn remove_bundle_and_ignore_result<T: Bundle + 'static>(
             world: &mut World,
             ents: Entity,
         ) {
@@ -261,6 +261,7 @@ struct RemovedComps {
     remove: fn(&mut World, Entity),
     entity: Entity,
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;
