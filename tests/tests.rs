@@ -459,6 +459,30 @@ fn spawn_buffered_entity() {
 }
 
 #[test]
+fn despawn_buffered_entity() {
+    let mut world = World::new();
+    let mut buffer = CommandBuffer::new();
+    let ent = world.spawn((1, true));
+    buffer.despawn(ent);
+
+    buffer.run_on(&mut world);
+    assert!(!world.contains(ent));
+}
+
+#[test]
+fn remove_buffered_component() {
+    let mut world = World::new();
+    let mut buffer = CommandBuffer::new();
+    let ent = world.spawn((7, true, "hecs"));
+
+    buffer.remove::<(i32, &str)>(ent);
+    buffer.run_on(&mut world);
+
+    assert!(world.get::<&str>(ent).is_err());
+    assert!(world.get::<i32>(ent).is_err());
+}
+
+#[test]
 #[should_panic(expected = "already borrowed")]
 fn illegal_borrow() {
     let mut world = World::new();
