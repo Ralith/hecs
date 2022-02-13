@@ -331,6 +331,17 @@ fn build_builder_clone() {
 }
 
 #[test]
+fn cloned_builder() {
+    let mut builder = EntityBuilderClone::new();
+    builder.add(String::from("abc")).add(123);
+
+    let mut world = World::new();
+    let e = world.spawn(&builder.build().clone());
+    assert_eq!(*world.get::<String>(e).unwrap(), "abc");
+    assert_eq!(*world.get::<i32>(e).unwrap(), 123);
+}
+
+#[test]
 #[cfg(feature = "macros")]
 fn build_dynamic_bundle() {
     #[derive(Bundle, DynamicBundleClone)]
