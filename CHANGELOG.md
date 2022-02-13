@@ -1,4 +1,4 @@
-# Unreleased
+# 0.7.6
 
 ### Added
 - `World::take` for moving complete entities between worlds
