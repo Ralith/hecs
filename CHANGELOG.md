@@ -2,6 +2,10 @@
 
 ### Added
 - `World::take` for moving complete entities between worlds
+- `CommandBuffer::remove` and `CommandBuffer::despawn`
+
+### Fixed
+- Panics on use of cloned `BuiltEntityClone`s
 
 # 0.7.5
 
