@@ -683,13 +683,13 @@ fn query_batched() {
 #[test]
 fn spawn_batch() {
     let mut world = World::new();
-    world.spawn_batch((0..100).map(|x| (x, "abc")));
+    world.spawn_batch((0..10).map(|x| (x, "abc")));
     let entities = world
         .query::<&i32>()
         .iter()
         .map(|(_, &x)| x)
         .collect::<Vec<_>>();
-    assert_eq!(entities.len(), 100);
+    assert_eq!(entities.len(), 10);
 }
 
 #[test]
