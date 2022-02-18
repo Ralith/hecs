@@ -455,7 +455,7 @@ impl Entities {
             let num_pending = cmp::max(-free_cursor, 0) as usize;
 
             if meta_len + num_pending > id as usize {
-                // Pending entities will have generation 0.
+                // Pending entities will have the first generation.
                 Entity {
                     generation: NonZeroU32::new(1).unwrap(),
                     id,
