@@ -22,6 +22,18 @@ pub struct Entity {
 }
 
 impl Entity {
+    /// An [`Entity`] that does not necessarily correspond to data in any `World`
+    ///
+    /// Useful as a dummy value. It is possible (albeit unlikely) for a `World` to contain this
+    /// entity.
+    pub const DANGLING: Entity = Entity {
+        generation: match NonZeroU32::new(u32::MAX) {
+            Some(x) => x,
+            None => unreachable!(),
+        },
+        id: u32::MAX,
+    };
+
     /// Convert to a form convenient for passing outside of rust
     ///
     /// No particular structure is guaranteed for the returned bits.
@@ -455,7 +467,7 @@ impl Entities {
             let num_pending = cmp::max(-free_cursor, 0) as usize;
 
             if meta_len + num_pending > id as usize {
-                // Pending entities will have generation 0.
+                // Pending entities will have the first generation.
                 Entity {
                     generation: NonZeroU32::new(1).unwrap(),
                     id,

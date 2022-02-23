@@ -403,7 +403,7 @@ impl Clone for Common<DynamicClone> {
                 layout: self.layout,
                 cursor: self.cursor,
                 info: self.info.clone(),
-                ids: Vec::new(),
+                ids: self.ids.clone(),
                 indices: self.indices.clone(),
             };
             for &(_, offset, ref clone) in &self.info {

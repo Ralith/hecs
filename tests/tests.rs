@@ -331,6 +331,17 @@ fn build_builder_clone() {
 }
 
 #[test]
+fn cloned_builder() {
+    let mut builder = EntityBuilderClone::new();
+    builder.add(String::from("abc")).add(123);
+
+    let mut world = World::new();
+    let e = world.spawn(&builder.build().clone());
+    assert_eq!(*world.get::<String>(e).unwrap(), "abc");
+    assert_eq!(*world.get::<i32>(e).unwrap(), 123);
+}
+
+#[test]
 #[cfg(feature = "macros")]
 fn build_dynamic_bundle() {
     #[derive(Bundle, DynamicBundleClone)]
@@ -456,6 +467,30 @@ fn spawn_buffered_entity() {
     assert_eq!(*world.get::<i32>(ent1).unwrap(), 13);
     assert_eq!(*world.get::<bool>(ent2).unwrap(), false);
     assert_eq!(*world.get::<u8>(ent3).unwrap(), 2);
+}
+
+#[test]
+fn despawn_buffered_entity() {
+    let mut world = World::new();
+    let mut buffer = CommandBuffer::new();
+    let ent = world.spawn((1, true));
+    buffer.despawn(ent);
+
+    buffer.run_on(&mut world);
+    assert!(!world.contains(ent));
+}
+
+#[test]
+fn remove_buffered_component() {
+    let mut world = World::new();
+    let mut buffer = CommandBuffer::new();
+    let ent = world.spawn((7, true, "hecs"));
+
+    buffer.remove::<(i32, &str)>(ent);
+    buffer.run_on(&mut world);
+
+    assert!(world.get::<&str>(ent).is_err());
+    assert!(world.get::<i32>(ent).is_err());
 }
 
 #[test]
@@ -648,13 +683,13 @@ fn query_batched() {
 #[test]
 fn spawn_batch() {
     let mut world = World::new();
-    world.spawn_batch((0..100).map(|x| (x, "abc")));
+    world.spawn_batch((0..10).map(|x| (x, "abc")));
     let entities = world
         .query::<&i32>()
         .iter()
         .map(|(_, &x)| x)
         .collect::<Vec<_>>();
-    assert_eq!(entities.len(), 100);
+    assert_eq!(entities.len(), 10);
 }
 
 #[test]
