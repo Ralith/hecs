@@ -1,15 +1,25 @@
-// Implements a parallel archetype iterator.
-// NOTES:
-//  The benefits of using parallel execution depend highly on the
-// number of entities and the threading solution in use.  With Rayon
-// the benefits are notable for relatively expensive systems of more
-// than a few hundred entities.  With other threading solutions which
-// support overlapping execution the benefits can be extreme.
-//  Caller *MUST* carefully schedule the system execution order and
-// properly barrier between incompatible systems.
-//  Uses u32 indexing for archetypes and entity indexing.  If this is
-// not enough.....  Uh, may god help you.....  The reasoning for the
-// limitation is so a u64 compare and exchange can be used.
+// Implements a parallel query iterator.
+//
+// When individual systems become fairly heavy weight or the entity
+// counts are in the 10k+ ranges, parallel iteration can be used to
+// break the single threaded bottlenecks of long running systems.
+// The benefits depend grealy on the underlying threading solution
+// in use and what alternatives to synchronization points are
+// available.
+//
+// This literally breaks every borrow and lifetime rule in the
+// language and is absolutely without a doubt unsafe.  Some of this
+// can be cleaned up but the first likely change will make things
+// even less safe.  The intention at the moment is to get feedback on
+// some of the ways I worked around issues and try to get the core
+// behaviors cleaned up.  Additionally, the primary thinking about
+// not being safe here is that someone actually using it in potentially
+// unsafe ways better know what they are doing anyway.  The user is
+// going to be responsible for creating a scheduling system which
+// replicates the borrow/lifetime rules but rather than the language
+// rules done on control flow, they will be replicating them in the
+// time domain of the threading system and job lifetimes.
+// 
 use {
     super::{entities::EntityMeta, Archetype, Entity, Fetch, Query, QueryItem},
     std::sync::{
@@ -108,7 +118,6 @@ impl From<SharedParts> for Shared {
 }
 
 /// A parallel iterator.
-#[derive(Clone)]
 pub struct ParallelIter<'a, Q: Query> {
     // Shared constants between threads.
     // Copying these locally is generally better for the caches but
@@ -120,6 +129,7 @@ pub struct ParallelIter<'a, Q: Query> {
 
     // Per thread owned state.
     archetype_index: usize,
+    state: Option<<Q::Fetch as Fetch<'a>>::State>,
     range: (usize, usize),
 
     // Shared among threads.
@@ -127,6 +137,21 @@ pub struct ParallelIter<'a, Q: Query> {
 
     // ----
     _phantom: std::marker::PhantomData<Q>,
+}
+
+impl<'a, Q: Query> Clone for ParallelIter<'a, Q> {
+    fn clone(&self) -> Self {
+        Self {
+            meta: self.meta,
+            archetypes: self.archetypes,
+            partition: self.partition,
+            archetype_index: self.archetype_index,
+            state: Q::Fetch::prepare(&self.archetypes[self.archetype_index]),
+            range: self.range,
+            thread_shared: self.thread_shared.clone(),
+            _phantom: self._phantom,
+        }
+    }
 }
 
 // The iterator is safe to send between threads but not sync.
@@ -140,7 +165,8 @@ impl<'a, Q: Query> ParallelIter<'a, Q> {
         partition: usize,
     ) -> Self {
         // Find the first valid archetype for the query.
-        let mut archetype_index: usize = 0;
+        // Doing this here prevents a bunch of first run tests.
+        let mut archetype_index: usize = !0;
         for (index, archetype) in archetypes.iter().enumerate() {
             if let Some(_) = Q::Fetch::prepare(archetype) {
                 archetype_index = index;
@@ -152,6 +178,7 @@ impl<'a, Q: Query> ParallelIter<'a, Q> {
             meta,
             archetypes,
             archetype_index,
+            state: None,
             range: (0, 0),
             thread_shared: Arc::new(SharedParts::with(archetype_index, 0).into()),
             partition,
@@ -166,7 +193,7 @@ impl<'a, Q: Query> ParallelIter<'a, Q> {
         loop {
             if self.range.0 >= self.range.1 {
                 // Take a partition worth of elements.
-                if !self.take_partition() {
+                if !self.take_range() {
                     // Nothing left, all done.
                     return None;
                 }
@@ -176,8 +203,7 @@ impl<'a, Q: Query> ParallelIter<'a, Q> {
                 self.range.0 += 1;
 
                 let archetype = &self.archetypes[self.archetype_index];
-                let state = Q::Fetch::prepare(archetype).unwrap();
-                let fetch = Q::Fetch::execute(archetype, state);
+                let fetch = Q::Fetch::execute(archetype, self.state.unwrap());
                 let entities = archetype.entities().as_ptr();
 
                 unsafe {
@@ -193,24 +219,20 @@ impl<'a, Q: Query> ParallelIter<'a, Q> {
     }
 
     /// The iterator does not have a valid range, attempt to take one.
-    fn take_partition(&mut self) -> bool {
+    fn take_range(&mut self) -> bool {
         // As long as this threads archetype index is valid, keep trying.
         while self.archetype_index < self.archetypes.len() {
             // Load the current value of the shared thread data and break it down.
             let shared = self.thread_shared.load();
 
-            // Check if another thread has incremented the shared index.
-            if shared.archetype() != self.archetype_index {
-                // Update the local cache index.
-                self.archetype_index = shared.archetype();
-            }
-
             // Get the current shared start index.
             let start_element = shared.index();
 
-            // Check if there are elements remaining to take.
-            if start_element >= self.archetypes[self.archetype_index].len() as usize {
-                // Check for a new archetype.
+            // Check that the archetypes still match and that start element is valid.
+            if shared.archetype() != self.archetype_index
+                || start_element >= self.archetypes[self.archetype_index].len() as usize
+            {
+                // Move to the next archetype.
                 if !self.next_archetype() {
                     // Iteration has completed.
                     return false;
@@ -241,41 +263,49 @@ impl<'a, Q: Query> ParallelIter<'a, Q> {
         false
     }
 
+    /// Update the internal fetch state if the archetype is valid for the query.
+    fn update_state(&mut self) -> bool {
+        if self.archetype_index < self.archetypes.len() {
+            self.state = Q::Fetch::prepare(&self.archetypes[self.archetype_index]);
+            return self.state.is_some();
+        }
+        false
+    }
+
     /// The iterator refers to an archetype which has been completely iterated, attempt to
     /// find the next valid archetype.
     fn next_archetype(&mut self) -> bool {
         // Loop till we get a valid archetype or end the iteration.
         while self.archetype_index < self.archetypes.len() {
             let thread_shared = self.thread_shared.load();
-            if self.archetype_index != thread_shared.archetype() {
-                // Another thread already moved it, store the new archetype and let the caller try again.
+
+            // Check if another thread has already advanced the archetype index.
+            if self.archetype_index < thread_shared.archetype() {
                 self.archetype_index = thread_shared.archetype();
-                return true;
+                return self.update_state();
             }
 
-            // Increment the index.
-            self.archetype_index += 1;
-            if self.archetype_index >= self.archetypes.len() {
-                // We're done.
+            // Find the next valid archetype.
+            let index = self.archetype_index + 1;
+            if index >= self.archetypes.len() {
+                // Done iterating.
                 return false;
-            }
-
-            // Verify that this is an archetype the query needs to run on.
-            let archetype = &self.archetypes[self.archetype_index];
-
-            // TODO: Store the prepare state?  Probably.
-            if Q::Fetch::prepare(archetype).is_none() {
-                // Not valid, try again.
-                continue;
+            } else {
+                self.state = Q::Fetch::prepare(&self.archetypes[index]);
+                if self.state.is_none() {
+                    self.archetype_index = index;
+                    continue;
+                }
             }
 
             // We have found a valid archetype, try to store the updated shared data.
-            match self.thread_shared.store(
-                thread_shared.into(),
-                SharedParts::with(self.archetype_index, 0).into(),
-            ) {
+            match self
+                .thread_shared
+                .store(thread_shared.into(), SharedParts::with(index, 0).into())
+            {
                 Ok(_) => {
                     // Shared data successfully updated.
+                    self.archetype_index = index;
                     return true;
                 }
                 Err(_) => {}
