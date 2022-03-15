@@ -907,44 +907,46 @@ fn parallel_iterator() {
     let counter = Arc::new(AtomicUsize::new(0));
     let start_barrier = Arc::new(Barrier::new(THREAD_COUNT));
 
-    // I don't want to add a dependency just for testing, so we transmute the lifetimes
-    // here rather than using crossbeam or related scoped threads.
     let iter: ParallelIter<'static, (&u32, &usize)>;
     {
-        // This scope is here to validate that after the iterator is created from
-        // the borrow, it can be passed via clone to the threads without maintaining
-        // the borrow.  This is highly unsafe but required unless you intend to
-        // explicitly scope the execution for each query.  The threading solution this
-        // is used for moves the borrow checks into the threading domain so unfortunately
-        // hecs is not able to be used as a validation of the behavior here.
+        // It is important for the caller to be able to drop the borrow and retain the
+        // iterator, otherwise much of the performance gain is lost to borrow, issue job,
+        // wait.  The intention is that the execution schedule will pre-compute
+        // all validity checks and the jobs will be issued in bulk all at once with the
+        // caller only synchronizing once at the very end.
+        // This is of course an unsafe operation from the point of view of hecs,
+        // and leaves all validation to the caller.  There may be some amount of debug
+        // checking which is viable but the overhead becomes significant in a parallel
+        // world so it is currently left out.
         let mut borrow = world.query::<(&u32, &usize)>();
+
+        // I don't want to add a dependency just for testing, so we drop the lifetime
+        // associated with the iterator pretending we are using a scoped thread or other
+        // properly lifetime safe solution.  With a schedule based threading solution,
+        // the lifetime would not be dropped and would be bound to the schedule.
         iter = unsafe { std::mem::transmute(borrow.par_iter(100)) };
     }
 
     // Spawn the threads to perform the iteration.
     // They will pause on the barrier until all have been spawned.
+    // This is just a method to mostly guarantee that multiple threads
+    // will actively take partitions.
     let handles = (0..THREAD_COUNT)
-        .map(|index| {
+        .map(|_| {
             let start_barrier = start_barrier.clone();
-            println!("{}", index);
             let iter = iter.clone();
             let counter = counter.clone();
 
             thread::Builder::new()
                 .spawn(move || {
                     start_barrier.wait();
-                    println!("+ {}", index);
-
                     for _ in iter {
                         counter.fetch_add(1, Ordering::SeqCst);
                     }
-
-                    println!("- {}", index);
                 })
                 .unwrap()
         })
         .collect::<Vec<_>>();
-    println!("-----");
 
     // Join the threads before testing completion.
     handles

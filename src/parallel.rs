@@ -20,13 +20,18 @@ use {
     },
 };
 
+/// Represents the two components of the shared data in the iterator.
 #[derive(Debug, Copy, Clone)]
+#[repr(C)]
 struct SharedParts {
-    pub archetype: u32,
-    pub index: u32,
+    archetype: u32,
+    index: u32,
 }
 
 impl SharedParts {
+    /// Create a shared parts structure.
+    /// `archetype` is the index of the archetype in `self.archetypes` which is being iterated.
+    /// `index` is the entry index into the current archetype.
     pub fn with(archetype: usize, index: usize) -> Self {
         Self {
             archetype: archetype as u32,
@@ -34,15 +39,20 @@ impl SharedParts {
         }
     }
 
+    /// Extract the archetype index from the parts.
+    #[inline]
     pub fn archetype(&self) -> usize {
         self.archetype as usize
     }
 
+    /// Extract the index from the parts.
+    #[inline]
     pub fn index(&self) -> usize {
         self.index as usize
     }
 }
 
+/// `u64` is the atomic representation, it can be converted to a parts structure.
 impl From<u64> for SharedParts {
     fn from(value: u64) -> Self {
         Self {
@@ -52,20 +62,20 @@ impl From<u64> for SharedParts {
     }
 }
 
+/// SharedParts can be converted back to the raw u64 representation.
 impl From<SharedParts> for u64 {
     fn from(value: SharedParts) -> Self {
         (value.archetype as u64) << 32 | value.index as u64
     }
 }
 
+/// New type around the atomic u64.
 #[derive(Debug)]
 struct Shared(AtomicU64);
 
 impl Shared {
-    pub fn new() -> Self {
-        Self(AtomicU64::new(0))
-    }
-
+    /// Perform an atomic load and return a shared parts structure.
+    #[inline]
     pub fn load(&self) -> SharedParts {
         let value = self.0.load(Ordering::Acquire);
         SharedParts {
@@ -74,6 +84,11 @@ impl Shared {
         }
     }
 
+    /// Store a new value into the atomic.
+    /// Returns:
+    /// Ok(`new`) if the exchange was successful.
+    /// Err(`x`) if the exchange failed, `x` is the changed value found within the atomic.
+    #[inline]
     pub fn store(&self, old: u64, new: u64) -> Result<u64, u64> {
         match self
             .0
@@ -87,6 +102,7 @@ impl Shared {
     }
 }
 
+/// SharedParts can be turned into a Shared type wrapper.
 impl From<SharedParts> for Shared {
     fn from(parts: SharedParts) -> Self {
         Self(AtomicU64::new(parts.into()))
@@ -97,11 +113,14 @@ impl From<SharedParts> for Shared {
 #[derive(Clone)]
 pub struct ParallelIter<'a, Q: Query> {
     // Shared constants between threads.
+    // Copying these locally is generally better for the caches but
+    // not always.  Will have to experiment with variations based on
+    // how Rust accesses the data.
     meta: &'a [EntityMeta],
     archetypes: &'a [Archetype],
     partition: usize,
 
-    // Per thread owned data.
+    // Per thread owned state.
     archetype_index: usize,
     range: (usize, usize),
 
@@ -116,6 +135,7 @@ pub struct ParallelIter<'a, Q: Query> {
 unsafe impl<'a, Q: Query> Send for ParallelIter<'a, Q> {}
 
 impl<'a, Q: Query> ParallelIter<'a, Q> {
+    /// Create a new parallel iter.
     pub(crate) fn new(
         meta: &'a [EntityMeta],
         archetypes: &'a [Archetype],
@@ -142,6 +162,8 @@ impl<'a, Q: Query> ParallelIter<'a, Q> {
     }
 
     /// If the iterator has a valid range assigned, get the next query result.
+    /// TODO: Likely there are a number of optimizations and cleanups here, it's
+    /// a functional first pass only.
     fn next_in_range(&mut self) -> Option<(Entity, QueryItem<'a, Q>)> {
         loop {
             if self.range.0 >= self.range.1 {
@@ -151,11 +173,11 @@ impl<'a, Q: Query> ParallelIter<'a, Q> {
                     return None;
                 }
             } else {
+                // The range is valid so keep stepping through the elements.
                 let index = self.range.0;
                 self.range.0 += 1;
 
                 let archetype = &self.archetypes[self.archetype_index];
-                // Must be valid at this point, it was checked in the archetype stepping.
                 let state = Q::Fetch::prepare(archetype).unwrap();
                 let fetch = Q::Fetch::execute(archetype, state);
                 let entities = archetype.entities().as_ptr();
@@ -172,17 +194,24 @@ impl<'a, Q: Query> ParallelIter<'a, Q> {
         }
     }
 
+    /// The iterator does not have a valid range, attempt to take one.
     fn take_partition(&mut self) -> bool {
-        // Load the current value of the shared thread data and break it down.
-        let mut shared = self.thread_shared.load();
+        // As long as this threads archetype index is valid, keep trying.
+        while self.archetype_index < self.archetypes.len() {
+            // Load the current value of the shared thread data and break it down.
+            let shared = self.thread_shared.load();
 
-        loop {
-            // Break down the shared information.
-            let mut archetype_index = shared.archetype();
-            let mut start_element = shared.index();
+            // Check if another thread has incremented the shared index.
+            if shared.archetype() != self.archetype_index {
+                // Update the local cache index.
+                self.archetype_index = shared.archetype();
+            }
+
+            // Get the current shared start index.
+            let start_element = shared.index();
 
             // Check if there are elements remaining to take.
-            if start_element >= self.archetypes[archetype_index].len() as usize {
+            if start_element >= self.archetypes[self.archetype_index].len() as usize {
                 // Check for a new archetype.
                 if !self.next_archetype() {
                     // Iteration has completed.
@@ -190,73 +219,69 @@ impl<'a, Q: Query> ParallelIter<'a, Q> {
                 }
 
                 // Try with the new data.
-                shared = self.thread_shared.load();
-                archetype_index = shared.archetype();
-                start_element = shared.index();
+                continue;
             }
 
-            // Attempt to take a partition worth of elements.
+            // Attempt to take a slice with partion worth of elements.
             let end_element = start_element + self.partition;
             match self.thread_shared.store(
                 shared.into(),
-                SharedParts::with(archetype_index, end_element).into(),
+                SharedParts::with(self.archetype_index, end_element).into(),
             ) {
                 Ok(_) => {
-                    // Successfully took a partition.
-                    self.range.0 = start_element;
-                    self.range.1 = end_element.min(self.archetypes[archetype_index].len() as usize);
+                    // Successfully reserved the new range.
+                    self.range = (
+                        start_element,
+                        end_element.min(self.archetypes[self.archetype_index].len() as usize),
+                    );
                     return true;
                 }
-                Err(new_value) => {
-                    // Store the latest shared info and try again.
-                    shared = new_value.into();
-                }
+                Err(_) => {}
             }
         }
+
+        false
     }
 
+    /// The iterator refers to an archetype which has been completely iterated, attempt to
+    /// find the next valid archetype.
     fn next_archetype(&mut self) -> bool {
-        // Move to the next archetype.
-        let mut index = self.archetype_index.wrapping_add(1);
-
-        while index < self.archetypes.len() {
-            // Check that the new index refers to a valid archetype for the query.
-            let archetype = &self.archetypes[self.archetype_index];
-
-            // TODO: Store the prepare state?  Probably.
-            if let Some(_) = Q::Fetch::prepare(archetype) {
-                // It is valid.
-                self.archetype_index = index;
+        // Loop till we get a valid archetype or end the iteration.
+        while self.archetype_index < self.archetypes.len() {
+            let thread_shared = self.thread_shared.load();
+            if self.archetype_index != thread_shared.archetype() {
+                // Another thread already moved it, store the new archetype and let the caller try again.
+                self.archetype_index = thread_shared.archetype();
                 return true;
             }
 
-            // The archetype is not valid for the query, try the next.
-            // Load the shared data.
-            let thread_shared = self.thread_shared.load();
-            let shared_index = thread_shared.archetype();
-
-            // Move to next archetype.
-            index = shared_index + 1;
-            if index < self.archetypes.len() {
-                // Attempt to store the new shared data.
-                match self.thread_shared.store(
-                    thread_shared.into(),
-                    SharedParts::with(shared_index, 0).into(),
-                ) {
-                    Ok(_) => {
-                        // Shared data successfully updated.
-                        self.range = (0, 0);
-                    }
-                    Err(new) => {
-                        // Shared data changed by another thread.  Try again.
-                        index = SharedParts::from(new).archetype();
-                        continue;
-                    }
-                };
-            } else {
-                // No more archetypes to process.
-                break;
+            // Increment the index.
+            self.archetype_index += 1;
+            if self.archetype_index >= self.archetypes.len() {
+                // We're done.
+                return false;
             }
+
+            // Verify that this is an archetype the query needs to run on.
+            let archetype = &self.archetypes[self.archetype_index];
+
+            // TODO: Store the prepare state?  Probably.
+            if Q::Fetch::prepare(archetype).is_none() {
+                // Not valid, try again.
+                continue;
+            }
+
+            // We have found a valid archetype, try to store the updated shared data.
+            match self.thread_shared.store(
+                thread_shared.into(),
+                SharedParts::with(self.archetype_index, 0).into(),
+            ) {
+                Ok(_) => {
+                    // Shared data successfully updated.
+                    return true;
+                }
+                Err(_) => {}
+            };
         }
 
         false
@@ -264,10 +289,11 @@ impl<'a, Q: Query> ParallelIter<'a, Q> {
 }
 
 // Iterates the archetypes in partition or smaller sized chunks
-// in a lockless cooperative parallel manner.
+// in a lockless cooperative manner.
 impl<'a, Q: Query> Iterator for ParallelIter<'a, Q> {
     type Item = (Entity, QueryItem<'a, Q>);
 
+    #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         self.next_in_range()
     }
