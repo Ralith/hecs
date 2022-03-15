@@ -4,14 +4,12 @@
 // number of entities and the threading solution in use.  With Rayon
 // the benefits are notable for relatively expensive systems of more
 // than a few hundred entities.  With other threading solutions which
-// support overlapping parallel execution the benefits can be extreme.
+// support overlapping execution the benefits can be extreme.
 //  Caller *MUST* carefully schedule the system execution order and
 // properly barrier between incompatible systems.
 //  Uses u32 indexing for archetypes and entity indexing.  If this is
 // not enough.....  Uh, may god help you.....  The reasoning for the
 // limitation is so a u64 compare and exchange can be used.
-//  Uses low level access to world internals which may not be desirable
-// but I haven't found another solution without threading issues.
 use {
     super::{entities::EntityMeta, Archetype, Entity, Fetch, Query, QueryItem},
     std::sync::{
