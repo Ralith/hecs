@@ -881,47 +881,70 @@ fn parallel_iterator() {
     };
     use std::thread;
 
+    // Create a simple world for testing purposes.
     let mut world = World::new();
-
     const ENTITY_COUNT: usize = 100000;
     for i in 0_u32..ENTITY_COUNT as u32 {
         world.spawn((i, 1234_usize));
     }
+    // Add random unused components to the entities in order
+    // to validate archetype traversal.
+    let mut commands = hecs::CommandBuffer::new();
+    for entity in &world {
+        if rand::random::<f32>() >= 0.5 {
+            commands.insert(entity.entity(), (1_u8, 2_u16));
+        }
+    }
+    for entity in &world {
+        if rand::random::<f32>() >= 0.5 {
+            commands.insert(entity.entity(), (3_u64, 4_f32));
+        }
+    }
+    commands.run_on(&mut world);
 
+    // Testing information.
     const THREAD_COUNT: usize = 4;
     let counter = Arc::new(AtomicUsize::new(0));
     let start_barrier = Arc::new(Barrier::new(THREAD_COUNT));
 
-    // HACK: Testing only!!!!
-    // This is a testing only solution to scoping issues when working
-    // with raw unscoped threads.  It is 'safe' here because we immediately
-    // join the threads thus guaranteeing proper scope, but it is logically
-    // unsound since the threads could leak for various error cases.
-    let scoped_world: &'static mut World = unsafe { std::mem::transmute(&mut world) };
-    let mut borrow: QueryBorrow<'static, (&u32, &usize)> = scoped_world.query::<(&u32, &usize)>();
-    let iter: ParallelIter<'static, (&u32, &usize)> =
-        unsafe { std::mem::transmute(borrow.par_iter(1000)) };
+    // I don't want to add a dependency just for testing, so we transmute the lifetimes
+    // here rather than using crossbeam or related scoped threads.
+    let iter: ParallelIter<'static, (&u32, &usize)>;
+    {
+        // This scope is here to validate that after the iterator is created from
+        // the borrow, it can be passed via clone to the threads without maintaining
+        // the borrow.  This is highly unsafe but required unless you intend to
+        // explicitly scope the execution for each query.  The threading solution this
+        // is used for moves the borrow checks into the threading domain so unfortunately
+        // hecs is not able to be used as a validation of the behavior here.
+        let mut borrow = world.query::<(&u32, &usize)>();
+        iter = unsafe { std::mem::transmute(borrow.par_iter(100)) };
+    }
 
     // Spawn the threads to perform the iteration.
     // They will pause on the barrier until all have been spawned.
     let handles = (0..THREAD_COUNT)
-        .map(|_| {
-            thread::Builder::new()
-                .spawn({
-                    let start_barrier = start_barrier.clone();
-                    let iter = iter.clone();
-                    let counter = counter.clone();
-                    move || {
-                        start_barrier.wait();
+        .map(|index| {
+            let start_barrier = start_barrier.clone();
+            println!("{}", index);
+            let iter = iter.clone();
+            let counter = counter.clone();
 
-                        for _ in iter {
-                            counter.fetch_add(1, Ordering::SeqCst);
-                        }
+            thread::Builder::new()
+                .spawn(move || {
+                    start_barrier.wait();
+                    println!("+ {}", index);
+
+                    for _ in iter {
+                        counter.fetch_add(1, Ordering::SeqCst);
                     }
+
+                    println!("- {}", index);
                 })
                 .unwrap()
         })
         .collect::<Vec<_>>();
+    println!("-----");
 
     // Join the threads before testing completion.
     handles

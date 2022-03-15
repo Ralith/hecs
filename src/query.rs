@@ -598,8 +598,11 @@ impl<'w, Q: Query> QueryBorrow<'w, Q> {
     }
 
     /// Execute the query with a parallel execution safe iterator.
+    /// Safety: All safety measures are left to the caller, that means borrows are not
+    /// validated, conflicting mutability is not validated and changes to the world
+    /// while this iterator is in use is not validated.
     #[cfg(feature = "parallel-iterators")]
-    pub fn par_iter(&mut self, partition_size: usize) -> ParallelIter<'_, Q> {
+    pub unsafe fn par_iter(&mut self, partition_size: usize) -> ParallelIter<'_, Q> {
         ParallelIter::new(self.meta, self.archetypes, partition_size)
     }
 
