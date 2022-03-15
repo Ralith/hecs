@@ -1,0 +1,158 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in library 'hecs'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--lib",
+                    "--package=hecs"
+                ],
+                "filter": {
+                    "name": "hecs",
+                    "kind": "lib"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug example 'ffa_simulation'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--example=ffa_simulation",
+                    "--package=hecs"
+                ],
+                "filter": {
+                    "name": "ffa_simulation",
+                    "kind": "example"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in example 'ffa_simulation'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--example=ffa_simulation",
+                    "--package=hecs"
+                ],
+                "filter": {
+                    "name": "ffa_simulation",
+                    "kind": "example"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug example 'format'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--example=format",
+                    "--package=hecs"
+                ],
+                "filter": {
+                    "name": "format",
+                    "kind": "example"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in example 'format'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--example=format",
+                    "--package=hecs"
+                ],
+                "filter": {
+                    "name": "format",
+                    "kind": "example"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug integration test 'derive'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--test=derive",
+                    "--package=hecs"
+                ],
+                "filter": {
+                    "name": "derive",
+                    "kind": "test"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug integration test 'tests'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--test=tests",
+                    "--package=hecs"
+                ],
+                "filter": {
+                    "name": "tests",
+                    "kind": "test"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug benchmark 'bench'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--bench=bench",
+                    "--package=hecs"
+                ],
+                "filter": {
+                    "name": "bench",
+                    "kind": "bench"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        }
+    ]
+}
