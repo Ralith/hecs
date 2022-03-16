@@ -1010,3 +1010,135 @@ fn parallel_iterator() {
         assert_eq!(counter.load(Ordering::SeqCst), ENTITY_COUNT);
     }
 }
+
+#[cfg(feature = "parallel-iterators")]
+#[test]
+fn pariter_iterator() {
+    // NOTE: This is currently a big monolithic test
+    // with a bunch of random nonsense just to validate
+    // various use cases.  It was simply easier to deal
+    // with during development.
+    // TODO: Break up into actual unique tests.
+
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc, Barrier,
+    };
+    use std::thread;
+
+    // Test constants.
+    const VARIANCE_LOOPS: usize = 100;
+    const MAX_THREADS: usize = 16;
+    const ENTITY_COUNT: usize = 10000;
+    const RANDOM_ADDITIONS: bool = true;
+    const RANDOM_OTHERS: usize = 1000;
+
+    // Run this multiple times so we get a bunch of different combinations.
+    for _ in 0..VARIANCE_LOOPS {
+        // Change the number of threads randomly.
+        let thread_count = 1 + (rand::random::<f32>() * ((MAX_THREADS - 1) as f32)) as usize;
+
+        // Create a simple world for testing purposes.
+        let mut world = World::new();
+        for i in 0_u32..ENTITY_COUNT as u32 {
+            world.spawn((i, 1234_usize));
+        }
+
+        if RANDOM_ADDITIONS {
+            // Add random unused components to the entities in order
+            // to validate archetype traversal.
+            let mut commands = hecs::CommandBuffer::new();
+            for entity in &world {
+                if rand::random::<f32>() >= 0.5 {
+                    commands.insert(entity.entity(), (1_u8, 2_u16));
+                }
+            }
+            for entity in &world {
+                if rand::random::<f32>() >= 0.5 {
+                    commands.insert(entity.entity(), (3_i64, 4_f32));
+                }
+            }
+            for entity in &world {
+                if rand::random::<f32>() >= 0.5 {
+                    commands.insert(entity.entity(), (3_u128, 4_f64));
+                }
+            }
+            commands.run_on(&mut world);
+        }
+
+        {
+            let mut commands = hecs::CommandBuffer::new();
+            // Add random unused entities just to have other archetypes.
+            for _ in 0..RANDOM_OTHERS {
+                let entity = world.reserve_entity();
+                if rand::random::<f32>() >= 0.5 {
+                    commands.insert(entity, (1_u8, 2_u16));
+                }
+                if rand::random::<f32>() >= 0.5 {
+                    commands.insert(entity, (1_u8, 2_u16));
+                }
+                if rand::random::<f32>() >= 0.5 {
+                    commands.insert(entity, (3_i64, 4_f32));
+                }
+                if rand::random::<f32>() >= 0.5 {
+                    commands.insert(entity, (3_u128, 4_f64));
+                }
+            }
+            commands.run_on(&mut world);
+        }
+
+        // Testing information.
+        let counter = Arc::new(AtomicUsize::new(0));
+        let start_barrier = Arc::new(Barrier::new(thread_count));
+
+        // Create the iterator.
+        let iter = ParIter::new();
+
+        // Use random partion sizes.
+        let partition_size = 1 + (rand::random::<f32>() * 100.0) as usize;
+        println!(
+            "Thread count: {} - Partition: {}",
+            thread_count, partition_size
+        );
+
+        // Spawn the threads to perform the iteration.
+        // They will pause on the barrier until all have been spawned.
+        // This is just a method to mostly guarantee that multiple threads
+        // will actively take partitions.
+        let handles = (0..thread_count)
+            .map(|_| {
+                let start_barrier = start_barrier.clone();
+                let iter = iter.clone();
+                let counter = counter.clone();
+
+                thread::Builder::new()
+                    .spawn({
+                        // Still have to strip the world reference lifetime here due to
+                        // raw threading expecting all 'static lifetimes.
+                        let world: &'static World = unsafe { std::mem::transmute(&world) };
+                        move || {
+                            start_barrier.wait();
+                            unsafe {
+                                world.parallel_query::<(&u32, &usize)>(
+                                    iter,
+                                    partition_size,
+                                    &|_, _| {
+                                        counter.fetch_add(1, Ordering::SeqCst);
+                                    },
+                                );
+                            };
+                        }
+                    })
+                    .unwrap()
+            })
+            .collect::<Vec<_>>();
+
+        // Join the threads before testing completion.
+        handles
+            .into_iter()
+            .for_each(move |handle| handle.join().expect("Thread failure!"));
+
+        // Check that we iterated everything.
+        assert_eq!(counter.load(Ordering::SeqCst), ENTITY_COUNT);
+    }
+}
