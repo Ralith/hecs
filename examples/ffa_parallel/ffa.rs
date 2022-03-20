@@ -341,25 +341,84 @@ impl Schedule {
     }
 }
 
-use std::collections::BTreeSet;
-struct ComponentSet(BTreeSet<(std::any::TypeId, bool)>);
+use std::{
+    any::TypeId,
+    collections::{BTreeMap, BTreeSet},
+};
+struct ComponentSet(BTreeMap<TypeId, bool>);
 
 impl ComponentSet {
     pub fn new() -> Self {
-        Self(BTreeSet::new())
+        Self(BTreeMap::new())
     }
 
-    pub fn union(&self, rhs: &ComponentSet) -> Self {
-        Self(self.0.union(&rhs.0).cloned().collect())
+    pub fn from_query<Q: Query>() -> Self {
+        let mut components = BTreeMap::<TypeId, bool>::new();
+        Q::Fetch::for_each_borrow(|id, access| {
+            components.insert(id, access);
+        });
+        Self(components)
     }
 
-    pub fn difference(&self, rhs: &ComponentSet) -> Self {
-        Self(self.0.difference(&rhs.0).cloned().collect())
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    // Immutable types.
+    pub fn immutable(&self) -> BTreeSet<TypeId> {
+        self.0.iter().filter(|kv| !*kv.1).map(|kv| *kv.0).collect()
+    }
+
+    // Mutable types.
+    pub fn mutable(&self) -> BTreeSet<TypeId> {
+        self.0.iter().filter(|kv| *kv.1).map(|kv| *kv.0).collect()
+    }
+
+    // Check two sets for compatibility.
+    pub fn is_compatible(&self, rhs: &Self) -> bool {
+        for entry in &self.0 {
+            if *entry.1 {
+                // If the lhs type is mutable, the rhs is incompatible if it contains
+                // the same type of any mutability it is incompatible.
+                if rhs.0.contains_key(entry.0) {
+                    return false;
+                }
+            } else {
+                // The lhs is immutable, the rhs is only incompatible if it contains
+                // a mutable of the same type.
+                if let Some(rhs) = rhs.0.get_key_value(entry.0) {
+                    if *rhs.1 {
+                        return false;
+                    }
+                }
+            }
+        }
+        false
+    }
+
+    // A union of the two sets of keys with any combination of the mutability
+    // being true resulting in a true result.
+    pub fn merge(&self, rhs: &ComponentSet) -> Self {
+        // Resulting map with mutability raised to highest value.
+        let mut result = self.0.clone();
+
+        for (k, v) in &rhs.0 {
+            if let Some(e) = result.get_mut(k) {
+                // If either is true, result is true.
+                if !v && *e {
+                    *e = true;
+                }
+            } else {
+                result.insert(*k, *v);
+            }
+        }
+
+        Self(result)
     }
 }
 
 struct ScheduleBuilder {
-    dag: Vec<(ComponentSet, Vec<Entry>)>,
+    dag: Vec<(ComponentSet, Entry)>,
 }
 
 impl ScheduleBuilder {
@@ -371,18 +430,35 @@ impl ScheduleBuilder {
     // additional wrapper code to make it all pretty and de-duplicated.
     // In the query, list all components (and fake ones) which the system
     // can access.  This list will be used for the topological insert sort.
-    pub fn immutable<Q: hecs::Query>(mut self, call: &dyn SystemCall) -> Self {
-        let mut components = Vec::new();
-        Q::Fetch::for_each_borrow(|id, access| {
-            components.push((id, access));
-        });
+    // A full solution would prevent direct access to the world and would
+    // check any internal queries were valid against this list.
+    pub fn immutable<Q: Query>(mut self, call: &dyn SystemCall) -> Self {
+        let components = ComponentSet::from_query::<Q>();
+
+        // Iterate from the end checking if this new system is compatible.
+        let mut compatible: Option<usize> = None;
+        let len = self.dag.len();
+        for (index, target) in self.dag.iter_mut().rev().enumerate() {
+            if target.0.is_empty() || !components.is_compatible(&target.0) {
+                break;
+            }
+            compatible = Some(len - index);
+        }
+
+        if let Some(index) = compatible {
+            // Insert into the last compatible group we found.
+            //self.dag[index].1.push(Entry::Immutable(vec![Box::new(call)]));
+        } else {
+            // Just push to the end.
+            //self.dag.push((ComponentSet::new(), Entry::Immutable(vec![Box::new(call)])));
+        }
 
         self
     }
 
     pub fn flush(mut self) -> Self {
         // Empty vec will represent a flush in this schedule.
-        self.dag.push((ComponentSet::new(), Vec::new()));
+        self.dag.push((ComponentSet::new(), Entry::Flush));
         self
     }
 }
