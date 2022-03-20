@@ -21,7 +21,7 @@ use std::error::Error;
 use hashbrown::hash_map::{Entry, HashMap};
 
 #[cfg(feature = "parallel-iterators")]
-use crate::parallel::ParIter;
+use crate::parallel::ParallelIter;
 
 use crate::alloc::boxed::Box;
 use crate::archetype::{Archetype, TypeIdMap, TypeInfo};
@@ -419,7 +419,7 @@ impl World {
     #[cfg(feature = "parallel-iterators")]
     pub unsafe fn parallel_query<'a, Q: Query>(
         &self,
-        iter: ParIter,
+        iter: ParallelIter,
         partition_size: usize,
         func: &'a dyn Fn(Entity, QueryItem<'a, Q>),
     ) {

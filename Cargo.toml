@@ -19,7 +19,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 maintenance = { status = "actively-developed" }
 
 [features]
-default = ["std"]
+default = ["std", "parallel-iterators"]
 std = []
 # Enables derive(Bundle)
 macros = ["hecs-macros", "lazy_static"]
@@ -49,6 +49,7 @@ rand = "0.8.3"
 trybuild = "1.0.23"
 serde = { version = "1.0.117", features = ["derive"] }
 serde_test = "1.0.117"
+rayon = "1.5.1"
 
 [[bench]]
 name = "bench"
