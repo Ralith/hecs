@@ -62,91 +62,50 @@ fn batch_spawn_entities(world: &mut World, n: usize) {
     // is faster.
 }
 
-fn system_integrate_motion(world: &World) {
-    // Make the system into a closure.
-    let system = |id: Entity, (pos, s): (&mut Position, &Speed)| {
-        let mut rng = thread_rng();
-        let change = (rng.gen_range(-s.0..s.0), rng.gen_range(-s.0..s.0));
-        pos.x += change.0;
-        pos.y += change.1;
-        println!("Unit {:?} moved to {:?}", id, pos);
-    };
-
-    rayon::scope(|scope| {
-        // Execute in four jobs.
-        let iter = ParallelIter::new();
-
-        for _ in 0..4 {
-            scope.spawn({
-                let iter = iter.clone();
-                |_| unsafe {
-                    world.parallel_query::<(&mut Position, &Speed)>(iter, 100, &system);
-                }
-            });
-        }
-    });
+fn integrate_motion(id: Entity, (pos, s): (&mut Position, &Speed)) {
+    let mut rng = thread_rng();
+    let change = (rng.gen_range(-s.0..s.0), rng.gen_range(-s.0..s.0));
+    pos.x += change.0;
+    pos.y += change.1;
+    println!("Unit {:?} moved to {:?}", id, pos);
 }
 
-// In this system entities find the closest entity and fire at them
-fn system_fire_at_closest(world: &World, tx: &std::sync::mpsc::Sender<(Entity, Entity)>) {
-    let system = |id0: Entity, pos0: &Position, tx: &std::sync::mpsc::Sender<(Entity, Entity)>| {
-        // Find closest:
-        // Nested queries are O(n^2) and you usually want to avoid that by using some sort of
-        // spatial index like a quadtree or more general BVH, which we don't bother with here since
-        // it's out of scope for the example.
-        let closest = world
-            .query::<With<Health, &Position>>()
-            .iter()
-            .filter(|(id1, _)| *id1 != id0)
-            .min_by_key(|(_, pos1)| manhattan_dist(pos0.x, pos1.x, pos0.y, pos1.y))
-            .map(|(entity, _pos)| entity);
+fn fire_at_closest(
+    world: &World,
+    id0: Entity,
+    pos0: &Position,
+    tx: &std::sync::mpsc::Sender<(Entity, Entity)>,
+) {
+    // Find closest:
+    // Nested queries are O(n^2) and you usually want to avoid that by using some sort of
+    // spatial index like a quadtree or more general BVH, which we don't bother with here since
+    // it's out of scope for the example.
+    let closest = world
+        .query::<With<Health, &Position>>()
+        .iter()
+        .filter(|(id1, _)| *id1 != id0)
+        .min_by_key(|(_, pos1)| manhattan_dist(pos0.x, pos1.x, pos0.y, pos1.y))
+        .map(|(entity, _pos)| entity);
 
-        // Since the application of damage is an inherently single threaded piece
-        // of work, it is split into it's own system.  This simply pushes the id
-        // of the targets into a mpsc queue so the single threaded integration can
-        // pull the items off the queue.
-        match closest {
-            Some(entity) => {
-                let _ = tx.send((id0, entity));
-            }
-            None => {
-                println!("{:?} is the last survivor!", id0);
-            }
-        };
-    };
-
-    rayon::scope({
-        // Clone the sender into scope since it is not Sync.
-        let tx = tx.clone();
-        move |scope| {
-            // Execute in four jobs.
-            let iter = ParallelIter::new();
-
-            for _ in 0..4 {
-                scope.spawn({
-                    // Clone the data per spawn.
-                    let iter = iter.clone();
-                    // Clone the sender into the new task.
-                    let tx = tx.clone();
-
-                    move |_| unsafe {
-                        world.parallel_query::<With<KillCount, &Position>>(iter, 100, {
-                            &move |id0, pos0| {
-                                system(id0, pos0, &tx);
-                            }
-                        });
-                    }
-                });
-            }
+    // Since the application of damage is an inherently single threaded piece
+    // of work, it is split into it's own system.  This simply pushes the id
+    // of the targets into a mpsc queue so the single threaded integration can
+    // pull the items off the queue.
+    match closest {
+        Some(entity) => {
+            let _ = tx.send((id0, entity));
         }
-    });
+        None => {
+            println!("{:?} is the last survivor!", id0);
+        }
+    };
 }
 
 // Not everything in a parallel execution graph actually can run in parallel.
 // This system is a case where running in parallel would have the potential to
 // break the borrow rules when more than one entity tries to damage a single
 // target.  So, it remains single threaded.
-fn apply_damage(world: &World, rx: &std::sync::mpsc::Receiver<(Entity, Entity)>) {
+fn system_apply_damage(world: &World, rx: &std::sync::mpsc::Receiver<(Entity, Entity)>) {
     while let Ok((source, target)) = rx.try_recv() {
         // Get the damage being done from the source entity.
         let dmg0 = world.get::<Damage>(source).unwrap();
@@ -233,17 +192,99 @@ pub fn main() {
 
         match input.trim() {
             "" => {
-                // Run all simulation systems:
-                system_integrate_motion(&world);
-                system_fire_at_closest(&world, &tx);
-                apply_damage(&world, &rx);
+                // Run all simulation systems.
+                // Unfortunately the way Rayon works behind the scenes is via a work stealing
+                // job system.  A better execution model for pre-defined graphs is unfortunately
+                // beyond the scope here so, we'll fake it up a bit to make it "look" like a
+                // graph executor.
+                rayon::scope(|scope| {
+                    // Execute in four jobs.
+                    let iter = ParallelIter::new();
 
-                // Removal of dead units can not directly modify the world in
-                // parallel so it creates a `CommandBuffer` to be run later.
-                let mut commands = system_remove_dead(&world);
-                // Execute the command buffer single threaded with exclusive access to
-                // the world.
-                commands.run_on(&mut world);
+                    for _ in 0..4 {
+                        scope.spawn({
+                            let iter = iter.clone();
+                            |_| unsafe {
+                                world.parallel_query::<(&mut Position, &Speed)>(
+                                    iter,
+                                    100,
+                                    &integrate_motion,
+                                );
+                            }
+                        });
+                    }
+                });
+                rayon::scope({
+                    // Clone the sender into scope since it is not Sync.
+                    let tx = tx.clone();
+                    // Get a reference to the world rather than a copy.
+                    let world = &world;
+                    move |scope| {
+                        // Execute in four jobs.
+                        let iter = ParallelIter::new();
+
+                        for _ in 0..4 {
+                            scope.spawn({
+                                // Clone the data per spawn.
+                                let iter = iter.clone();
+                                // Clone the sender into the new task.
+                                let tx = tx.clone();
+
+                                move |_| unsafe {
+                                    world.parallel_query::<With<KillCount, &Position>>(
+                                        iter,
+                                        100,
+                                        {
+                                            &move |id0, pos0| {
+                                                fire_at_closest(&world, id0, pos0, &tx);
+                                            }
+                                        },
+                                    );
+                                }
+                            });
+                        }
+                    }
+                });
+
+                // This is a return to single threaded for this system.
+                system_apply_damage(&world, &rx);
+
+                // Fake up a thread local style solution.
+                // Each "thread" would own a command buffer where it would
+                // accumulate changes to the world for later application.
+                // In this case, we just use the job index to access the
+                // specific buffer via a little unsafe buggery.
+                let mut commands = Vec::<CommandBuffer>::new();
+                (0..4)
+                    .into_iter()
+                    .for_each(|_| commands.push(CommandBuffer::new()));
+
+                rayon::scope({
+                    let world = &world;
+                    let commands = &commands;
+                    move |scope| {
+                        // Removal of dead units can not directly modify the world in
+                        // parallel so it creates a `CommandBuffer` to be run later.
+                        for index in 0..4 {
+                            scope.spawn({
+                                // Evil jiggery/pokery..  Just done this way in the example,
+                                // a full solution would make these command buffers available
+                                // per thread.
+                                #[allow(mutable_transmutes)]
+                                let commands: &mut CommandBuffer =
+                                    unsafe { std::mem::transmute(&commands[index]) };
+                                move |_| {
+                                    *commands = system_remove_dead(&world);
+                                }
+                            });
+                        }
+                    }
+                });
+
+                // Execute the each command buffer on the world.
+                for command in &mut commands {
+                    command.run_on(&mut world);
+                }
             }
             "q" => break,
             "?" => {
@@ -251,5 +292,97 @@ pub fn main() {
             }
             _ => {}
         }
+    }
+}
+
+/*
+In order to run an ECS in a graph executor, a topological sort is executed on
+the systems based on the data which they access and if that access is mutable
+or immutable.  The goal is to end up with a generic list of execution groups
+which can be instanced once a frame.
+ */
+
+// A trait representing a system which can be executed on the an immutable
+// world.
+trait SystemCall {
+    fn call(&self, world: &World);
+}
+
+// An entry in the schedule representing either an iteration or a command buffer
+// flush.  Individually these are synchronized so there is no overlapping execution.
+enum Entry {
+    Immutable(Vec<Box<dyn SystemCall>>),
+    Flush,
+}
+
+// A compiled schedule.
+struct Schedule(Vec<Entry>);
+
+impl Schedule {
+    fn create() -> ScheduleBuilder {
+        ScheduleBuilder::new()
+    }
+
+    fn new() -> Self {
+        Self(Vec::new())
+    }
+
+    pub fn execute(&self, world: &mut World) {
+        // Using Rayon is not exactly the best example but I was unable to find
+        // a threaded graph executor to use for demo purposes.  The issue with
+        // this implementation is that it will end up dynamically building jobs
+        // rather than issuing the entire graph at one time.  I'll fake it up
+        // but there are much better solutions for games.
+        for entry in &self.0 {
+            // Each entry represents a layer in the DAG produced by topological
+            // sorting of the system data access.  The layers can not overlap
+            // but everything within the layer can execute simultaneously.
+        }
+    }
+}
+
+use std::collections::BTreeSet;
+struct ComponentSet(BTreeSet<(std::any::TypeId, bool)>);
+
+impl ComponentSet {
+    pub fn new() -> Self {
+        Self(BTreeSet::new())
+    }
+
+    pub fn union(&self, rhs: &ComponentSet) -> Self {
+        Self(self.0.union(&rhs.0).cloned().collect())
+    }
+
+    pub fn difference(&self, rhs: &ComponentSet) -> Self {
+        Self(self.0.difference(&rhs.0).cloned().collect())
+    }
+}
+
+struct ScheduleBuilder {
+    dag: Vec<(ComponentSet, Vec<Entry>)>,
+}
+
+impl ScheduleBuilder {
+    pub fn new() -> Self {
+        Self { dag: Vec::new() }
+    }
+
+    // This reuses the hecs query type rather than introducing a bunch of
+    // additional wrapper code to make it all pretty and de-duplicated.
+    // In the query, list all components (and fake ones) which the system
+    // can access.  This list will be used for the topological insert sort.
+    pub fn immutable<Q: hecs::Query>(mut self, call: &dyn SystemCall) -> Self {
+        let mut components = Vec::new();
+        Q::Fetch::for_each_borrow(|id, access| {
+            components.push((id, access));
+        });
+
+        self
+    }
+
+    pub fn flush(mut self) -> Self {
+        // Empty vec will represent a flush in this schedule.
+        self.dag.push((ComponentSet::new(), Vec::new()));
+        self
     }
 }
