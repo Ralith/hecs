@@ -535,7 +535,11 @@ impl ScheduleBuilder {
         }
 
         // Insert it.
-        self.insert(compatible, Execution::Func(Box::new(FuncCall { f })));
+        self.insert(
+            compatible,
+            components,
+            Execution::Func(Box::new(FuncCall { f })),
+        );
         self
     }
 
@@ -563,7 +567,11 @@ impl ScheduleBuilder {
         }
 
         // Insert it.
-        self.insert(compatible, Execution::Serial(Box::new(Serial::<Q> { f })));
+        self.insert(
+            compatible,
+            components,
+            Execution::Serial(Box::new(Serial::<Q> { f })),
+        );
         self
     }
 
@@ -588,12 +596,13 @@ impl ScheduleBuilder {
         // Insert it.
         self.insert(
             compatible,
+            components,
             Execution::Parallel(Box::new(Parallel::<Q> { f })),
         );
         self
     }
 
-    fn insert(&mut self, index: Option<usize>, execution: Execution) {
+    fn insert(&mut self, index: Option<usize>, components: ComponentSet, execution: Execution) {
         if let Some(index) = index {
             // Insert into the last compatible group we found.
             match &mut self.dag[index].1 {
@@ -602,6 +611,8 @@ impl ScheduleBuilder {
                 }
                 _ => panic!("Internal error."),
             }
+            // Merge the components into the entry.
+            self.dag[index].0 = self.dag[index].0.merge(&components);
         } else {
             // Just push to the end.
             self.dag
