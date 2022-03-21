@@ -1,4 +1,7 @@
 #[cfg(feature = "parallel-iterators")]
+extern crate lazy_static;
+
+#[cfg(feature = "parallel-iterators")]
 mod ffa;
 
 #[cfg(feature = "parallel-iterators")]
