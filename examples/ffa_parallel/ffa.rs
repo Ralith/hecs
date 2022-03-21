@@ -194,14 +194,19 @@ pub fn main() {
     const ENTITY_COUNT: usize = 1000;
     batch_spawn_entities(&mut world, ENTITY_COUNT);
 
+    // Standing component type to track usage of the damage queue.
+    struct DamageQueue;
+
     // Build a schedule for the systems.
     let schedule = Schedule::create()
         .parallel::<(&mut Position, &Speed), ()>(integrate_motion)
-        .parallel::<&Position, ()>(fire_at_closest)
-        .func::<&mut Health>(system_apply_damage)
+        .parallel::<&Position, &mut DamageQueue>(fire_at_closest)
+        .func::<(&mut Health, &DamageQueue)>(system_apply_damage)
         .parallel::<&Health, ()>(system_remove_dead)
         .flush()
         .build();
+
+    println!("Schedule: {:#?}", schedule);
 
     loop {
         println!("\n'Enter' to continue simulation, '?' for entity list, 'q' to quit");
@@ -254,7 +259,7 @@ originally intended.
  */
 
 // A system which executes on a single thread.
-trait SerialCall: Sync {
+trait SerialCall: Sync + std::fmt::Debug {
     fn call(&self, world: &World);
 }
 
@@ -272,10 +277,16 @@ impl<Q: Query + 'static> SerialCall for Serial<Q> {
     }
 }
 
+impl<Q: Query + 'static> std::fmt::Debug for Serial<Q> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
+        write!(f, "Serial")
+    }
+}
+
 unsafe impl<Q: Query + 'static> Sync for Serial<Q> {}
 
 // A system which is executed in parallel on several threads.
-trait ParallelCall: Sync {
+trait ParallelCall: Sync + std::fmt::Debug {
     fn call(&self, world: &World, iter: ParallelIter);
 }
 
@@ -292,10 +303,16 @@ impl<Q: Query + 'static> ParallelCall for Parallel<Q> {
     }
 }
 
+impl<Q: Query + 'static> std::fmt::Debug for Parallel<Q> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
+        write!(f, "Parallel")
+    }
+}
+
 unsafe impl<Q: Query + 'static> Sync for Parallel<Q> {}
 
 // A single function call, not a query.
-trait Func: Sync {
+trait Func: Sync + std::fmt::Debug {
     fn call(&self, world: &World);
 }
 
@@ -310,11 +327,18 @@ impl Func for FuncCall {
     }
 }
 
+impl std::fmt::Debug for FuncCall {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
+        write!(f, "Func")
+    }
+}
+
 unsafe impl Sync for FuncCall {}
 
 // Execution style enum.  Systems can be executed serial or parallel depending
 // on requirements.  Not all systems can be made fully parallel, but they can
 // usually still run in parallel with other systems depending on data access.
+#[derive(Debug)]
 enum Execution {
     Serial(Box<dyn SerialCall>),
     Parallel(Box<dyn ParallelCall>),
@@ -323,12 +347,14 @@ enum Execution {
 
 // An entry in the schedule representing either an iteration or a command buffer
 // flush.
+#[derive(Debug)]
 enum Entry {
     Systems(Vec<Execution>),
     Flush,
 }
 
 // A compiled schedule.
+#[derive(Debug)]
 struct Schedule(Vec<Entry>);
 
 impl Schedule {
