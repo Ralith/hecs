@@ -4,7 +4,10 @@ use std::{
     any::TypeId,
     collections::{BTreeMap, BTreeSet},
     io,
-    sync::Mutex,
+    sync::{
+        mpsc::{channel, Receiver, Sender},
+        Mutex,
+    },
 };
 
 /*
@@ -20,6 +23,43 @@ use std::{
      5. If health <= 0, the unit dies.
 State of the simulation is displayed in the sconsole through println! functions.
 */
+
+// Super duper cheeze...  These are shared resources used while
+// running the systems.  In a real scheduler the world would own
+// these items and they would be integrated into the topological
+// sort.  That's beyond scope here.
+struct Shared {
+    damage_senders: Vec<Sender<(Entity, Entity)>>,
+    damage_receiver: Receiver<(Entity, Entity)>,
+    commands: Mutex<CommandBuffer>,
+}
+impl Shared {
+    pub fn new() -> Self {
+        let (tx, rx) = channel::<(Entity, Entity)>();
+        Self {
+            damage_senders: vec![tx; rayon::current_num_threads()],
+            damage_receiver: rx,
+            commands: Mutex::new(CommandBuffer::new()),
+        }
+    }
+    pub fn sender(&self, index: usize) -> &Sender<(Entity, Entity)> {
+        &self.damage_senders[index]
+    }
+    pub fn receiver(&self) -> &Receiver<(Entity, Entity)> {
+        &self.damage_receiver
+    }
+    pub fn commands(&self) -> &Mutex<CommandBuffer> {
+        &self.commands
+    }
+}
+
+unsafe impl Sync for Shared {}
+
+lazy_static::lazy_static! {
+    static ref SHARED: Shared = {
+        Shared::new()
+    };
+}
 
 #[derive(Debug)]
 struct Position {
@@ -67,7 +107,7 @@ fn batch_spawn_entities(world: &mut World, n: usize) {
     // is faster.
 }
 
-fn integrate_motion(id: Entity, (pos, s): (&mut Position, &Speed)) {
+fn integrate_motion(_: &World, id: Entity, (pos, s): (&mut Position, &Speed)) {
     let mut rng = thread_rng();
     let change = (rng.gen_range(-s.0..s.0), rng.gen_range(-s.0..s.0));
     pos.x += change.0;
@@ -75,12 +115,7 @@ fn integrate_motion(id: Entity, (pos, s): (&mut Position, &Speed)) {
     println!("Unit {:?} moved to {:?}", id, pos);
 }
 
-fn fire_at_closest(
-    world: &World,
-    id0: Entity,
-    pos0: &Position,
-    tx: &std::sync::mpsc::Sender<(Entity, Entity)>,
-) {
+fn fire_at_closest(world: &World, id0: Entity, pos0: &Position) {
     // Find closest:
     // Nested queries are O(n^2) and you usually want to avoid that by using some sort of
     // spatial index like a quadtree or more general BVH, which we don't bother with here since
@@ -98,7 +133,9 @@ fn fire_at_closest(
     // pull the items off the queue.
     match closest {
         Some(entity) => {
-            let _ = tx.send((id0, entity));
+            let _ = SHARED
+                .sender(rayon::current_thread_index().unwrap())
+                .send((id0, entity));
         }
         None => {
             println!("{:?} is the last survivor!", id0);
@@ -110,7 +147,8 @@ fn fire_at_closest(
 // This system is a case where running in parallel would have the potential to
 // break the borrow rules when more than one entity tries to damage a single
 // target.  So, it remains single threaded.
-fn system_apply_damage(world: &World, rx: &std::sync::mpsc::Receiver<(Entity, Entity)>) {
+fn system_apply_damage(world: &World) {
+    let rx = SHARED.receiver();
     while let Ok((source, target)) = rx.try_recv() {
         // Get the damage being done from the source entity.
         let dmg0 = world.get::<Damage>(source).unwrap();
@@ -135,39 +173,11 @@ fn system_apply_damage(world: &World, rx: &std::sync::mpsc::Receiver<(Entity, En
     }
 }
 
-fn system_remove_dead(world: &World) -> hecs::CommandBuffer {
-    // Cheesy but effective.  The better solution, if you delete a lot of
-    // entities regularly, is a command buffer per thread.  At points in
-    // the execution graph you would then run those buffers on a mutable
-    // world in a single threaded function.
-    let commands = std::sync::Mutex::new(hecs::CommandBuffer::new());
-
-    // Make a list of all dead enemies.  NOTE: This list could be done safely
-    // within the `apply_damage` function to avoid the iteration here.  But,
-    // the purpose is to show parallel execution, not so much about
-    // specific optimization.
-    let iter = ParallelIter::new();
-    rayon::scope({
-        // Make a reference to the commands to be given to each thread.
-        let commands = &commands;
-        move |scope| {
-            for _ in 0..4 {
-                scope.spawn({
-                    let iter = iter.clone();
-                    move |_| unsafe {
-                        world.parallel_query::<&Health>(iter, 10, &|id, hp| {
-                            if hp.0 <= 0 {
-                                let mut commands = commands.lock().unwrap();
-                                commands.despawn(id);
-                            }
-                        })
-                    }
-                })
-            }
-        }
-    });
-
-    commands.into_inner().unwrap()
+fn system_remove_dead(_: &World, entity: Entity, health: &Health) {
+    if health.0 <= 0 {
+        let mut commands = SHARED.commands().lock().unwrap();
+        commands.despawn(entity);
+    }
 }
 
 fn print_world_state(world: &mut World) {
@@ -184,9 +194,14 @@ pub fn main() {
     const ENTITY_COUNT: usize = 1000;
     batch_spawn_entities(&mut world, ENTITY_COUNT);
 
-    // Create a queue for damage processing.  The message type is
-    // a tuple of source entity and target entity.
-    let (tx, rx) = std::sync::mpsc::channel::<(Entity, Entity)>();
+    // Build a schedule for the systems.
+    let schedule = Schedule::create()
+        .parallel::<(&mut Position, &Speed), ()>(integrate_motion)
+        .parallel::<&Position, ()>(fire_at_closest)
+        .func::<&mut Health>(system_apply_damage)
+        .parallel::<&Health, ()>(system_remove_dead)
+        .flush()
+        .build();
 
     loop {
         println!("\n'Enter' to continue simulation, '?' for entity list, 'q' to quit");
@@ -197,99 +212,8 @@ pub fn main() {
 
         match input.trim() {
             "" => {
-                // Run all simulation systems.
-                // Unfortunately the way Rayon works behind the scenes is via a work stealing
-                // job system.  A better execution model for pre-defined graphs is unfortunately
-                // beyond the scope here so, we'll fake it up a bit to make it "look" like a
-                // graph executor.
-                rayon::scope(|scope| {
-                    // Execute in four jobs.
-                    let iter = ParallelIter::new();
-
-                    for _ in 0..4 {
-                        scope.spawn({
-                            let iter = iter.clone();
-                            |_| unsafe {
-                                world.parallel_query::<(&mut Position, &Speed)>(
-                                    iter,
-                                    100,
-                                    &integrate_motion,
-                                );
-                            }
-                        });
-                    }
-                });
-                rayon::scope({
-                    // Clone the sender into scope since it is not Sync.
-                    let tx = tx.clone();
-                    // Get a reference to the world rather than a copy.
-                    let world = &world;
-                    move |scope| {
-                        // Execute in four jobs.
-                        let iter = ParallelIter::new();
-
-                        for _ in 0..4 {
-                            scope.spawn({
-                                // Clone the data per spawn.
-                                let iter = iter.clone();
-                                // Clone the sender into the new task.
-                                let tx = tx.clone();
-
-                                move |_| unsafe {
-                                    world.parallel_query::<With<KillCount, &Position>>(
-                                        iter,
-                                        100,
-                                        {
-                                            &move |id0, pos0| {
-                                                fire_at_closest(&world, id0, pos0, &tx);
-                                            }
-                                        },
-                                    );
-                                }
-                            });
-                        }
-                    }
-                });
-
-                // This is a return to single threaded for this system.
-                system_apply_damage(&world, &rx);
-
-                // Fake up a thread local style solution.
-                // Each "thread" would own a command buffer where it would
-                // accumulate changes to the world for later application.
-                // In this case, we just use the job index to access the
-                // specific buffer via a little unsafe buggery.
-                let mut commands = Vec::<CommandBuffer>::new();
-                (0..4)
-                    .into_iter()
-                    .for_each(|_| commands.push(CommandBuffer::new()));
-
-                rayon::scope({
-                    let world = &world;
-                    let commands = &commands;
-                    move |scope| {
-                        // Removal of dead units can not directly modify the world in
-                        // parallel so it creates a `CommandBuffer` to be run later.
-                        for index in 0..4 {
-                            scope.spawn({
-                                // Evil jiggery/pokery..  Just done this way in the example,
-                                // a full solution would make these command buffers available
-                                // per thread.
-                                #[allow(mutable_transmutes)]
-                                let commands: &mut CommandBuffer =
-                                    unsafe { std::mem::transmute(&commands[index]) };
-                                move |_| {
-                                    *commands = system_remove_dead(&world);
-                                }
-                            });
-                        }
-                    }
-                });
-
-                // Execute the each command buffer on the world.
-                for command in &mut commands {
-                    command.run_on(&mut world);
-                }
+                // Execute the schedule.
+                schedule.execute(&mut world);
             }
             "q" => break,
             "?" => {
@@ -334,41 +258,59 @@ trait SerialCall: Sync {
     fn call(&self, world: &World);
 }
 
+// Struct for storing serial systems.
+struct Serial<Q: Query + 'static> {
+    pub f: fn(&World, Entity, QueryItem<Q>),
+}
+
+impl<Q: Query + 'static> SerialCall for Serial<Q> {
+    fn call(&self, world: &World) {
+        let mut borrow = world.query::<Q>();
+        for item in borrow.into_iter() {
+            (self.f)(world, item.0, item.1);
+        }
+    }
+}
+
+unsafe impl<Q: Query + 'static> Sync for Serial<Q> {}
+
 // A system which is executed in parallel on several threads.
 trait ParallelCall: Sync {
     fn call(&self, world: &World, iter: ParallelIter);
 }
 
-// Struct for storing serial systems.
-struct Serial<'a, Q: Query + 'static> {
-    pub f: &'a fn(&World, Entity, QueryItem<Q>),
-}
-
-impl<'a, Q: Query + 'static> SerialCall for Serial<'a, Q> {
-    fn call(&self, world: &World) {
-        let mut borrow = world.query::<Q>();
-        for item in borrow.into_iter() {
-            (*self.f)(world, item.0, item.1);
-        }
-    }
-}
-
-unsafe impl<'a, Q: Query + 'static> Sync for Serial<'a, Q> {}
-
 // Struct for storing parallel systems.
-struct Parallel<'a, Q: Query + 'static> {
-    f: &'a fn(&World, Entity, QueryItem<Q>),
+struct Parallel<Q: Query + 'static> {
+    f: fn(&World, Entity, QueryItem<Q>),
 }
 
-impl<'a, Q: Query + 'static> ParallelCall for Parallel<'a, Q> {
+impl<Q: Query + 'static> ParallelCall for Parallel<Q> {
     fn call(&self, world: &World, iter: ParallelIter) {
         unsafe {
-            world.parallel_query::<Q>(iter, 100, &|entity, item| (*self.f)(world, entity, item))
+            world.parallel_query::<Q>(iter, 100, &|entity, item| (self.f)(world, entity, item))
         };
     }
 }
 
-unsafe impl<'a, Q: Query + 'static> Sync for Parallel<'a, Q> {}
+unsafe impl<Q: Query + 'static> Sync for Parallel<Q> {}
+
+// A single function call, not a query.
+trait Func: Sync {
+    fn call(&self, world: &World);
+}
+
+// Struct for storing non-system call.
+struct FuncCall {
+    f: fn(&World),
+}
+
+impl Func for FuncCall {
+    fn call(&self, world: &World) {
+        (self.f)(world)
+    }
+}
+
+unsafe impl Sync for FuncCall {}
 
 // Execution style enum.  Systems can be executed serial or parallel depending
 // on requirements.  Not all systems can be made fully parallel, but they can
@@ -376,6 +318,7 @@ unsafe impl<'a, Q: Query + 'static> Sync for Parallel<'a, Q> {}
 enum Execution {
     Serial(Box<dyn SerialCall>),
     Parallel(Box<dyn ParallelCall>),
+    Func(Box<dyn Func>),
 }
 
 // An entry in the schedule representing either an iteration or a command buffer
@@ -386,15 +329,15 @@ enum Entry {
 }
 
 // A compiled schedule.
-struct Schedule(Vec<Entry>, Mutex<CommandBuffer>);
+struct Schedule(Vec<Entry>);
 
 impl Schedule {
     fn create() -> ScheduleBuilder {
         ScheduleBuilder::new()
     }
 
-    fn new() -> Self {
-        Self(Vec::new(), Mutex::new(CommandBuffer::new()))
+    fn with(entries: Vec<Entry>) -> Self {
+        Self(entries)
     }
 
     pub fn execute(&self, world: &mut World) {
@@ -422,6 +365,14 @@ impl Schedule {
                             let world: &World = world;
                             for system in systems {
                                 match system {
+                                    Execution::Func(f) => {
+                                        scope.spawn({
+                                            let world: &World = world;
+                                            move |_| {
+                                                f.call(world);
+                                            }
+                                        });
+                                    }
                                     Execution::Serial(serial) => {
                                         // Issue a single job for this.
                                         scope.spawn({
@@ -453,7 +404,7 @@ impl Schedule {
                         rayon::scope({
                             let world: &mut World = world;
                             move |_| {
-                                let mut commands = self.1.lock().unwrap();
+                                let mut commands = SHARED.commands().lock().unwrap();
                                 commands.run_on(world);
                             }
                         });
@@ -543,6 +494,25 @@ impl ScheduleBuilder {
         Self { dag: Vec::new() }
     }
 
+    pub fn func<D: Query>(mut self, f: fn(&World)) -> Self {
+        // Get a set of all components in use.
+        let components = ComponentSet::from_query::<D>();
+
+        // Insert sort checking for data constraints.
+        let mut compatible: Option<usize> = None;
+        let len = self.dag.len();
+        for (index, target) in self.dag.iter_mut().rev().enumerate() {
+            if target.0.is_empty() || !components.is_compatible(&target.0) {
+                break;
+            }
+            compatible = Some(len - index - 1);
+        }
+
+        // Insert it.
+        self.insert(compatible, Execution::Func(Box::new(FuncCall { f })));
+        self
+    }
+
     // Two queries here.  The `Q` query type represents the set of component arguments
     // to the system function.  The 'D' query is used to represent any other components
     // which the execution of the system might end up touching.  There are no protections
@@ -550,13 +520,36 @@ impl ScheduleBuilder {
     // validity.
     pub fn serial<Q: Query + 'static, D: Query>(
         mut self,
-        f: &'static fn(&World, Entity, QueryItem<Q>),
+        f: fn(&World, Entity, QueryItem<Q>),
     ) -> Self {
         // Get a set of all components in use.
         let components = ComponentSet::from_query::<Q>();
         let components = components.merge(&ComponentSet::from_query::<D>());
 
-        // Iterate from the end checking if this new system is compatible.
+        // Insert sort checking for data constraints.
+        let mut compatible: Option<usize> = None;
+        let len = self.dag.len();
+        for (index, target) in self.dag.iter_mut().rev().enumerate() {
+            if target.0.is_empty() || !components.is_compatible(&target.0) {
+                break;
+            }
+            compatible = Some(len - index - 1);
+        }
+
+        // Insert it.
+        self.insert(compatible, Execution::Serial(Box::new(Serial::<Q> { f })));
+        self
+    }
+
+    pub fn parallel<Q: Query + 'static, D: Query>(
+        mut self,
+        f: fn(&World, Entity, QueryItem<'_, Q>),
+    ) -> Self {
+        // Get a set of all components in use.
+        let components = ComponentSet::from_query::<Q>();
+        let components = components.merge(&ComponentSet::from_query::<D>());
+
+        // Insert sort checking for data constraints.
         let mut compatible: Option<usize> = None;
         let len = self.dag.len();
         for (index, target) in self.dag.iter_mut().rev().enumerate() {
@@ -569,7 +562,7 @@ impl ScheduleBuilder {
         // Insert it.
         self.insert(
             compatible,
-            Execution::Serial(Box::new(Serial::<'_, Q> { f })),
+            Execution::Parallel(Box::new(Parallel::<Q> { f })),
         );
         self
     }
@@ -594,5 +587,9 @@ impl ScheduleBuilder {
         // Empty vec will represent a flush in this schedule.
         self.dag.push((ComponentSet::new(), Entry::Flush));
         self
+    }
+
+    pub fn build(self) -> Schedule {
+        Schedule::with(self.dag.into_iter().map(|(_, e)| e).collect())
     }
 }
