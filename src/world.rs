@@ -341,7 +341,7 @@ impl World {
 
     /// Despawn all entities
     ///
-    /// Preserves allocated storage for reuse.
+    /// Preserves allocated storage for reuse but clears metadata so that [`Entity`] values will repeat (in contrast to [`despawn`][Self::despawn]).
     pub fn clear(&mut self) {
         for x in &mut self.archetypes.archetypes {
             x.clear();
@@ -1360,6 +1360,16 @@ mod tests {
         let b = world.spawn(());
         assert_eq!(a.id, b.id);
         assert_ne!(a.generation, b.generation);
+    }
+
+    #[test]
+    fn clear_repeats_entity_id() {
+        let mut world = World::new();
+        let a = world.spawn(());
+        world.clear();
+        let b = world.spawn(());
+        assert_eq!(a.id, b.id);
+        assert_eq!(a.generation, b.generation);
     }
 
     #[test]
