@@ -1,7 +1,106 @@
 //! Implements a parallel query iterator.
 //!
 //! Parallel execution of single systems is inherently unsafe without care being
-//! taken to extend Rust borrow rules into the threading domain.
+//! taken to extend Rust borrow rules into the threading domain.  A very simple
+//! overview of what this means is as follows:
+//!
+//! Assume you have a hecs world with 3 components and are running 4 systems
+//! on the world.
+//! Components: C0, C1, C2, C3
+//! Systems:
+//!  S0::<&C0, &mut C1>()
+//!  S1::<&C0, &C2, &mut C3>()
+//!  S2::<&C1, &mut C2>()
+//!  S3::<&C3>()
+//!
+//! Extending borrow rules into the threading domain is simply the case of looking
+//! at the accessed components and making sure there are no mutable references to
+//! a component at the same time as any other reference to that component.  There
+//! are a number of ways to approach this programically but for the purposes here
+//! we'll do it manually assuming that Rayon will be used to execute the systems
+//! in parallel.
+//!
+//! Generally speaking, we care nothing about the systems and what they are doing,
+//! the only thing which matters is what components are being used.  An easy way
+//! to manually organize systems is to list out the components of all systems in
+//! a table and make a note of where mutability of components exist.  So,
+//!
+//! S0 | &C0 | &mut C1 |          |         |
+//! S1 | &C0 |         |  &C2     | &mut C3 |
+//! S2 |     | &C1     |  &mut C2 |         |
+//! S3 |     |         |          | &C3     |
+//!
+//! If you go component by component you see that all use of component C0 is safe to
+//! be done simultaneously as it is only accessed immutably.  But, C1 is accessed
+//! mutably in S0 and immutably in S2, making those systems incompatible.  Looking
+//! further, there is also incompatibility between systems S1 and S2 due to the
+//! component C2 being used with differing mutability.  And finally systems S1 and
+//! S3 are incompatible due to C3 access.
+//!
+//! A very simplistic approach to how to issue these systems safely in a threaded
+//! manner is to start at the top and checking for incompatibilities.  So, looking
+//! at S0 and S1, there are no conflicting borrows between those two, we know they
+//! can safely execute simultaneously.  Moving to S2, we note that there is an
+//! incompatible access to C2, so we now have our first grouping, issue S0 and S1
+//! simultaneously but do not issue S2 or later until they complete.  With Rayon
+//! this would be the following in pseudo code:
+//!
+//! rayon::scope(s) {
+//!   s.spawn(||{S0});
+//!   s.spawn(||{S1});
+//! }
+//!
+//! Because rayon will block until both S0 and S1 complete, we start by issuing S2
+//! and then consider if S3 is compatible.  There are no conflicting component
+//! access needs, so we can issue S3 in parallel with S2.  So, the resulting schedule
+//! for issuing the systems is as follows:
+//!
+//! rayon::scope(s) {
+//!   s.spawn(|| {execute s0});
+//!   s.spawn(|| {execute s1});
+//! }
+//! rayon::scope(s) {
+//!   s.spawn(|| {execute s2});
+//!   s.spawn(|| {execute s3});
+//! }
+//!
+//! The above uses 2 threads safely and follows all of Rust's rules.  Most likely
+//! this has doubled your performance.  Well, that's not good enough, you probably
+//! have at least 4 cores on your CPU, why not use them all?  That is where the
+//! ParallelIter extension is used.  The parallel iterator partitions up the
+//! component arrays across multiple threads simultaneously.  So, even if the array
+//! of components is mutable, there are no borrow rules being broken because at any
+//! given time, only one thread owns references to a specific portion of the array.
+//! The iterator takes care of all of this efficiently behind the scenes in conjunction
+//! with the parallel_query.  All the user has to do is issue one job for each thread.
+//! The example becomes:
+//!
+//! rayon::scope(s) {
+//!   let i0 = ParallelIter::new();
+//!   let i1 = ParallelIter::new();
+//!   for _ in 0..rayon::current_thread_count() {
+//!     s.spawn(|| {execute s0(i0.clone())});
+//!     s.spawn(|| {execute s1(i1.clone())});
+//!   }
+//! }
+//! rayon::scope(s) {
+//!   let i0 = ParallelIter::new();
+//!   let i1 = ParallelIter::new();
+//!   for _ in 0..rayon::current_thread_count() {
+//!     s.spawn(|| {execute s2(i0.clone())});
+//!     s.spawn(|| {execute s3(i1.clone())});
+//!   }
+//! }
+//!
+//! Iteration of the hecs systems will now fully utilize the CPU of the system.
+//! Obviously this is assuming a perfect world where everything is naturally
+//! parallel.  That is not always the case, some patterns do not parallelize
+//! and there is considerable infrastructure required to manage the mixture of
+//! possible cases.  Thankfully ECS 'encourages' most systems to be parallel by
+//! nature such that their are many benefits to be had.  For a more complete
+//! (perhaps obnoxiously so) example, see parallel_ffa example.  There is a
+//! complete outline of automating the above sorting and rules enforcement
+//! within a framework which could be extended to cover many further use cases.
 //!
 use {
     super::{entities::EntityMeta, Archetype, Entity, Fetch, Query, QueryItem},
