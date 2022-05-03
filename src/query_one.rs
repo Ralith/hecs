@@ -37,13 +37,11 @@ impl<'a, Q: Query> QueryOne<'a, Q> {
         if self.borrowed {
             panic!("called QueryOnce::get twice; construct a new query instead");
         }
-        unsafe {
-            let state = Q::Fetch::prepare(self.archetype)?;
-            Q::Fetch::borrow(self.archetype, state);
-            let fetch = Q::Fetch::execute(self.archetype, state);
-            self.borrowed = true;
-            Some(fetch.get(self.index as usize))
-        }
+        let state = Q::Fetch::prepare(self.archetype)?;
+        Q::Fetch::borrow(self.archetype, state);
+        let fetch = Q::Fetch::execute(self.archetype, state);
+        self.borrowed = true;
+        unsafe { Some(fetch.get(self.index as usize)) }
     }
 
     /// Transform the query into one that requires a certain component without borrowing it

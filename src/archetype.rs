@@ -255,15 +255,15 @@ impl Archetype {
 
     /// Increase capacity by exactly `increment`
     fn grow_exact(&mut self, increment: u32) {
-        unsafe {
-            let old_count = self.len as usize;
-            let old_cap = self.entities.len();
-            let new_cap = self.entities.len() + increment as usize;
-            let mut new_entities = vec![!0; new_cap].into_boxed_slice();
-            new_entities[0..old_count].copy_from_slice(&self.entities[0..old_count]);
-            self.entities = new_entities;
+        let old_count = self.len as usize;
+        let old_cap = self.entities.len();
+        let new_cap = self.entities.len() + increment as usize;
+        let mut new_entities = vec![!0; new_cap].into_boxed_slice();
+        new_entities[0..old_count].copy_from_slice(&self.entities[0..old_count]);
+        self.entities = new_entities;
+        
 
-            let new_data = self
+            let new_data = unsafe { self
                 .types
                 .iter()
                 .zip(&*self.data)
@@ -300,10 +300,8 @@ impl Archetype {
                         storage,
                     }
                 })
-                .collect::<Box<[_]>>();
-
-            self.data = new_data;
-        }
+                .collect::<Box<[_]>>() };
+        self.data = new_data;
     }
 
     /// Returns the ID of the entity moved into `index`, if any
