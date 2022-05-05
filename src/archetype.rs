@@ -261,10 +261,9 @@ impl Archetype {
         let mut new_entities = vec![!0; new_cap].into_boxed_slice();
         new_entities[0..old_count].copy_from_slice(&self.entities[0..old_count]);
         self.entities = new_entities;
-        
 
-            let new_data = unsafe { self
-                .types
+        let new_data = unsafe {
+            self.types
                 .iter()
                 .zip(&*self.data)
                 .map(|(info, old)| {
@@ -300,7 +299,8 @@ impl Archetype {
                         storage,
                     }
                 })
-                .collect::<Box<[_]>>() };
+                .collect::<Box<[_]>>()
+        };
         self.data = new_data;
     }
 
