@@ -60,21 +60,21 @@ use crate::{
 ///     fn serialize_component_ids<S: serde::ser::SerializeTuple>(
 ///         &mut self,
 ///         archetype: &Archetype,
-///         out: &mut S,
-///     ) -> Result<(), S::Error> {
-///         try_serialize_id::<Position, _, _>(archetype, &ComponentId::Position, out)?;
-///         try_serialize_id::<Velocity, _, _>(archetype, &ComponentId::Velocity, out)?;
-///         Ok(())
+///         mut out: S,
+///     ) -> Result<S::Ok, S::Error> {
+///         try_serialize_id::<Position, _, _>(archetype, &ComponentId::Position, &mut out)?;
+///         try_serialize_id::<Velocity, _, _>(archetype, &ComponentId::Velocity, &mut out)?;
+///         out.end()
 ///     }
 ///
 ///     fn serialize_components<S: serde::ser::SerializeTuple>(
 ///         &mut self,
 ///         archetype: &Archetype,
-///         out: &mut S,
-///     ) -> Result<(), S::Error> {
-///         try_serialize::<Position, _>(archetype, out)?;
-///         try_serialize::<Velocity, _>(archetype, out)?;
-///         Ok(())
+///         mut out: S,
+///     ) -> Result<S::Ok, S::Error> {
+///         try_serialize::<Position, _>(archetype, &mut out)?;
+///         try_serialize::<Velocity, _>(archetype, &mut out)?;
+///         out.end()
 ///     }
 /// }
 /// ```
@@ -93,8 +93,8 @@ pub trait SerializeContext {
     fn serialize_component_ids<S: SerializeTuple>(
         &mut self,
         archetype: &Archetype,
-        out: &mut S,
-    ) -> Result<(), S::Error>;
+        out: S,
+    ) -> Result<S::Ok, S::Error>;
 
     /// Serialize component data from `archetype` into `out`
     ///
@@ -105,8 +105,8 @@ pub trait SerializeContext {
     fn serialize_components<S: SerializeTuple>(
         &mut self,
         archetype: &Archetype,
-        out: &mut S,
-    ) -> Result<(), S::Error>;
+        out: S,
+    ) -> Result<S::Ok, S::Error>;
 }
 
 /// If `archetype` has `T` components, serialize `id` into `S`
@@ -222,11 +222,10 @@ where
         where
             S: Serializer,
         {
-            let mut tuple = serializer.serialize_tuple(self.components)?;
+            let tuple = serializer.serialize_tuple(self.components)?;
             self.ctx
                 .borrow_mut()
-                .serialize_component_ids(self.archetype, &mut tuple)?;
-            tuple.end()
+                .serialize_component_ids(self.archetype, tuple)
         }
     }
 
@@ -255,9 +254,7 @@ where
             })?;
 
             // Serialize component data
-            ctx.serialize_components(self.archetype, &mut tuple)?;
-
-            tuple.end()
+            ctx.serialize_components(self.archetype, tuple)
         }
     }
 
@@ -867,21 +864,21 @@ mod tests {
         fn serialize_component_ids<S: SerializeTuple>(
             &mut self,
             archetype: &Archetype,
-            out: &mut S,
-        ) -> Result<(), S::Error> {
-            try_serialize_id::<Position, _, _>(archetype, &ComponentId::Position, out)?;
-            try_serialize_id::<Velocity, _, _>(archetype, &ComponentId::Velocity, out)?;
-            Ok(())
+            mut out: S,
+        ) -> Result<S::Ok, S::Error> {
+            try_serialize_id::<Position, _, _>(archetype, &ComponentId::Position, &mut out)?;
+            try_serialize_id::<Velocity, _, _>(archetype, &ComponentId::Velocity, &mut out)?;
+            out.end()
         }
 
         fn serialize_components<S: SerializeTuple>(
             &mut self,
             archetype: &Archetype,
-            out: &mut S,
-        ) -> Result<(), S::Error> {
-            try_serialize::<Position, _>(archetype, out)?;
-            try_serialize::<Velocity, _>(archetype, out)?;
-            Ok(())
+            mut out: S,
+        ) -> Result<S::Ok, S::Error> {
+            try_serialize::<Position, _>(archetype, &mut out)?;
+            try_serialize::<Velocity, _>(archetype, &mut out)?;
+            out.end()
         }
     }
 
