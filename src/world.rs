@@ -483,12 +483,10 @@ impl World {
         entity: Entity,
     ) -> Result<QueryItem<'_, Q>, QueryOneError> {
         let loc = self.entities.get(entity)?;
-        unsafe {
-            let archetype = &self.archetypes.archetypes[loc.archetype as usize];
-            let state = Q::Fetch::prepare(archetype).ok_or(QueryOneError::Unsatisfied)?;
-            let fetch = Q::Fetch::execute(archetype, state);
-            Ok(fetch.get(loc.index as usize))
-        }
+        let archetype = &self.archetypes.archetypes[loc.archetype as usize];
+        let state = Q::Fetch::prepare(archetype).ok_or(QueryOneError::Unsatisfied)?;
+        let fetch = Q::Fetch::execute(archetype, state);
+        unsafe { Ok(fetch.get(loc.index as usize)) }
     }
 
     /// Borrow the `T` component of `entity`
@@ -610,9 +608,9 @@ impl World {
             },
         };
 
+        let source_arch = &mut self.archetypes.archetypes[loc.archetype as usize];
         unsafe {
             // Drop the components we're overwriting
-            let source_arch = &mut self.archetypes.archetypes[loc.archetype as usize];
             for &ty in &target.replaced {
                 let ptr = source_arch
                     .get_dynamic(ty.id(), ty.layout().size(), loc.index)
@@ -712,23 +710,23 @@ impl World {
         // Store components to the target archetype and update metadata
         if loc.archetype != target {
             // If we actually removed any components, the entity needs to be moved into a new archetype
-            unsafe {
-                let (source_arch, target_arch) = index2(
-                    &mut self.archetypes.archetypes,
-                    loc.archetype as usize,
-                    target as usize,
-                );
-                let target_index = target_arch.allocate(entity.id);
-                loc.archetype = target;
-                loc.index = target_index;
-                if let Some(moved) = source_arch.move_to(old_index, |src, ty, size| {
+            let (source_arch, target_arch) = index2(
+                &mut self.archetypes.archetypes,
+                loc.archetype as usize,
+                target as usize,
+            );
+            let target_index = unsafe { target_arch.allocate(entity.id) };
+            loc.archetype = target;
+            loc.index = target_index;
+            if let Some(moved) = unsafe {
+                source_arch.move_to(old_index, |src, ty, size| {
                     // Only move the components present in the target archetype, i.e. the non-removed ones.
                     if let Some(dst) = target_arch.get_dynamic(ty, size, target_index) {
                         ptr::copy_nonoverlapping(src, dst.as_ptr(), size);
                     }
-                }) {
-                    self.entities.meta[moved as usize].location.index = old_index;
-                }
+                })
+            } {
+                self.entities.meta[moved as usize].location.index = old_index;
             }
         }
 
@@ -1168,17 +1166,17 @@ where
     fn next(&mut self) -> Option<Entity> {
         let components = self.inner.next()?;
         let entity = self.entities.alloc();
+        let index = unsafe { self.archetype.allocate(entity.id) };
         unsafe {
-            let index = self.archetype.allocate(entity.id);
             components.put(|ptr, ty| {
                 self.archetype
                     .put_dynamic(ptr, ty.id(), ty.layout().size(), index);
             });
-            self.entities.meta[entity.id as usize].location = Location {
-                archetype: self.archetype_id,
-                index,
-            };
         }
+        self.entities.meta[entity.id as usize].location = Location {
+            archetype: self.archetype_id,
+            index,
+        };
         Some(entity)
     }
 
