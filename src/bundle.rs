@@ -85,8 +85,8 @@ impl DynamicClone {
     /// Create a new type ereased cloner for the type T
     pub fn new<T: Component + Clone>() -> Self {
         Self {
-            func: |src, f| unsafe {
-                let mut tmp = (*src.cast::<T>()).clone();
+            func: |src, f| {
+                let mut tmp = unsafe { (*src.cast::<T>()).clone() };
                 f((&mut tmp as *mut T).cast(), TypeInfo::of::<T>());
                 core::mem::forget(tmp);
             },

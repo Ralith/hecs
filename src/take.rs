@@ -54,11 +54,9 @@ unsafe impl<'a> DynamicBundle for TakenEntity<'a> {
 
 impl Drop for TakenEntity<'_> {
     fn drop(&mut self) {
-        unsafe {
-            if let Some(moved) = self.archetype.remove(self.index, self.drop) {
-                self.entities.meta[moved as usize].location.index = self.index;
-            }
-            self.entities.free(self.entity).unwrap();
+        if let Some(moved) = unsafe { self.archetype.remove(self.index, self.drop) } {
+            self.entities.meta[moved as usize].location.index = self.index;
         }
+        self.entities.free(self.entity).unwrap();
     }
 }
