@@ -370,7 +370,7 @@ impl Entities {
         self.verify_flushed();
 
         let meta = self.meta.get_mut(entity.id as usize).ok_or(NoSuchEntity)?;
-        if meta.generation != entity.generation {
+        if meta.generation != entity.generation || meta.location.index == u32::MAX {
             return Err(NoSuchEntity);
         }
 
@@ -400,10 +400,13 @@ impl Entities {
     }
 
     pub fn contains(&self, entity: Entity) -> bool {
-        // Note that out-of-range IDs are considered to be "contained" because
-        // they must be reserved IDs that we haven't flushed yet.
         match self.meta.get(entity.id as usize) {
-            Some(meta) => meta.generation == entity.generation,
+            Some(meta) => {
+                meta.generation == entity.generation
+                    && (meta.location.index != u32::MAX
+                        || self.pending[self.free_cursor.load(Ordering::Relaxed).max(0) as usize..]
+                            .contains(&entity.id))
+            }
             None => {
                 // Check if this could have been obtained from `reserve_entity`
                 let free = self.free_cursor.load(Ordering::Relaxed);
@@ -426,7 +429,7 @@ impl Entities {
     /// Must not be called on pending entities.
     pub fn get_mut(&mut self, entity: Entity) -> Result<&mut Location, NoSuchEntity> {
         let meta = self.meta.get_mut(entity.id as usize).ok_or(NoSuchEntity)?;
-        if meta.generation == entity.generation {
+        if meta.generation == entity.generation && meta.location.index != u32::MAX {
             Ok(&mut meta.location)
         } else {
             Err(NoSuchEntity)
@@ -451,7 +454,7 @@ impl Entities {
             }
         }
         let meta = &self.meta[entity.id as usize];
-        if meta.generation != entity.generation {
+        if meta.generation != entity.generation || meta.location.index == u32::MAX {
             return Err(NoSuchEntity);
         }
         Ok(meta.location)
@@ -615,6 +618,7 @@ mod tests {
             let alloc = rng.gen_bool(0.7);
             if alloc || first_unused == 0 {
                 let entity = e.alloc();
+                e.meta[entity.id as usize].location.index = 0;
                 len += 1;
 
                 let id = entity.id;
@@ -660,6 +664,7 @@ mod tests {
 
         for _ in 0..2 {
             let entity = e.alloc();
+            e.meta[entity.id as usize].location.index = 0;
             old.push(entity);
             e.free(entity).unwrap();
         }
@@ -676,6 +681,7 @@ mod tests {
         assert!(e.pending.contains(&entity.id()));
         // Allocating an entity at an unused location should not cause a location to be returned.
         assert!(e.alloc_at(entity).is_none());
+        e.meta[entity.id as usize].location.index = 0;
         assert!(e.contains(entity));
         // The entity in question should not exist in the free-list once allocated.
         assert!(!e.pending.contains(&entity.id()));
@@ -683,6 +689,7 @@ mod tests {
         // Allocating at the same id again should cause a location to be returned
         // this time around.
         assert!(e.alloc_at(entity).is_some());
+        e.meta[entity.id as usize].location.index = 0;
         assert!(e.contains(entity));
         assert_eq!(e.len(), 1);
 
@@ -695,6 +702,7 @@ mod tests {
                 generation: NonZeroU32::new(2).unwrap(),
             })
             .is_none());
+        e.meta[entity.id as usize].location.index = 0;
         assert_eq!(e.pending.len(), 2);
         assert_eq!(&e.pending, &[1, 2]);
         assert_eq!(e.meta.len(), 4);
@@ -706,6 +714,7 @@ mod tests {
 
         for _ in 0..2 {
             let entity = e.alloc();
+            e.meta[entity.id as usize].location.index = 0;
             assert!(e.contains(entity));
 
             e.free(entity).unwrap();
@@ -733,6 +742,9 @@ mod tests {
 
         // Allocate 10 items.
         let mut v1: Vec<Entity> = (0..10).map(|_| e.alloc()).collect();
+        for &entity in &v1 {
+            e.meta[entity.id as usize].location.index = 0;
+        }
         assert_eq!(v1.iter().map(|e| e.id).max(), Some(9));
         for &entity in v1.iter() {
             assert!(e.contains(entity));
@@ -765,7 +777,10 @@ mod tests {
         assert_eq!(e.free_cursor.load(Ordering::Relaxed), -6);
 
         let mut flushed = Vec::new();
-        e.flush(|id, _| flushed.push(id));
+        e.flush(|id, loc| {
+            loc.index = 0;
+            flushed.push(id);
+        });
         flushed.sort_unstable();
 
         assert_eq!(flushed, (6..16).collect::<Vec<_>>());
@@ -785,7 +800,9 @@ mod tests {
     fn reserve_grows() {
         let mut e = Entities::default();
         let _ = e.reserve_entity();
-        e.flush(|_, _| {});
+        e.flush(|_, l| {
+            l.index = 0;
+        });
         assert_eq!(e.len(), 1);
     }
 
@@ -793,10 +810,29 @@ mod tests {
     fn reserve_grows_mixed() {
         let mut e = Entities::default();
         let a = e.alloc();
-        e.alloc();
+        e.meta[a.id as usize].location.index = 0;
+        let b = e.alloc();
+        e.meta[b.id as usize].location.index = 0;
         e.free(a).unwrap();
         let _ = e.reserve_entities(3);
-        e.flush(|_, _| {});
+        e.flush(|_, l| {
+            l.index = 0;
+        });
         assert_eq!(e.len(), 4);
+    }
+
+    #[test]
+    fn alloc_at_regression() {
+        let mut e = Entities::default();
+        assert!(e
+            .alloc_at(Entity {
+                generation: NonZeroU32::new(1).unwrap(),
+                id: 1
+            })
+            .is_none());
+        assert!(!e.contains(Entity {
+            generation: NonZeroU32::new(1).unwrap(),
+            id: 0
+        }));
     }
 }
