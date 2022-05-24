@@ -436,10 +436,19 @@ impl Entities {
     /// Returns `Ok(Location { archetype: 0, index: undefined })` for pending entities
     pub fn get(&self, entity: Entity) -> Result<Location, NoSuchEntity> {
         if self.meta.len() <= entity.id as usize {
-            return Ok(Location {
-                archetype: 0,
-                index: u32::max_value(),
-            });
+            // Check if this could have been obtained from `reserve_entity`
+            let free = self.free_cursor.load(Ordering::Relaxed);
+            if entity.generation.get() == 1
+                && free < 0
+                && (entity.id as isize) < (free.abs() + self.meta.len() as isize)
+            {
+                return Ok(Location {
+                    archetype: 0,
+                    index: u32::max_value(),
+                });
+            } else {
+                return Err(NoSuchEntity);
+            }
         }
         let meta = &self.meta[entity.id as usize];
         if meta.generation != entity.generation {
