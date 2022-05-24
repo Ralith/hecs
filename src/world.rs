@@ -1404,4 +1404,10 @@ mod tests {
         let a = world.spawn(("abc", 123));
         world.remove::<()>(a).unwrap();
     }
+
+    #[test]
+    fn bad_insert() {
+        let mut world = World::new();
+        assert!(world.insert_one(Entity::DANGLING, ()).is_err());
+    }
 }
