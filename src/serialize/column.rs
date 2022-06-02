@@ -190,8 +190,8 @@ where
             let ctx = &mut *self.ctx.borrow_mut();
             let mut tuple = serializer.serialize_tuple(4)?;
             tuple.serialize_element(&self.archetype.len())?;
-            tuple.serialize_element(&(self.archetype.types().len() as u32))?;
             let components = ctx.component_count(self.archetype);
+            tuple.serialize_element(&(components as u32))?;
             let helper = SerializeComponentIds::<'_, C> {
                 archetype: self.archetype,
                 ctx: RefCell::new(ctx),
