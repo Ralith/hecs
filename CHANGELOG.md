@@ -1,4 +1,4 @@
-# Unreleased
+# 0.7.7
 
 ### Added
 - `Entity::DANGLING` convenience constant
