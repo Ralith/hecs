@@ -1,12 +1,14 @@
 # Unreleased
 
-### Added
-- `Entity::DANGLING` convenience constant
-
 ### Changed
 - `SerializeContext` traits now take their serializer arguments by value, and must call `end()`
   themselves.
+
+# 0.7.7
   
+### Added
+- `Entity::DANGLING` convenience constant
+
 ### Fixed
 - Various bad behavior when dangling `Entity` handles are used
 - Inconsistent component counts in column serialization
