@@ -151,7 +151,7 @@ fn main() {
     let mut motion_query = PreparedQuery::<(&mut Position, &Speed)>::default();
 
     loop {
-        println!("\n'Enter' to continue simulation, '?' for enity list, 'q' to quit");
+        println!("\n'Enter' to continue simulation, '?' for entity list, 'q' to quit");
 
         let mut input = String::new();
 
