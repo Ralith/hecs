@@ -53,7 +53,7 @@ fn gen_dynamic_bundle_impl(
                 <Self as ::hecs::Bundle>::with_static_type_info(|info| info.to_vec())
             }
 
-            #[allow(clippy::forget_copy)]
+            #[allow(clippy::forget_copy, clippy::forget_non_drop)]
             unsafe fn put(mut self, mut f: impl ::std::ops::FnMut(*mut u8, ::hecs::TypeInfo)) {
                 #(
                     f((&mut self.#field_members as *mut #tys).cast::<u8>(), ::hecs::TypeInfo::of::<#tys>());
