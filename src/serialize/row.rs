@@ -44,22 +44,22 @@ use crate::{Component, EntityBuilder, EntityRef, World};
 ///     fn serialize_entity<S>(
 ///         &mut self,
 ///         entity: EntityRef<'_>,
-///         map: &mut S,
-///     ) -> Result<(), S::Error>
+///         mut map: S,
+///     ) -> Result<S::Ok, S::Error>
 ///     where
 ///         S: serde::ser::SerializeMap,
 ///     {
 ///         // Call `try_serialize` for every serializable component we want to save
-///         try_serialize::<Position, _, _>(&entity, &ComponentId::Position, map)?;
-///         try_serialize::<Velocity, _, _>(&entity, &ComponentId::Velocity, map)?;
+///         try_serialize::<Position, _, _>(&entity, &ComponentId::Position, &mut map)?;
+///         try_serialize::<Velocity, _, _>(&entity, &ComponentId::Velocity, &mut map)?;
 ///         // Or do something custom for more complex cases.
-///         Ok(())
+///         map.end()
 ///     }
 /// }
 /// ```
 pub trait SerializeContext {
     /// Serialize a single entity into a map
-    fn serialize_entity<S>(&mut self, entity: EntityRef<'_>, map: &mut S) -> Result<(), S::Error>
+    fn serialize_entity<S>(&mut self, entity: EntityRef<'_>, map: S) -> Result<S::Ok, S::Error>
     where
         S: SerializeMap;
 
@@ -112,9 +112,8 @@ impl<'a, C: SerializeContext> Serialize for SerializeComponents<'a, C> {
     {
         let mut this = self.0.borrow_mut();
         let entity = this.1.take().unwrap();
-        let mut map = serializer.serialize_map(this.0.component_count(entity))?;
-        this.0.serialize_entity(entity, &mut map)?;
-        map.end()
+        let map = serializer.serialize_map(this.0.component_count(entity))?;
+        this.0.serialize_entity(entity, map)
     }
 }
 
@@ -339,14 +338,14 @@ mod tests {
         fn serialize_entity<S>(
             &mut self,
             entity: EntityRef<'_>,
-            map: &mut S,
-        ) -> Result<(), S::Error>
+            mut map: S,
+        ) -> Result<S::Ok, S::Error>
         where
             S: serde::ser::SerializeMap,
         {
-            try_serialize::<Position, _, _>(&entity, &ComponentId::Position, map)?;
-            try_serialize::<Velocity, _, _>(&entity, &ComponentId::Velocity, map)?;
-            Ok(())
+            try_serialize::<Position, _, _>(&entity, &ComponentId::Position, &mut map)?;
+            try_serialize::<Velocity, _, _>(&entity, &ComponentId::Velocity, &mut map)?;
+            map.end()
         }
     }
 

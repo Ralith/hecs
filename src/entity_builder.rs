@@ -169,8 +169,8 @@ impl EntityBuilderClone {
                 TypeInfo::of::<T>(),
                 DynamicClone::new::<T>(),
             );
-            core::mem::forget(component);
         }
+        core::mem::forget(component);
         self
     }
 
