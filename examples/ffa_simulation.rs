@@ -102,7 +102,7 @@ fn system_fire_at_closest(world: &mut World) {
         */
 
         // Or like this:
-        let mut hp1 = world.get_mut::<Health>(closest).unwrap();
+        let mut hp1 = world.get::<&mut Health>(closest).unwrap();
 
         // Is target unit still alive?
         if hp1.0 > 0 {

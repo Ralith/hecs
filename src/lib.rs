@@ -28,8 +28,8 @@
 //!   if flag { *number *= 2; }
 //! }
 //! // Random access is simple and safe
-//! assert_eq!(*world.get::<i32>(a).unwrap(), 246);
-//! assert_eq!(*world.get::<i32>(b).unwrap(), 42);
+//! assert_eq!(*world.get::<&i32>(a).unwrap(), 246);
+//! assert_eq!(*world.get::<&i32>(b).unwrap(), 42);
 //! ```
 
 #![warn(missing_docs)]
@@ -79,7 +79,7 @@ pub use column::{Column, ColumnMut};
 pub use command_buffer::CommandBuffer;
 pub use entities::{Entity, NoSuchEntity};
 pub use entity_builder::{BuiltEntity, BuiltEntityClone, EntityBuilder, EntityBuilderClone};
-pub use entity_ref::{EntityRef, Ref, RefMut};
+pub use entity_ref::{ComponentRef, EntityRef, Ref, RefMut};
 pub use query::{
     Access, Batch, BatchedIter, Or, PreparedQuery, PreparedQueryBorrow, PreparedQueryIter,
     PreparedView, Query, QueryBorrow, QueryItem, QueryIter, QueryMut, QueryShared, Satisfies, View,

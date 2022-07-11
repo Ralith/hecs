@@ -24,9 +24,8 @@ use crate::alloc::boxed::Box;
 use crate::archetype::{Archetype, TypeIdMap, TypeInfo};
 use crate::entities::{Entities, EntityMeta, Location, ReserveEntitiesIterator};
 use crate::{
-    Bundle, Column, ColumnBatch, ColumnMut, DynamicBundle, Entity, EntityRef, Fetch,
-    MissingComponent, NoSuchEntity, Query, QueryBorrow, QueryItem, QueryMut, QueryOne, Ref, RefMut,
-    TakenEntity,
+    Bundle, Column, ColumnBatch, ColumnMut, ComponentRef, DynamicBundle, Entity, EntityRef, Fetch,
+    MissingComponent, NoSuchEntity, Query, QueryBorrow, QueryItem, QueryMut, QueryOne, TakenEntity,
 };
 
 /// An unordered collection of entities, each having any number of distinctly typed components
@@ -187,7 +186,7 @@ impl World {
     /// let mut world = World::new();
     /// let entities = world.spawn_batch((0..1_000).map(|i| (i, "abc"))).collect::<Vec<_>>();
     /// for i in 0..1_000 {
-    ///     assert_eq!(*world.get::<i32>(entities[i]).unwrap(), i as i32);
+    ///     assert_eq!(*world.get::<&i32>(entities[i]).unwrap(), i as i32);
     /// }
     /// ```
     pub fn spawn_batch<I>(&mut self, iter: I) -> SpawnBatchIter<'_, I::IntoIter>
@@ -469,25 +468,15 @@ impl World {
         unsafe { Ok(fetch.get(loc.index as usize)) }
     }
 
-    /// Borrow the `T` component of `entity`
-    ///
-    /// Panics if the component is already uniquely borrowed from another entity with the same
-    /// components.
-    pub fn get<T: Component>(&self, entity: Entity) -> Result<Ref<'_, T>, ComponentError> {
+    /// Short-hand for [`entity`](Self::entity) followed by [`EntityRef::get`]
+    pub fn get<'a, T: ComponentRef<'a>>(
+        &'a self,
+        entity: Entity,
+    ) -> Result<T::Ref, ComponentError> {
         Ok(self
             .entity(entity)?
-            .get()
-            .ok_or_else(MissingComponent::new::<T>)?)
-    }
-
-    /// Uniquely borrow the `T` component of `entity`
-    ///
-    /// Panics if the component is already borrowed from another entity with the same components.
-    pub fn get_mut<T: Component>(&self, entity: Entity) -> Result<RefMut<'_, T>, ComponentError> {
-        Ok(self
-            .entity(entity)?
-            .get_mut()
-            .ok_or_else(MissingComponent::new::<T>)?)
+            .get::<T>()
+            .ok_or_else(MissingComponent::new::<T::Component>)?)
     }
 
     /// Access an entity regardless of its component types
@@ -547,8 +536,8 @@ impl World {
     /// let mut world = World::new();
     /// let e = world.spawn((123, "abc"));
     /// world.insert(e, (456, true));
-    /// assert_eq!(*world.get::<i32>(e).unwrap(), 456);
-    /// assert_eq!(*world.get::<bool>(e).unwrap(), true);
+    /// assert_eq!(*world.get::<&i32>(e).unwrap(), 456);
+    /// assert_eq!(*world.get::<&bool>(e).unwrap(), true);
     /// ```
     pub fn insert(
         &mut self,
@@ -666,9 +655,9 @@ impl World {
     /// let mut world = World::new();
     /// let e = world.spawn((123, "abc", true));
     /// assert_eq!(world.remove::<(i32, &str)>(e), Ok((123, "abc")));
-    /// assert!(world.get::<i32>(e).is_err());
-    /// assert!(world.get::<&str>(e).is_err());
-    /// assert_eq!(*world.get::<bool>(e).unwrap(), true);
+    /// assert!(world.get::<&i32>(e).is_err());
+    /// assert!(world.get::<&&str>(e).is_err());
+    /// assert_eq!(*world.get::<&bool>(e).unwrap(), true);
     /// ```
     pub fn remove<T: Bundle + 'static>(&mut self, entity: Entity) -> Result<T, ComponentError> {
         self.flush();
@@ -1389,13 +1378,13 @@ mod tests {
     fn reuse_populated() {
         let mut world = World::new();
         let a = world.spawn((42,));
-        assert_eq!(*world.get::<i32>(a).unwrap(), 42);
+        assert_eq!(*world.get::<&i32>(a).unwrap(), 42);
         world.despawn(a).unwrap();
         let b = world.spawn((true,));
         assert_eq!(a.id, b.id);
         assert_ne!(a.generation, b.generation);
-        assert!(world.get::<i32>(b).is_err());
-        assert!(*world.get::<bool>(b).unwrap());
+        assert!(world.get::<&i32>(b).is_err());
+        assert!(*world.get::<&bool>(b).unwrap());
     }
 
     #[test]

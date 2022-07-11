@@ -33,19 +33,24 @@ impl<'a> EntityRef<'a> {
         self.archetype.has::<T>()
     }
 
-    /// Borrow the component of type `T`, if it exists
+    /// Borrow a single component, if it exists
     ///
-    /// Panics if the component is already uniquely borrowed from another entity with the same
-    /// components.
-    pub fn get<T: Component>(&self) -> Option<Ref<'a, T>> {
-        Some(unsafe { Ref::new(self.archetype, self.index).ok()? })
-    }
-
-    /// Uniquely borrow the component of type `T`, if it exists
+    /// `T` must be a shared or unique reference to a component type.
     ///
-    /// Panics if the component is already borrowed from another entity with the same components.
-    pub fn get_mut<T: Component>(&self) -> Option<RefMut<'a, T>> {
-        Some(unsafe { RefMut::new(self.archetype, self.index).ok()? })
+    /// # Example
+    /// ```
+    /// # use hecs::*;
+    /// let mut world = World::new();
+    /// let a = world.spawn((42, "abc"));
+    /// let e = world.entity(a).unwrap();
+    /// *e.get::<&mut i32>().unwrap() = 17;
+    /// assert_eq!(*e.get::<&i32>().unwrap(), 17);
+    /// ```
+    ///
+    /// Panics if `T` is a unique reference and the component is already borrowed, or if the
+    /// component is already uniquely borrowed.
+    pub fn get<T: ComponentRef<'a>>(&self) -> Option<T::Ref> {
+        T::get_component(*self)
     }
 
     /// Run a query against this entity
@@ -182,5 +187,42 @@ impl<'a, T: Component> Deref for RefMut<'a, T> {
 impl<'a, T: Component> DerefMut for RefMut<'a, T> {
     fn deref_mut(&mut self) -> &mut T {
         unsafe { self.target.as_mut() }
+    }
+}
+
+/// `&T` or `&mut T` where `T` is some component type
+///
+/// The interface of this trait is a private implementation detail.
+pub trait ComponentRef<'a> {
+    /// Smart pointer to a component of the referenced type
+    #[doc(hidden)]
+    type Ref;
+
+    /// Component type referenced by `Ref`
+    #[doc(hidden)]
+    type Component: Component;
+
+    /// Fetch the component from `entity`
+    #[doc(hidden)]
+    fn get_component(entity: EntityRef<'a>) -> Option<Self::Ref>;
+}
+
+impl<'a, T: Component> ComponentRef<'a> for &'a T {
+    type Ref = Ref<'a, T>;
+
+    type Component = T;
+
+    fn get_component(entity: EntityRef<'a>) -> Option<Self::Ref> {
+        Some(unsafe { Ref::new(entity.archetype, entity.index).ok()? })
+    }
+}
+
+impl<'a, T: Component> ComponentRef<'a> for &'a mut T {
+    type Ref = RefMut<'a, T>;
+
+    type Component = T;
+
+    fn get_component(entity: EntityRef<'a>) -> Option<Self::Ref> {
+        Some(unsafe { RefMut::new(entity.archetype, entity.index).ok()? })
     }
 }
