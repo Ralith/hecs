@@ -130,7 +130,7 @@ where
     T: Component + Serialize,
     S: SerializeTuple,
 {
-    if let Some(xs) = archetype.get::<T>() {
+    if let Some(xs) = archetype.get::<&T>() {
         serialize_collection(&*xs, out)?;
     }
     Ok(())
