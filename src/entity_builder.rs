@@ -26,8 +26,8 @@ use crate::{align, Component, DynamicBundle};
 /// let mut builder = EntityBuilder::new();
 /// builder.add(123).add("abc");
 /// let e = world.spawn(builder.build()); // builder can now be reused
-/// assert_eq!(*world.get::<i32>(e).unwrap(), 123);
-/// assert_eq!(*world.get::<&str>(e).unwrap(), "abc");
+/// assert_eq!(*world.get::<&i32>(e).unwrap(), 123);
+/// assert_eq!(*world.get::<&&str>(e).unwrap(), "abc");
 /// ```
 #[derive(Default)]
 pub struct EntityBuilder {
@@ -142,10 +142,10 @@ impl Drop for BuiltEntity<'_> {
 /// let bundle = builder.build();
 /// let e = world.spawn(&bundle);
 /// let f = world.spawn(&bundle); // `&bundle` can be used many times
-/// assert_eq!(*world.get::<i32>(e).unwrap(), 123);
-/// assert_eq!(*world.get::<&str>(e).unwrap(), "abc");
-/// assert_eq!(*world.get::<i32>(f).unwrap(), 123);
-/// assert_eq!(*world.get::<&str>(f).unwrap(), "abc");
+/// assert_eq!(*world.get::<&i32>(e).unwrap(), 123);
+/// assert_eq!(*world.get::<&&str>(e).unwrap(), "abc");
+/// assert_eq!(*world.get::<&i32>(f).unwrap(), 123);
+/// assert_eq!(*world.get::<&&str>(f).unwrap(), "abc");
 /// ```
 #[derive(Clone, Default)]
 pub struct EntityBuilderClone {

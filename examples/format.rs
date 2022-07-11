@@ -3,7 +3,7 @@
 
 fn format_entity(entity: hecs::EntityRef<'_>) -> String {
     fn fmt<T: hecs::Component + std::fmt::Display>(entity: hecs::EntityRef<'_>) -> Option<String> {
-        Some(entity.get::<T>()?.to_string())
+        Some(entity.get::<&T>()?.to_string())
     }
 
     const FUNCTIONS: &[&dyn Fn(hecs::EntityRef<'_>) -> Option<String>] =

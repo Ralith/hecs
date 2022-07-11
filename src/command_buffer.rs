@@ -26,7 +26,7 @@ use crate::{Bundle, Entity};
 /// let mut cmd = CommandBuffer::new();
 /// cmd.insert(entity, (true, 42));
 /// cmd.run_on(&mut world); // cmd can now be reused
-/// assert_eq!(*world.get::<i32>(entity).unwrap(), 42);
+/// assert_eq!(*world.get::<&i32>(entity).unwrap(), 42);
 /// ```
 pub struct CommandBuffer {
     entities: Vec<EntityIndex>,

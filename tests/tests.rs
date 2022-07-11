@@ -15,12 +15,12 @@ fn random_access() {
     let mut world = World::new();
     let e = world.spawn(("abc", 123));
     let f = world.spawn(("def", 456, true));
-    assert_eq!(*world.get::<&str>(e).unwrap(), "abc");
-    assert_eq!(*world.get::<i32>(e).unwrap(), 123);
-    assert_eq!(*world.get::<&str>(f).unwrap(), "def");
-    assert_eq!(*world.get::<i32>(f).unwrap(), 456);
-    *world.get_mut::<i32>(f).unwrap() = 42;
-    assert_eq!(*world.get::<i32>(f).unwrap(), 42);
+    assert_eq!(*world.get::<&&str>(e).unwrap(), "abc");
+    assert_eq!(*world.get::<&i32>(e).unwrap(), 123);
+    assert_eq!(*world.get::<&&str>(f).unwrap(), "def");
+    assert_eq!(*world.get::<&i32>(f).unwrap(), 456);
+    *world.get::<&mut i32>(f).unwrap() = 42;
+    assert_eq!(*world.get::<&i32>(f).unwrap(), 42);
 }
 
 #[test]
@@ -31,10 +31,10 @@ fn despawn() {
     assert_eq!(world.query::<()>().iter().count(), 2);
     world.despawn(e).unwrap();
     assert_eq!(world.query::<()>().iter().count(), 1);
-    assert!(world.get::<&str>(e).is_err());
-    assert!(world.get::<i32>(e).is_err());
-    assert_eq!(*world.get::<&str>(f).unwrap(), "def");
-    assert_eq!(*world.get::<i32>(f).unwrap(), 456);
+    assert!(world.get::<&&str>(e).is_err());
+    assert!(world.get::<&i32>(e).is_err());
+    assert_eq!(*world.get::<&&str>(f).unwrap(), "def");
+    assert_eq!(*world.get::<&i32>(f).unwrap(), 456);
 }
 
 #[test]
@@ -282,10 +282,10 @@ fn build_entity() {
     entity.add(456);
     entity.add(789);
     let f = world.spawn(entity.build());
-    assert_eq!(*world.get::<&str>(e).unwrap(), "abc");
-    assert_eq!(*world.get::<i32>(e).unwrap(), 123);
-    assert_eq!(*world.get::<&str>(f).unwrap(), "def");
-    assert_eq!(*world.get::<i32>(f).unwrap(), 789);
+    assert_eq!(*world.get::<&&str>(e).unwrap(), "abc");
+    assert_eq!(*world.get::<&i32>(e).unwrap(), 123);
+    assert_eq!(*world.get::<&&str>(f).unwrap(), "def");
+    assert_eq!(*world.get::<&i32>(f).unwrap(), 789);
 }
 
 #[test]
@@ -308,14 +308,14 @@ fn build_entity_clone() {
         .unwrap();
 
     for e in [e, f, g] {
-        assert_eq!(*world.get::<&str>(e).unwrap(), "yup");
-        assert_eq!(*world.get::<i32>(e).unwrap(), 789);
-        assert_eq!(*world.get::<usize>(e).unwrap(), 42);
-        assert_eq!(*world.get::<f32>(e).unwrap(), 7.0);
-        assert_eq!(*world.get::<String>(e).unwrap(), "Bar");
+        assert_eq!(*world.get::<&&str>(e).unwrap(), "yup");
+        assert_eq!(*world.get::<&i32>(e).unwrap(), 789);
+        assert_eq!(*world.get::<&usize>(e).unwrap(), 42);
+        assert_eq!(*world.get::<&f32>(e).unwrap(), 7.0);
+        assert_eq!(*world.get::<&String>(e).unwrap(), "Bar");
     }
 
-    assert_eq!(*world.get::<Cow<'static, str>>(g).unwrap(), "after");
+    assert_eq!(*world.get::<&Cow<'static, str>>(g).unwrap(), "after");
 }
 
 #[test]
@@ -337,8 +337,8 @@ fn cloned_builder() {
 
     let mut world = World::new();
     let e = world.spawn(&builder.build().clone());
-    assert_eq!(*world.get::<String>(e).unwrap(), "abc");
-    assert_eq!(*world.get::<i32>(e).unwrap(), 123);
+    assert_eq!(*world.get::<&String>(e).unwrap(), "abc");
+    assert_eq!(*world.get::<&i32>(e).unwrap(), 123);
 }
 
 #[test]
@@ -365,13 +365,13 @@ fn build_dynamic_bundle() {
         .unwrap();
 
     for e in [e, f, g] {
-        assert_eq!(*world.get::<i32>(e).unwrap(), 5);
-        assert_eq!(*world.get::<char>(e).unwrap(), 'a');
-        assert_eq!(*world.get::<String>(e).unwrap(), "Bar");
-        assert_eq!(*world.get::<f32>(e).unwrap(), 6.0);
+        assert_eq!(*world.get::<&i32>(e).unwrap(), 5);
+        assert_eq!(*world.get::<&char>(e).unwrap(), 'a');
+        assert_eq!(*world.get::<&String>(e).unwrap(), "Bar");
+        assert_eq!(*world.get::<&f32>(e).unwrap(), 6.0);
     }
 
-    assert_eq!(*world.get::<Cow<'static, str>>(g).unwrap(), "after");
+    assert_eq!(*world.get::<&Cow<'static, str>>(g).unwrap(), "after");
 }
 
 #[test]
@@ -395,8 +395,8 @@ fn access_builder_components() {
 
     let g = world.spawn(entity.build());
 
-    assert_eq!(*world.get::<&str>(g).unwrap(), "abc");
-    assert_eq!(*world.get::<i32>(g).unwrap(), 456);
+    assert_eq!(*world.get::<&&str>(g).unwrap(), "abc");
+    assert_eq!(*world.get::<&i32>(g).unwrap(), 456);
 }
 
 #[test]
@@ -408,10 +408,10 @@ fn build_entity_bundle() {
     entity.add(456);
     entity.add_bundle(("def", [0u8; 1024], 789));
     let f = world.spawn(entity.build());
-    assert_eq!(*world.get::<&str>(e).unwrap(), "abc");
-    assert_eq!(*world.get::<i32>(e).unwrap(), 123);
-    assert_eq!(*world.get::<&str>(f).unwrap(), "def");
-    assert_eq!(*world.get::<i32>(f).unwrap(), 789);
+    assert_eq!(*world.get::<&&str>(e).unwrap(), "abc");
+    assert_eq!(*world.get::<&i32>(e).unwrap(), 123);
+    assert_eq!(*world.get::<&&str>(f).unwrap(), "def");
+    assert_eq!(*world.get::<&i32>(f).unwrap(), 789);
 }
 
 #[test]
@@ -462,11 +462,11 @@ fn spawn_buffered_entity() {
 
     buffer.run_on(&mut world);
 
-    assert_eq!(*world.get::<bool>(ent).unwrap(), true);
-    assert_eq!(*world.get::<&str>(ent1).unwrap(), "hecs");
-    assert_eq!(*world.get::<i32>(ent1).unwrap(), 13);
-    assert_eq!(*world.get::<bool>(ent2).unwrap(), false);
-    assert_eq!(*world.get::<u8>(ent3).unwrap(), 2);
+    assert_eq!(*world.get::<&bool>(ent).unwrap(), true);
+    assert_eq!(*world.get::<&&str>(ent1).unwrap(), "hecs");
+    assert_eq!(*world.get::<&i32>(ent1).unwrap(), 13);
+    assert_eq!(*world.get::<&bool>(ent2).unwrap(), false);
+    assert_eq!(*world.get::<&u8>(ent3).unwrap(), 2);
 }
 
 #[test]
@@ -489,8 +489,8 @@ fn remove_buffered_component() {
     buffer.remove::<(i32, &str)>(ent);
     buffer.run_on(&mut world);
 
-    assert!(world.get::<&str>(ent).is_err());
-    assert!(world.get::<i32>(ent).is_err());
+    assert!(world.get::<&&str>(ent).is_err());
+    assert!(world.get::<&i32>(ent).is_err());
 }
 
 #[test]
@@ -547,8 +547,8 @@ fn shared_borrow() {
 fn illegal_random_access() {
     let mut world = World::new();
     let e = world.spawn(("abc", 123));
-    let _borrow = world.get_mut::<i32>(e).unwrap();
-    world.get::<i32>(e).unwrap();
+    let _borrow = world.get::<&mut i32>(e).unwrap();
+    world.get::<&i32>(e).unwrap();
 }
 
 #[test]
@@ -562,8 +562,8 @@ fn derived_bundle() {
 
     let mut world = World::new();
     let e = world.spawn(Foo { x: 42, y: 'a' });
-    assert_eq!(*world.get::<i32>(e).unwrap(), 42);
-    assert_eq!(*world.get::<char>(e).unwrap(), 'a');
+    assert_eq!(*world.get::<&i32>(e).unwrap(), 42);
+    assert_eq!(*world.get::<&char>(e).unwrap(), 'a');
 }
 
 #[test]
@@ -623,14 +623,14 @@ fn exchange_components() {
     let mut world = World::new();
 
     let entity = world.spawn(("abc".to_owned(), 123));
-    assert!(world.get::<String>(entity).is_ok());
-    assert!(world.get::<i32>(entity).is_ok());
-    assert!(world.get::<bool>(entity).is_err());
+    assert!(world.get::<&String>(entity).is_ok());
+    assert!(world.get::<&i32>(entity).is_ok());
+    assert!(world.get::<&bool>(entity).is_err());
 
     world.exchange_one::<String, _>(entity, true).unwrap();
-    assert!(world.get::<String>(entity).is_err());
-    assert!(world.get::<i32>(entity).is_ok());
-    assert!(world.get::<bool>(entity).is_ok());
+    assert!(world.get::<&String>(entity).is_err());
+    assert!(world.get::<&i32>(entity).is_ok());
+    assert!(world.get::<&bool>(entity).is_ok());
 }
 
 #[test]
@@ -772,9 +772,9 @@ fn spawn_column_batch() {
             .spawn_column_batch(batch.build().unwrap())
             .collect::<Vec<_>>();
         assert_eq!(entities.len(), 2);
-        assert_eq!(*world.get::<i32>(b).unwrap(), 43);
-        assert_eq!(*world.get::<i32>(entities[0]).unwrap(), 44);
-        assert_eq!(*world.get::<i32>(entities[1]).unwrap(), 45);
+        assert_eq!(*world.get::<&i32>(b).unwrap(), 43);
+        assert_eq!(*world.get::<&i32>(entities[0]).unwrap(), 44);
+        assert_eq!(*world.get::<&i32>(entities[1]).unwrap(), 45);
     }
 }
 
@@ -840,7 +840,7 @@ fn column_get_mut() {
         *column.get(ent).unwrap() = 99;
         assert_eq!(*column.get(ent).unwrap(), 99);
     }
-    assert_eq!(*world.get::<i32>(ent).unwrap(), 99);
+    assert_eq!(*world.get::<&i32>(ent).unwrap(), 99);
 }
 
 #[test]
@@ -864,10 +864,10 @@ fn take() {
     let mut world_b = World::new();
     let e2 = world_b.spawn(world_a.take(e).unwrap());
     assert!(!world_a.contains(e));
-    assert_eq!(*world_b.get::<String>(e2).unwrap(), "abc");
-    assert_eq!(*world_b.get::<i32>(e2).unwrap(), 42);
-    assert_eq!(*world_a.get::<String>(f).unwrap(), "def");
-    assert_eq!(*world_a.get::<i32>(f).unwrap(), 17);
+    assert_eq!(*world_b.get::<&String>(e2).unwrap(), "abc");
+    assert_eq!(*world_b.get::<&i32>(e2).unwrap(), 42);
+    assert_eq!(*world_a.get::<&String>(f).unwrap(), "def");
+    assert_eq!(*world_a.get::<&i32>(f).unwrap(), 17);
     world_b.take(e2).unwrap();
     assert!(!world_b.contains(e2));
 }
