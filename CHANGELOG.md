@@ -7,6 +7,9 @@
     component types
   - `EntityBuilder` and `EntityBuilderClone`'s `get` and `get_mut` refactored along the same lines
     for consistency
+  - The `With`/`Without` query transformers now take a query that entities must/mustn't match rather
+    than a component type. Additionally, the order of their generic arguments was reversed to place
+    the query whose results will be yielded first.
 - `SerializeContext` traits now take their serializer arguments by value, and must call `end()`
   themselves.
 

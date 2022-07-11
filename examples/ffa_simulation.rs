@@ -73,14 +73,14 @@ fn system_integrate_motion(world: &mut World, query: &mut PreparedQuery<(&mut Po
 // In this system entities find the closest entity and fire at them
 fn system_fire_at_closest(world: &mut World) {
     for (id0, (pos0, dmg0, kc0)) in
-        &mut world.query::<With<Health, (&Position, &Damage, &mut KillCount)>>()
+        &mut world.query::<With<(&Position, &Damage, &mut KillCount), &Health>>()
     {
         // Find closest:
         // Nested queries are O(n^2) and you usually want to avoid that by using some sort of
         // spatial index like a quadtree or more general BVH, which we don't bother with here since
         // it's out of scope for the example.
         let closest = world
-            .query::<With<Health, &Position>>()
+            .query::<With<&Position, &Health>>()
             .iter()
             .filter(|(id1, _)| *id1 != id0)
             .min_by_key(|(_, pos1)| manhattan_dist(pos0.x, pos1.x, pos0.y, pos1.y))
