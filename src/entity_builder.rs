@@ -14,7 +14,7 @@ use core::ptr::{self, NonNull};
 use hashbrown::hash_map::Entry;
 
 use crate::archetype::{TypeIdMap, TypeInfo};
-use crate::{align, Component, DynamicBundle};
+use crate::{align, Component, ComponentRef, ComponentRefShared, DynamicBundle};
 
 /// Helper for incrementally constructing a bundle of components with dynamic component types
 ///
@@ -76,13 +76,17 @@ impl EntityBuilder {
         self.inner.has::<T>()
     }
 
-    /// Borrow the component of type `T`, if it exists
-    pub fn get<T: Component>(&self) -> Option<&T> {
+    /// Borrow a shared reference `T` to some component type, if it exists
+    ///
+    /// Takes a reference as its type parameter for consistency with
+    /// [`EntityRef::get`](crate::EntityRef::get), even though it cannot be a unique reference
+    /// because `EntityBuilder` does not perform dynamic borrow checking.
+    pub fn get<'a, T: ComponentRefShared<'a>>(&'a self) -> Option<T> {
         self.inner.get::<T>()
     }
 
-    /// Uniquely borrow the component of type `T`, if it exists
-    pub fn get_mut<T: Component>(&mut self) -> Option<&mut T> {
+    /// Borrow a shared or unique reference `T` to some component type, if it exists
+    pub fn get_mut<'a, T: ComponentRef<'a>>(&'a mut self) -> Option<T> {
         self.inner.get_mut::<T>()
     }
 
@@ -197,13 +201,17 @@ impl EntityBuilderClone {
         self.inner.has::<T>()
     }
 
-    /// Borrow the component of type `T`, if it exists
-    pub fn get<T: Component>(&self) -> Option<&T> {
+    /// Borrow a shared reference `T` to some component type, if it exists
+    ///
+    /// Takes a reference as its type parameter for consistency with
+    /// [`EntityRef::get`](crate::EntityRef::get), even though it cannot be a unique reference
+    /// because `EntityBuilderClone` does not perform dynamic borrow checking.
+    pub fn get<'a, T: ComponentRefShared<'a>>(&'a self) -> Option<T> {
         self.inner.get::<T>()
     }
 
-    /// Uniquely borrow the component of type `T`, if it exists
-    pub fn get_mut<T: Component>(&mut self) -> Option<&mut T> {
+    /// Borrow a shared or unique reference `T` to some component type, if it exists
+    pub fn get_mut<'a, T: ComponentRef<'a>>(&'a mut self) -> Option<T> {
         self.inner.get_mut::<T>()
     }
 
@@ -283,21 +291,21 @@ impl<M> Common<M> {
         self.indices.contains_key(&TypeId::of::<T>())
     }
 
-    fn get<T: Component>(&self) -> Option<&T> {
-        let index = self.indices.get(&TypeId::of::<T>())?;
+    fn get<'a, T: ComponentRefShared<'a>>(&'a self) -> Option<T> {
+        let index = self.indices.get(&TypeId::of::<T::Component>())?;
         let (_, offset, _) = self.info[*index];
         unsafe {
-            let storage = self.storage.as_ptr().add(offset).cast::<T>();
-            Some(&*storage)
+            let storage = self.storage.as_ptr().add(offset).cast::<T::Component>();
+            Some(T::from_raw(storage))
         }
     }
 
-    fn get_mut<T: Component>(&mut self) -> Option<&mut T> {
-        let index = self.indices.get(&TypeId::of::<T>())?;
+    fn get_mut<'a, T: ComponentRef<'a>>(&'a self) -> Option<T> {
+        let index = self.indices.get(&TypeId::of::<T::Component>())?;
         let (_, offset, _) = self.info[*index];
         unsafe {
-            let storage = self.storage.as_ptr().add(offset).cast::<T>();
-            Some(&mut *storage)
+            let storage = self.storage.as_ptr().add(offset).cast::<T::Component>();
+            Some(T::from_raw(storage))
         }
     }
 

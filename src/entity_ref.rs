@@ -205,6 +205,14 @@ pub trait ComponentRef<'a> {
     /// Fetch the component from `entity`
     #[doc(hidden)]
     fn get_component(entity: EntityRef<'a>) -> Option<Self::Ref>;
+
+    /// Construct from a raw pointer
+    ///
+    /// # Safety
+    ///
+    /// Dereferencing `raw` for lifetime `'a` must be sound
+    #[doc(hidden)]
+    unsafe fn from_raw(raw: *mut Self::Component) -> Self;
 }
 
 impl<'a, T: Component> ComponentRef<'a> for &'a T {
@@ -214,6 +222,10 @@ impl<'a, T: Component> ComponentRef<'a> for &'a T {
 
     fn get_component(entity: EntityRef<'a>) -> Option<Self::Ref> {
         Some(unsafe { Ref::new(entity.archetype, entity.index).ok()? })
+    }
+
+    unsafe fn from_raw(raw: *mut Self::Component) -> Self {
+        &*raw
     }
 }
 
@@ -225,4 +237,17 @@ impl<'a, T: Component> ComponentRef<'a> for &'a mut T {
     fn get_component(entity: EntityRef<'a>) -> Option<Self::Ref> {
         Some(unsafe { RefMut::new(entity.archetype, entity.index).ok()? })
     }
+
+    unsafe fn from_raw(raw: *mut Self::Component) -> Self {
+        &mut *raw
+    }
 }
+
+/// `&T` where `T` is some component type
+///
+/// Used when consistency demands that references to component types, rather than component types
+/// themselves, be supplied as a type parameter to a function that cannot operate on unique
+/// references.
+pub trait ComponentRefShared<'a>: ComponentRef<'a> {}
+
+impl<'a, T: Component> ComponentRefShared<'a> for &'a T {}

@@ -4,6 +4,8 @@
 - Many generic methods that previously took a `Component` now instead take either a
   `ComponentRef<'a>` or a `Query` to improve consistency with queries and address a common footgun:
   - `World::get` and `EntityRef::get` now take shared or unique references to component types
+  - `EntityBuilder` and `EntityBuilderClone`'s `get` and `get_mut` refactored along the same lines
+    for consistency
 - `SerializeContext` traits now take their serializer arguments by value, and must call `end()`
   themselves.
 

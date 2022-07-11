@@ -326,8 +326,8 @@ fn build_builder_clone() {
     let mut b = EntityBuilderClone::new();
     b.add(String::from("def"));
     b.add_bundle(&a.build());
-    assert_eq!(b.get::<String>(), Some(&String::from("abc")));
-    assert_eq!(b.get::<i32>(), Some(&123));
+    assert_eq!(b.get::<&String>(), Some(&String::from("abc")));
+    assert_eq!(b.get::<&i32>(), Some(&123));
 }
 
 #[test]
@@ -386,12 +386,12 @@ fn access_builder_components() {
     assert!(entity.has::<i32>());
     assert!(!entity.has::<usize>());
 
-    assert_eq!(*entity.get::<&str>().unwrap(), "abc");
-    assert_eq!(*entity.get::<i32>().unwrap(), 123);
-    assert_eq!(entity.get::<usize>(), None);
+    assert_eq!(*entity.get::<&&str>().unwrap(), "abc");
+    assert_eq!(*entity.get::<&i32>().unwrap(), 123);
+    assert_eq!(entity.get::<&usize>(), None);
 
-    *entity.get_mut::<i32>().unwrap() = 456;
-    assert_eq!(*entity.get::<i32>().unwrap(), 456);
+    *entity.get_mut::<&mut i32>().unwrap() = 456;
+    assert_eq!(*entity.get::<&i32>().unwrap(), 456);
 
     let g = world.spawn(entity.build());
 
