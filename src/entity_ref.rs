@@ -3,7 +3,9 @@ use core::ops::{Deref, DerefMut};
 use core::ptr::NonNull;
 
 use crate::archetype::Archetype;
-use crate::{Component, Entity, MissingComponent, Query, QueryOne};
+use crate::{
+    ArchetypeColumn, ArchetypeColumnMut, Component, Entity, MissingComponent, Query, QueryOne,
+};
 
 /// Handle to an entity with any component types
 #[derive(Copy, Clone)]
@@ -198,6 +200,10 @@ pub trait ComponentRef<'a> {
     #[doc(hidden)]
     type Ref;
 
+    /// Smart pointer to a column of the referenced type in an [`Archetype`](crate::Archetype)
+    #[doc(hidden)]
+    type Column;
+
     /// Component type referenced by `Ref`
     #[doc(hidden)]
     type Component: Component;
@@ -213,10 +219,16 @@ pub trait ComponentRef<'a> {
     /// Dereferencing `raw` for lifetime `'a` must be sound
     #[doc(hidden)]
     unsafe fn from_raw(raw: *mut Self::Component) -> Self;
+
+    /// Borrow a column from an archetype
+    #[doc(hidden)]
+    fn get_column(archetype: &'a Archetype) -> Option<Self::Column>;
 }
 
 impl<'a, T: Component> ComponentRef<'a> for &'a T {
     type Ref = Ref<'a, T>;
+
+    type Column = ArchetypeColumn<'a, T>;
 
     type Component = T;
 
@@ -227,10 +239,16 @@ impl<'a, T: Component> ComponentRef<'a> for &'a T {
     unsafe fn from_raw(raw: *mut Self::Component) -> Self {
         &*raw
     }
+
+    fn get_column(archetype: &'a Archetype) -> Option<Self::Column> {
+        ArchetypeColumn::new(archetype)
+    }
 }
 
 impl<'a, T: Component> ComponentRef<'a> for &'a mut T {
     type Ref = RefMut<'a, T>;
+
+    type Column = ArchetypeColumnMut<'a, T>;
 
     type Component = T;
 
@@ -240,6 +258,10 @@ impl<'a, T: Component> ComponentRef<'a> for &'a mut T {
 
     unsafe fn from_raw(raw: *mut Self::Component) -> Self {
         &mut *raw
+    }
+
+    fn get_column(archetype: &'a Archetype) -> Option<Self::Column> {
+        ArchetypeColumnMut::new(archetype)
     }
 }
 

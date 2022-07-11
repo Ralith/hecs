@@ -9,16 +9,16 @@ use crate::alloc::alloc::{alloc, dealloc, Layout};
 use crate::alloc::boxed::Box;
 use crate::alloc::{vec, vec::Vec};
 use core::any::{type_name, TypeId};
+use core::fmt;
 use core::hash::{BuildHasher, BuildHasherDefault, Hasher};
-use core::ops::Deref;
+use core::ops::{Deref, DerefMut};
 use core::ptr::{self, NonNull};
-use core::{fmt, slice};
 
 use hashbrown::{hash_map::DefaultHashBuilder, HashMap};
 
 use crate::borrow::AtomicBorrow;
 use crate::query::Fetch;
-use crate::{Access, Component, Query};
+use crate::{Access, Component, ComponentRef, Query};
 
 /// A collection of entities having the same component types
 ///
@@ -110,18 +110,13 @@ impl Archetype {
         }
     }
 
-    /// Get the `T` components of these entities, if present
+    /// Borrow all components of a single type from these entities, if present
+    ///
+    /// `T` must be a shared or unique reference to a component type.
     ///
     /// Useful for efficient serialization.
-    pub fn get<T: Component>(&self) -> Option<ArchetypeColumn<'_, T>> {
-        let state = self.get_state::<T>()?;
-        let ptr = self.get_base::<T>(state);
-        let column = unsafe { slice::from_raw_parts_mut(ptr.as_ptr(), self.len as usize) };
-        self.borrow::<T>(state);
-        Some(ArchetypeColumn {
-            archetype: self,
-            column,
-        })
+    pub fn get<'a, T: ComponentRef<'a>>(&'a self) -> Option<T::Column> {
+        T::get_column(self)
     }
 
     pub(crate) fn borrow<T: Component>(&self, state: usize) {
@@ -598,6 +593,16 @@ pub struct ArchetypeColumn<'a, T: Component> {
     column: &'a [T],
 }
 
+impl<'a, T: Component> ArchetypeColumn<'a, T> {
+    pub(crate) fn new(archetype: &'a Archetype) -> Option<Self> {
+        let state = archetype.get_state::<T>()?;
+        let ptr = archetype.get_base::<T>(state);
+        let column = unsafe { core::slice::from_raw_parts(ptr.as_ptr(), archetype.len() as usize) };
+        archetype.borrow::<T>(state);
+        Some(Self { archetype, column })
+    }
+}
+
 impl<T: Component> Deref for ArchetypeColumn<'_, T> {
     type Target = [T];
     fn deref(&self) -> &[T] {
@@ -624,6 +629,49 @@ impl<T: Component> Clone for ArchetypeColumn<'_, T> {
 }
 
 impl<T: Component + fmt::Debug> fmt::Debug for ArchetypeColumn<'_, T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.column.fmt(f)
+    }
+}
+
+/// Unique reference to a single column of component data in an [`Archetype`]
+pub struct ArchetypeColumnMut<'a, T: Component> {
+    archetype: &'a Archetype,
+    column: &'a mut [T],
+}
+
+impl<'a, T: Component> ArchetypeColumnMut<'a, T> {
+    pub(crate) fn new(archetype: &'a Archetype) -> Option<Self> {
+        let state = archetype.get_state::<T>()?;
+        let ptr = archetype.get_base::<T>(state);
+        let column =
+            unsafe { core::slice::from_raw_parts_mut(ptr.as_ptr(), archetype.len() as usize) };
+        archetype.borrow_mut::<T>(state);
+        Some(Self { archetype, column })
+    }
+}
+
+impl<T: Component> Deref for ArchetypeColumnMut<'_, T> {
+    type Target = [T];
+    fn deref(&self) -> &[T] {
+        self.column
+    }
+}
+
+impl<T: Component> DerefMut for ArchetypeColumnMut<'_, T> {
+    fn deref_mut(&mut self) -> &mut [T] {
+        self.column
+    }
+}
+
+impl<T: Component> Drop for ArchetypeColumnMut<'_, T> {
+    fn drop(&mut self) {
+        let state = self.archetype.get_state::<T>().unwrap();
+        self.archetype.release_mut::<T>(state);
+    }
+}
+
+impl<T: Component + fmt::Debug> fmt::Debug for ArchetypeColumnMut<'_, T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.column.fmt(f)
     }

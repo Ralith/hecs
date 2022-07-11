@@ -788,11 +788,11 @@ fn columnar_access() {
     let _empty = archetypes.next().unwrap();
     let a = archetypes.next().unwrap();
     assert_eq!(a.ids(), &[e.id()]);
-    assert_eq!(*a.get::<i32>().unwrap(), [123]);
-    assert!(a.get::<bool>().is_none());
+    assert_eq!(*a.get::<&i32>().unwrap(), [123]);
+    assert!(a.get::<&bool>().is_none());
     let b = archetypes.next().unwrap();
     assert_eq!(b.ids(), &[f.id(), g.id()]);
-    assert_eq!(*b.get::<i32>().unwrap(), [456, 789]);
+    assert_eq!(*b.get::<&i32>().unwrap(), [456, 789]);
 }
 
 #[test]
