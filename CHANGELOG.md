@@ -1,5 +1,8 @@
 # Unreleased
 
+### Added
+- `World::satisfies` and `EntityRef::satisfies` to check if an entity would match a query
+
 ### Changed
 - Many generic methods that previously took a `Component` now instead take either a
   `ComponentRef<'a>` or a `Query` to improve consistency with queries and address a common footgun:

@@ -479,6 +479,11 @@ impl World {
             .ok_or_else(MissingComponent::new::<T::Component>)?)
     }
 
+    /// Short-hand for [`entity`](Self::entity) followed by [`EntityRef::satisfies`]
+    pub fn satisfies<Q: Query>(&self, entity: Entity) -> Result<bool, NoSuchEntity> {
+        Ok(self.entity(entity)?.satisfies::<Q>())
+    }
+
     /// Access an entity regardless of its component types
     ///
     /// Does not immediately borrow any component.

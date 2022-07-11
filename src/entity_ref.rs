@@ -4,7 +4,8 @@ use core::ptr::NonNull;
 
 use crate::archetype::Archetype;
 use crate::{
-    ArchetypeColumn, ArchetypeColumnMut, Component, Entity, MissingComponent, Query, QueryOne,
+    ArchetypeColumn, ArchetypeColumnMut, Component, Entity, Fetch, MissingComponent, Query,
+    QueryOne,
 };
 
 /// Handle to an entity with any component types
@@ -30,7 +31,14 @@ impl<'a> EntityRef<'a> {
         self.entity
     }
 
+    /// Determine whether this entity would satisfy the query `Q`
+    pub fn satisfies<Q: Query>(&self) -> bool {
+        Q::Fetch::access(self.archetype).is_some()
+    }
+
     /// Determine whether this entity has a `T` component without borrowing it
+    ///
+    /// Equivalent to [`satisfies::<&T>`](Self::satisfies)
     pub fn has<T: Component>(&self) -> bool {
         self.archetype.has::<T>()
     }
