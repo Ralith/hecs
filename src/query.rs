@@ -365,7 +365,7 @@ unsafe impl<'a, L: Fetch<'a>, R: Fetch<'a>> Fetch<'a> for FetchOr<L, R> {
     }
 }
 
-/// Query transformer skipping entities that have a `T` component
+/// Query transformer skipping entities that satisfy another query
 ///
 /// See also `QueryBorrow::without`.
 ///
@@ -376,24 +376,24 @@ unsafe impl<'a, L: Fetch<'a>, R: Fetch<'a>> Fetch<'a> for FetchOr<L, R> {
 /// let a = world.spawn((123, true, "abc"));
 /// let b = world.spawn((456, false));
 /// let c = world.spawn((42, "def"));
-/// let entities = world.query::<Without<bool, &i32>>()
+/// let entities = world.query::<Without<&i32, &bool>>()
 ///     .iter()
 ///     .map(|(e, &i)| (e, i))
 ///     .collect::<Vec<_>>();
 /// assert_eq!(entities, &[(c, 42)]);
 /// ```
-pub struct Without<T, Q>(PhantomData<(Q, fn(T))>);
+pub struct Without<Q, R>(PhantomData<(Q, fn(R))>);
 
-impl<T: Component, Q: Query> Query for Without<T, Q> {
-    type Fetch = FetchWithout<T, Q::Fetch>;
+impl<Q: Query, R: Query> Query for Without<Q, R> {
+    type Fetch = FetchWithout<Q::Fetch, R::Fetch>;
 }
 
-unsafe impl<T, Q: QueryShared> QueryShared for Without<T, Q> {}
+unsafe impl<Q: QueryShared, R> QueryShared for Without<Q, R> {}
 
 #[doc(hidden)]
-pub struct FetchWithout<T, F>(F, PhantomData<fn(T)>);
+pub struct FetchWithout<F, G>(F, PhantomData<fn(G)>);
 
-unsafe impl<'a, T: Component, F: Fetch<'a>> Fetch<'a> for FetchWithout<T, F> {
+unsafe impl<'a, F: Fetch<'a>, G: Fetch<'a>> Fetch<'a> for FetchWithout<F, G> {
     type Item = F::Item;
 
     type State = F::State;
@@ -403,7 +403,7 @@ unsafe impl<'a, T: Component, F: Fetch<'a>> Fetch<'a> for FetchWithout<T, F> {
     }
 
     fn access(archetype: &Archetype) -> Option<Access> {
-        if archetype.has::<T>() {
+        if G::access(archetype).is_some() {
             None
         } else {
             F::access(archetype)
@@ -414,7 +414,7 @@ unsafe impl<'a, T: Component, F: Fetch<'a>> Fetch<'a> for FetchWithout<T, F> {
         F::borrow(archetype, state)
     }
     fn prepare(archetype: &Archetype) -> Option<Self::State> {
-        if archetype.has::<T>() {
+        if G::access(archetype).is_some() {
             return None;
         }
         F::prepare(archetype)
@@ -435,7 +435,7 @@ unsafe impl<'a, T: Component, F: Fetch<'a>> Fetch<'a> for FetchWithout<T, F> {
     }
 }
 
-/// Query transformer skipping entities that do not have a `T` component
+/// Query transformer skipping entities that do not satisfy another query
 ///
 /// See also `QueryBorrow::with`.
 ///
@@ -446,7 +446,7 @@ unsafe impl<'a, T: Component, F: Fetch<'a>> Fetch<'a> for FetchWithout<T, F> {
 /// let a = world.spawn((123, true, "abc"));
 /// let b = world.spawn((456, false));
 /// let c = world.spawn((42, "def"));
-/// let entities = world.query::<With<bool, &i32>>()
+/// let entities = world.query::<With<&i32, &bool>>()
 ///     .iter()
 ///     .map(|(e, &i)| (e, i))
 ///     .collect::<Vec<_>>();
@@ -454,18 +454,18 @@ unsafe impl<'a, T: Component, F: Fetch<'a>> Fetch<'a> for FetchWithout<T, F> {
 /// assert!(entities.contains(&(a, 123)));
 /// assert!(entities.contains(&(b, 456)));
 /// ```
-pub struct With<T, Q>(PhantomData<(Q, fn(T))>);
+pub struct With<Q, R>(PhantomData<(Q, fn(R))>);
 
-impl<T: Component, Q: Query> Query for With<T, Q> {
-    type Fetch = FetchWith<T, Q::Fetch>;
+impl<Q: Query, R: Query> Query for With<Q, R> {
+    type Fetch = FetchWith<Q::Fetch, R::Fetch>;
 }
 
-unsafe impl<T, Q: QueryShared> QueryShared for With<T, Q> {}
+unsafe impl<Q: QueryShared, R> QueryShared for With<Q, R> {}
 
 #[doc(hidden)]
-pub struct FetchWith<T, F>(F, PhantomData<fn(T)>);
+pub struct FetchWith<F, G>(F, PhantomData<fn(G)>);
 
-unsafe impl<'a, T: Component, F: Fetch<'a>> Fetch<'a> for FetchWith<T, F> {
+unsafe impl<'a, F: Fetch<'a>, G: Fetch<'a>> Fetch<'a> for FetchWith<F, G> {
     type Item = F::Item;
 
     type State = F::State;
@@ -475,7 +475,7 @@ unsafe impl<'a, T: Component, F: Fetch<'a>> Fetch<'a> for FetchWith<T, F> {
     }
 
     fn access(archetype: &Archetype) -> Option<Access> {
-        if archetype.has::<T>() {
+        if G::access(archetype).is_some() {
             F::access(archetype)
         } else {
             None
@@ -486,9 +486,7 @@ unsafe impl<'a, T: Component, F: Fetch<'a>> Fetch<'a> for FetchWith<T, F> {
         F::borrow(archetype, state)
     }
     fn prepare(archetype: &Archetype) -> Option<Self::State> {
-        if !archetype.has::<T>() {
-            return None;
-        }
+        G::access(archetype)?;
         F::prepare(archetype)
     }
     fn execute(archetype: &'a Archetype, state: Self::State) -> Self {
@@ -622,10 +620,9 @@ impl<'w, Q: Query> QueryBorrow<'w, Q> {
         self.borrowed = true;
     }
 
-    /// Transform the query into one that requires a certain component without borrowing it
+    /// Transform the query into one that requires another query be satisfied
     ///
-    /// This can be useful when the component needs to be borrowed elsewhere and it isn't necessary
-    /// for the iterator to expose its data directly.
+    /// Convenient when the values of the components in the other query are not of interest.
     ///
     /// Equivalent to using a query type wrapped in `With`.
     ///
@@ -637,18 +634,19 @@ impl<'w, Q: Query> QueryBorrow<'w, Q> {
     /// let b = world.spawn((456, false));
     /// let c = world.spawn((42, "def"));
     /// let entities = world.query::<&i32>()
-    ///     .with::<bool>()
+    ///     .with::<&bool>()
     ///     .iter()
     ///     .map(|(e, &i)| (e, i)) // Copy out of the world
     ///     .collect::<Vec<_>>();
+    /// assert_eq!(entities.len(), 2);
     /// assert!(entities.contains(&(a, 123)));
     /// assert!(entities.contains(&(b, 456)));
     /// ```
-    pub fn with<T: Component>(self) -> QueryBorrow<'w, With<T, Q>> {
+    pub fn with<R: Query>(self) -> QueryBorrow<'w, With<Q, R>> {
         self.transform()
     }
 
-    /// Transform the query into one that skips entities having a certain component
+    /// Transform the query into one that skips entities satisfying another
     ///
     /// Equivalent to using a query type wrapped in `Without`.
     ///
@@ -660,13 +658,13 @@ impl<'w, Q: Query> QueryBorrow<'w, Q> {
     /// let b = world.spawn((456, false));
     /// let c = world.spawn((42, "def"));
     /// let entities = world.query::<&i32>()
-    ///     .without::<bool>()
+    ///     .without::<&bool>()
     ///     .iter()
     ///     .map(|(e, &i)| (e, i)) // Copy out of the world
     ///     .collect::<Vec<_>>();
     /// assert_eq!(entities, &[(c, 42)]);
     /// ```
-    pub fn without<T: Component>(self) -> QueryBorrow<'w, Without<T, Q>> {
+    pub fn without<R: Query>(self) -> QueryBorrow<'w, Without<Q, R>> {
         self.transform()
     }
 
@@ -800,17 +798,17 @@ impl<'q, Q: Query> QueryMut<'q, Q> {
         unsafe { View::new(self.iter.meta, self.iter.archetypes.as_slice()) }
     }
 
-    /// Transform the query into one that requires a certain component without borrowing it
+    /// Transform the query into one that requires another query be satisfied
     ///
     /// See `QueryBorrow::with`
-    pub fn with<T: Component>(self) -> QueryMut<'q, With<T, Q>> {
+    pub fn with<R: Query>(self) -> QueryMut<'q, With<Q, R>> {
         self.transform()
     }
 
-    /// Transform the query into one that skips entities having a certain component
+    /// Transform the query into one that skips entities satisfying another
     ///
     /// See `QueryBorrow::without`
-    pub fn without<T: Component>(self) -> QueryMut<'q, Without<T, Q>> {
+    pub fn without<R: Query>(self) -> QueryMut<'q, Without<Q, R>> {
         self.transform()
     }
 
