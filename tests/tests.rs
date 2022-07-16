@@ -871,3 +871,15 @@ fn take() {
     world_b.take(e2).unwrap();
     assert!(!world_b.contains(e2));
 }
+
+#[test]
+fn empty_archetype_conflict() {
+    let mut world = World::new();
+    let _ = world.spawn((42, true));
+    let _ = world.spawn((17, "abc"));
+    let e = world.spawn((12, false, "def"));
+    world.despawn(e).unwrap();
+    for _ in world.query::<(&mut i32, &&str)>().iter() {
+        for _ in world.query::<(&mut i32, &bool)>().iter() {}
+    }
+}

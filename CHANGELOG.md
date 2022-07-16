@@ -1,3 +1,8 @@
+# Unreleased
+
+### Fixed
+- Empty archetypes no longer participate in dynamic query borrow-checking
+
 # 0.8.0
 
 ### Added
