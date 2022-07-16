@@ -1,4 +1,4 @@
-# Unreleased
+# 0.8.0
 
 ### Added
 - `World::satisfies` and `EntityRef::satisfies` to check if an entity would match a query
