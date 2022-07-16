@@ -1,14 +1,17 @@
+use core::cell::RefCell;
 use core::f32::consts::E;
 use core::slice::Iter as SliceIter;
 use core::{marker::PhantomData, ptr::NonNull};
 
+use alloc::rc::Rc;
 use alloc::vec::Vec;
 
 use crate::entities::Entities;
 use crate::{entities::EntityMeta, Archetype, Component, Entity};
-use crate::{ComponentError, ErgoScope, MissingComponent, TypeInfo};
+use crate::{query, ComponentError, ErgoScope, MissingComponent, TypeInfo};
 
 use super::access::{AccessControl, ComponentRef};
+use super::scope::ActiveQueryState;
 
 /// Errors that arise when fetching
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -71,7 +74,7 @@ pub unsafe trait Fetch<'a>: Sized {
     /// - Any resulting borrows must be legal (e.g. no &mut to something another iterator might access)
     unsafe fn get_in_world(&self, scope: &ErgoScope, n: usize, entity: Entity) -> Self::Item;
 
-    unsafe fn get_overriden(scope: &ErgoScope, entity: Entity) -> Result<Self::Item, FetchError>;
+    unsafe fn get_overridden(scope: &ErgoScope, entity: Entity) -> Result<Self::Item, FetchError>;
 }
 
 impl<'a, T: Component> Query for &'a T {
@@ -126,7 +129,7 @@ unsafe impl<'a, T: Component> Fetch<'a> for FetchGet<T> {
         )
     }
 
-    unsafe fn get_overriden(scope: &ErgoScope, entity: Entity) -> Result<Self::Item, FetchError> {
+    unsafe fn get_overridden(scope: &ErgoScope, entity: Entity) -> Result<Self::Item, FetchError> {
         scope.get_overriden(entity).map_err(|e| e.into())
     }
 }
@@ -158,11 +161,11 @@ unsafe impl<'a, T: Fetch<'a>> Fetch<'a> for TryFetch<T> {
         Some(self.0.as_ref()?.get_in_world(scope, n, entity))
     }
 
-    unsafe fn get_overriden(
+    unsafe fn get_overridden(
         scope: &ErgoScope,
         entity: Entity,
     ) -> Result<Option<T::Item>, FetchError> {
-        match T::get_overriden(scope, entity) {
+        match T::get_overridden(scope, entity) {
             Ok(item) => Ok(Some(item)),
             Err(FetchError::MissingComponent(..)) => Ok(None),
             Err(err) => Err(err),
@@ -284,9 +287,9 @@ unsafe impl<'a, L: Fetch<'a>, R: Fetch<'a>> Fetch<'a> for FetchOr<L, R> {
         )
     }
 
-    unsafe fn get_overriden(scope: &ErgoScope, entity: Entity) -> Result<Self::Item, FetchError> {
-        let left = L::get_overriden(scope, entity);
-        let right = R::get_overriden(scope, entity);
+    unsafe fn get_overridden(scope: &ErgoScope, entity: Entity) -> Result<Self::Item, FetchError> {
+        let left = L::get_overridden(scope, entity);
+        let right = R::get_overridden(scope, entity);
         match (left, right) {
             (Ok(item), Err(_)) => Ok(Or::Left(item)),
             (Ok(left), Ok(right)) => Ok(Or::Both(left, right)),
@@ -345,9 +348,9 @@ unsafe impl<'a, T: Component, F: Fetch<'a>> Fetch<'a> for FetchWithout<T, F> {
         self.0.get_in_world(scope, n, entity)
     }
 
-    unsafe fn get_overriden(scope: &ErgoScope, entity: Entity) -> Result<Self::Item, FetchError> {
+    unsafe fn get_overridden(scope: &ErgoScope, entity: Entity) -> Result<Self::Item, FetchError> {
         if !scope.has_component::<T>(entity) {
-            F::get_overriden(scope, entity)
+            F::get_overridden(scope, entity)
         } else {
             Err(FetchError::InvalidMatch)
         }
@@ -405,8 +408,8 @@ unsafe impl<'a, T: Component, F: Fetch<'a>> Fetch<'a> for FetchWith<T, F> {
         self.0.get_in_world(scope, n, entity)
     }
 
-    unsafe fn get_overriden(scope: &ErgoScope, entity: Entity) -> Result<Self::Item, FetchError> {
-        F::get_overriden(scope, entity)
+    unsafe fn get_overridden(scope: &ErgoScope, entity: Entity) -> Result<Self::Item, FetchError> {
+        F::get_overridden(scope, entity)
     }
 }
 
@@ -459,8 +462,8 @@ unsafe impl<'a, F: Fetch<'a>> Fetch<'a> for FetchSatisfies<F> {
         self.0
     }
 
-    unsafe fn get_overriden(scope: &ErgoScope, entity: Entity) -> Result<Self::Item, FetchError> {
-        F::get_overriden(scope, entity).map(|v| true)
+    unsafe fn get_overridden(scope: &ErgoScope, entity: Entity) -> Result<Self::Item, FetchError> {
+        F::get_overridden(scope, entity).map(|v| true)
     }
 }
 
@@ -471,6 +474,7 @@ pub struct QueryBorrow<'w, Q: Query> {
     scope: &'w ErgoScope<'w>,
     meta: &'w [EntityMeta],
     archetypes: &'w [Archetype],
+    query_state: Rc<RefCell<ActiveQueryState>>,
     _marker: PhantomData<Q>,
 }
 
@@ -484,6 +488,7 @@ impl<'w, Q: Query> QueryBorrow<'w, Q> {
             scope,
             meta,
             archetypes,
+            query_state: scope.alloc_query_state(),
             _marker: PhantomData,
         }
     }
@@ -491,12 +496,14 @@ impl<'w, Q: Query> QueryBorrow<'w, Q> {
     /// Execute the query
     // The lifetime narrowing here is required for soundness.
     pub fn iter(&mut self) -> QueryIter<'_, Q> {
-        unsafe { QueryIter::new(self.scope, self.meta, self.archetypes.iter()) }
-    }
-
-    /// Provide random access to the query results
-    pub fn view(&mut self) -> View<'_, '_, Q> {
-        unsafe { View::new(self.scope, self.meta, self.archetypes) }
+        unsafe {
+            QueryIter::new(
+                self.scope,
+                self.meta,
+                self.archetypes.iter(),
+                self.query_state.clone(),
+            )
+        }
     }
 
     /// Transform the query into one that requires a certain component without borrowing it
@@ -553,6 +560,7 @@ impl<'w, Q: Query> QueryBorrow<'w, Q> {
             scope: self.scope,
             meta: self.meta,
             archetypes: self.archetypes,
+            query_state: self.query_state,
             _marker: PhantomData,
         }
     }
@@ -573,6 +581,7 @@ pub struct QueryIter<'q, Q: Query> {
     meta: &'q [EntityMeta],
     archetypes: SliceIter<'q, Archetype>,
     iter: ChunkIter<Q>,
+    query_state: Rc<RefCell<ActiveQueryState>>,
 }
 
 impl<'q, Q: Query> QueryIter<'q, Q> {
@@ -584,12 +593,17 @@ impl<'q, Q: Query> QueryIter<'q, Q> {
         scope: &'q ErgoScope<'q>,
         meta: &'q [EntityMeta],
         archetypes: SliceIter<'q, Archetype>,
+        query_state: Rc<RefCell<ActiveQueryState>>,
     ) -> Self {
+        let f: fn(&ErgoScope, Entity) -> bool =
+            |scope, entity| <<Q as Query>::Fetch as Fetch>::get_overridden(scope, entity).is_ok();
+        query_state.borrow_mut().entity_match_fn = Some(f);
         Self {
             scope,
             meta,
             archetypes,
             iter: ChunkIter::empty(),
+            query_state,
         }
     }
 }
@@ -600,40 +614,66 @@ impl<'q, Q: Query> Iterator for QueryIter<'q, Q> {
     #[inline(always)]
     fn next(&mut self) -> Option<Self::Item> {
         loop {
-            match unsafe { self.iter.next(self.scope) } {
+            match unsafe { self.iter.next(self.scope, &self.query_state) } {
                 None => {
-                    let archetype = self.archetypes.next()?;
-                    let state = Q::Fetch::prepare(archetype);
-                    let fetch = state.map(|state| Q::Fetch::execute(archetype, state));
-                    self.iter = fetch.map_or(ChunkIter::empty(), |fetch| ChunkIter {
-                        entities: archetype.entities(),
-                        fetch,
-                        position: 0,
-                        len: archetype.len() as usize,
-                    });
-                    continue;
+                    if let Some(archetype) = self.archetypes.next() {
+                        let state = Q::Fetch::prepare(archetype);
+                        let fetch = state.map(|state| Q::Fetch::execute(archetype, state));
+                        self.iter = fetch.map_or(ChunkIter::empty(), |fetch| ChunkIter {
+                            entities: archetype.entities(),
+                            fetch,
+                            position: 0,
+                            len: archetype.len() as usize,
+                        });
+                        let mut query_state = self.query_state.borrow_mut();
+                        let archetype_ptr: *const Archetype = archetype;
+                        // Safety: the pointers are from the same linear archetype storage
+                        query_state.archetype_idx = unsafe {
+                            archetype_ptr.offset_from(self.scope.world.archetypes_inner().as_ptr())
+                                as u32
+                        };
+                        query_state.archetype_iter_pos = 0;
+                        continue;
+                    } else {
+                        let mut query_state = self.query_state.borrow_mut();
+                        query_state.archetype_idx = self.archetypes.len() as u32;
+                        // done iterating through regular world, check added entity list
+                        while let Some((entity, processed)) = query_state
+                            .new_entities
+                            .get(query_state.new_entity_iter_pos as usize)
+                            .cloned()
+                        {
+                            if processed {
+                                query_state.new_entity_iter_pos += 1;
+                                continue;
+                            }
+                            unsafe {
+                                match <<Q as Query>::Fetch as Fetch>::get_overridden(
+                                    self.scope, entity,
+                                ) {
+                                    Ok(item) => {
+                                        query_state.new_entity_iter_pos += 1;
+                                        return Some((entity, item));
+                                    }
+                                    Err(_) => {
+                                        let iter_pos = query_state.new_entity_iter_pos;
+                                        // archetype mismatch, remove entity from list.
+                                        // this is in case the archetype changes again, we will re-check it
+                                        query_state.new_entities.swap_remove(iter_pos as usize);
+                                    }
+                                }
+                            }
+                        }
+                        return None;
+                    }
                 }
                 Some((entity, components)) => {
+                    let mut query_state = self.query_state.borrow_mut();
+                    query_state.archetype_iter_pos = self.iter.position as u32;
                     return Some((entity, components));
                 }
             }
         }
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        let n = self.len();
-        (n, Some(n))
-    }
-}
-
-impl<'q, 'w, Q: Query> ExactSizeIterator for QueryIter<'q, Q> {
-    fn len(&self) -> usize {
-        self.archetypes
-            .clone()
-            .filter(|&x| Q::Fetch::prepare(x).is_some())
-            .map(|x| x.len() as usize)
-            .sum::<usize>()
-            + self.iter.remaining()
     }
 }
 
@@ -658,6 +698,7 @@ impl<Q: Query> ChunkIter<Q> {
     unsafe fn next<'a>(
         &mut self,
         scope: &ErgoScope,
+        query_state: &Rc<RefCell<ActiveQueryState>>,
     ) -> Option<(Entity, <Q::Fetch as Fetch<'a>>::Item)> {
         loop {
             if self.position == self.len {
@@ -677,8 +718,22 @@ impl<Q: Query> ChunkIter<Q> {
             let item = if !scope.access.is_entity_overridden(entity) {
                 Some(self.fetch.get_in_world(scope, self.position, entity))
             } else {
-                match <Q::Fetch as Fetch<'a>>::get_overriden(scope, entity) {
-                    Ok(item) => Some(item),
+                match <Q::Fetch as Fetch<'a>>::get_overridden(scope, entity) {
+                    Ok(item) => {
+                        let mut state = query_state.borrow_mut();
+                        let mut found = false;
+                        for (new_entity, processed) in &mut state.new_entities {
+                            if entity == *new_entity {
+                                *processed = true;
+                                found = true;
+                                break;
+                            }
+                        }
+                        if !found {
+                            state.new_entities.push((entity, true));
+                        }
+                        Some(item)
+                    }
                     Err(_) => None,
                 }
             };
@@ -697,10 +752,6 @@ impl<Q: Query> ChunkIter<Q> {
         // of newly-matching entities, which will be processed after
         // the world's entities have been processed.
         // mutations to entities will update these lists.
-    }
-
-    fn remaining(&self) -> usize {
-        self.len - self.position
     }
 }
 
@@ -734,9 +785,9 @@ macro_rules! tuple_impl {
             }
 
             #[allow(unused_variables, clippy::unused_unit)]
-            unsafe fn get_overriden(scope: &ErgoScope, entity: Entity) -> Result<Self::Item, FetchError> {
+            unsafe fn get_overridden(scope: &ErgoScope, entity: Entity) -> Result<Self::Item, FetchError> {
                 #[allow(non_snake_case)]
-                Ok(($(<$name as Fetch<'a>>::get_overriden(scope, entity)?,)*))
+                Ok(($(<$name as Fetch<'a>>::get_overridden(scope, entity)?,)*))
             }
         }
 
@@ -748,50 +799,6 @@ macro_rules! tuple_impl {
 
 //smaller_tuples_too!(tuple_impl, B, A);
 smaller_tuples_too!(tuple_impl, O, N, M, L, K, J, I, H, G, F);
-
-/// Provides random access to the results of a query
-pub struct View<'q, 'w, Q: Query> {
-    scope: &'q ErgoScope<'w>,
-    meta: &'q [EntityMeta],
-    fetch: Vec<Option<Q::Fetch>>,
-}
-
-impl<'q, 'w, Q: Query> View<'q, 'w, Q> {
-    /// # Safety
-    ///
-    /// `'q` must be sufficient to guarantee that `Q` cannot violate borrow safety, either with
-    /// dynamic borrow checks or by representing exclusive access to the `World`.
-    unsafe fn new(
-        scope: &'q ErgoScope<'w>,
-        meta: &'q [EntityMeta],
-        archetypes: &'q [Archetype],
-    ) -> Self {
-        let fetch = archetypes
-            .iter()
-            .map(|archetype| {
-                Q::Fetch::prepare(archetype).map(|state| Q::Fetch::execute(archetype, state))
-            })
-            .collect();
-
-        Self { scope, meta, fetch }
-    }
-
-    /// Retrieve the query results corresponding to `entity`
-    ///
-    /// Will yield `None` if the entity does not exist or does not match the query.
-    ///
-    /// Does not require exclusive access to the map, but is defined only for queries yielding only shared references.
-    pub fn get<'m>(&'m self, entity: Entity) -> Option<QueryItem<'q, Q>> {
-        let meta = self.meta.get(entity.id as usize)?;
-        if meta.generation != entity.generation {
-            return None;
-        }
-
-        self.fetch[meta.location.archetype as usize]
-            .as_ref()
-            .map(|fetch| unsafe { todo!() })
-    }
-}
 
 fn assert_distinct<const N: usize>(entities: &[Entity; N]) {
     match N {
@@ -883,6 +890,79 @@ mod tests {
         assert_eq!(entity, e2);
         assert_eq!(*c2.read(), 6i32);
         assert_eq!(*d2.read(), 2.5f32);
+
+        ergo_scope
+            .insert(e2, (4.5f32,))
+            .expect("failed to insert component");
+
+        assert!(entities.next().is_none());
+    }
+
+    #[test]
+    fn ergo_query_iter_insert_remove() {
+        let mut world = World::new();
+        let e1 = world.spawn((5i32, 1.5f32));
+        let e2 = world.spawn((6i32,));
+        assert!(world.len() == 2);
+        let ergo_scope = ErgoScope::new(&mut world);
+        let mut query = ergo_scope.query::<(&i32, &f32)>();
+        let mut entities = query.iter();
+
+        let (entity, _) = entities.next().expect("expected entity 1");
+        assert_eq!(entity, e1);
+
+        ergo_scope
+            .insert(e2, (2.5f32,))
+            .expect("failed to insert component");
+
+        ergo_scope
+            .remove::<(f32,)>(e2)
+            .expect("failed to remove component");
+
+        assert!(entities.next().is_none());
+    }
+
+    #[test]
+    fn ergo_query_iter_remove_insert() {
+        let mut world = World::new();
+        let e1 = world.spawn((5i32, 1.5f32));
+        let e2 = world.spawn((6i32, 1.8f32));
+        assert!(world.len() == 2);
+        let ergo_scope = ErgoScope::new(&mut world);
+        let mut query = ergo_scope.query::<(&i32, &f32)>();
+        let mut entities = query.iter();
+
+        let (entity, _) = entities.next().expect("expected entity 1");
+        assert_eq!(entity, e1);
+
+        let (entity, _) = entities.next().expect("expected entity 2");
+        assert_eq!(entity, e2);
+
+        ergo_scope
+            .remove::<(f32,)>(e2)
+            .expect("failed to remove component");
+
+        ergo_scope
+            .insert(e2, (2.5f32,))
+            .expect("failed to insert component");
+
+        assert!(entities.next().is_none());
+    }
+
+    #[test]
+    fn ergo_query_iter_despawn() {
+        let mut world = World::new();
+        let e1 = world.spawn((5i32, 1.5f32));
+        let e2 = world.spawn((6i32, 1.8f32));
+        assert!(world.len() == 2);
+        let ergo_scope = ErgoScope::new(&mut world);
+        let mut query = ergo_scope.query::<(&i32, &f32)>();
+        let mut entities = query.iter();
+
+        let (entity, _) = entities.next().expect("expected entity 1");
+        assert_eq!(entity, e1);
+
+        ergo_scope.despawn(e2).expect("failed to despawn");
 
         assert!(entities.next().is_none());
     }

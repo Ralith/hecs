@@ -4,7 +4,7 @@ use core::{
     ptr::{null_mut, NonNull},
 };
 
-use alloc::vec::Vec;
+use alloc::{rc::Rc, vec::Vec};
 use hashbrown::HashMap;
 
 use crate::{
@@ -17,6 +17,15 @@ use super::{
     query::{Query, QueryBorrow},
 };
 
+#[derive(Default)]
+pub(super) struct ActiveQueryState {
+    pub archetype_idx: u32,
+    pub archetype_iter_pos: u32,
+    pub new_entity_iter_pos: u32,
+    pub entity_match_fn: Option<fn(&ErgoScope, Entity) -> bool>,
+    pub new_entities: Vec<(Entity, bool)>,
+}
+
 pub struct ErgoScope<'a> {
     original_world_ref: &'a mut World,
     // We have to take ownership by core::mem::swap-ing the World into the scope,
@@ -25,6 +34,7 @@ pub struct ErgoScope<'a> {
     pub(super) world: World,
     pub(super) access: AccessControl,
     override_data: RefCell<HashMap<Entity, EntityOverride>>,
+    query_states: RefCell<Vec<Rc<RefCell<ActiveQueryState>>>>,
 }
 
 impl<'a> ErgoScope<'a> {
@@ -38,7 +48,20 @@ impl<'a> ErgoScope<'a> {
             world: world_temp,
             access,
             override_data: Default::default(),
+            query_states: Default::default(),
         }
+    }
+
+    pub(super) fn alloc_query_state(&self) -> Rc<RefCell<ActiveQueryState>> {
+        for query_state in self.query_states.borrow().iter() {
+            if Rc::strong_count(&query_state) == 1 {
+                *query_state.borrow_mut() = Default::default();
+                return query_state.clone();
+            }
+        }
+        let new = Rc::new(RefCell::default());
+        self.query_states.borrow_mut().push(new.clone());
+        new
     }
 
     /// Returns a `ComponentRef` to the `T` component of `entity`
@@ -110,13 +133,14 @@ impl<'a> ErgoScope<'a> {
         entity: Entity,
         components: impl DynamicBundle,
     ) -> Result<(), NoSuchEntity> {
-        if self.access.is_entity_overridden(entity) {
+        let mut was_overridden = true;
+        let result = if self.access.is_entity_overridden(entity) {
             let mut override_map = self.override_data.borrow_mut();
             let data = override_map
                 .get_mut(&entity)
                 .expect("override data not present despite entity being marked as overriden");
             match data {
-                EntityOverride::Deleted => return Err(NoSuchEntity),
+                EntityOverride::Deleted => Err(NoSuchEntity),
                 EntityOverride::Changed(data) => {
                     unsafe {
                         components.put(|src_ptr, type_info| {
@@ -128,7 +152,7 @@ impl<'a> ErgoScope<'a> {
                             }
                         });
                     }
-                    return Ok(());
+                    Ok(())
                 }
             }
         } else {
@@ -149,8 +173,13 @@ impl<'a> ErgoScope<'a> {
                 .borrow_mut()
                 .insert(entity, EntityOverride::Changed(override_data));
             self.access.set_entity_overridden(entity);
+            was_overridden = false;
             Ok(())
+        };
+        if result.is_ok() {
+            self.on_entity_archetype_changed(entity, !was_overridden);
         }
+        result
     }
 
     /// Remove the `T` component from `entity`
@@ -164,67 +193,81 @@ impl<'a> ErgoScope<'a> {
     ///
     /// When removing a single component, see [`remove_one`](Self::remove_one) for convenience.
     pub fn remove<T: Bundle + 'static>(&self, entity: Entity) -> Result<T, ComponentError> {
-        if !self.access.is_entity_overridden(entity) {
-            // if we don't have override data, create it before proceeding
-            let override_data = EntityOverrideData::from_world(&self.world, entity)?;
+        let mut was_overridden = true;
+        let result = {
+            if !self.access.is_entity_overridden(entity) {
+                // if we don't have override data, create it before proceeding
+                let override_data = EntityOverrideData::from_world(&self.world, entity)?;
 
-            self.override_data
-                .borrow_mut()
-                .insert(entity, EntityOverride::Changed(override_data));
-            self.access.set_entity_overridden(entity);
-        }
+                self.override_data
+                    .borrow_mut()
+                    .insert(entity, EntityOverride::Changed(override_data));
+                self.access.set_entity_overridden(entity);
+                was_overridden = false;
+            }
 
-        let mut override_map = self.override_data.borrow_mut();
-        let data = override_map
-            .get_mut(&entity)
-            .expect("override data not present despite entity being marked as overriden");
-        match data {
-            EntityOverride::Deleted => Err(ComponentError::NoSuchEntity),
-            EntityOverride::Changed(existing_data) => unsafe {
-                let removed_data = T::get(|ty| existing_data.get_data_ptr(ty.id()))?;
-                T::with_static_type_info(|types| {
-                    for ty in types {
-                        if self.access.has_active_borrows(entity, ty.id()) {
-                            panic!("Component {} on entity {:?} has an active borrow when removing component", ty.name().unwrap_or(""), entity);
+            let mut override_map = self.override_data.borrow_mut();
+            let data = override_map
+                .get_mut(&entity)
+                .expect("override data not present despite entity being marked as overriden");
+            match data {
+                EntityOverride::Deleted => Err(ComponentError::NoSuchEntity),
+                EntityOverride::Changed(existing_data) => unsafe {
+                    let removed_data = T::get(|ty| existing_data.get_data_ptr(ty.id()))?;
+                    T::with_static_type_info(|types| {
+                        for ty in types {
+                            if self.access.has_active_borrows(entity, ty.id()) {
+                                panic!("Component {} on entity {:?} has an active borrow when removing component", ty.name().unwrap_or(""), entity);
+                            }
+                            if existing_data.remove_assume_moved(ty.id()) {
+                                self.access.update_data_ptr(entity, &ty, null_mut());
+                            }
                         }
-                        if existing_data.remove_assume_moved(ty.id()) {
-                            self.access.update_data_ptr(entity, &ty, null_mut());
-                        }
-                    }
-                });
-                Ok(removed_data)
-            },
+                    });
+                    Ok(removed_data)
+                },
+            }
+        };
+        if result.is_ok() {
+            self.on_entity_archetype_changed(entity, !was_overridden);
         }
+        result
     }
 
     /// Destroy an entity and all its components
     pub fn despawn(&self, entity: Entity) -> Result<(), NoSuchEntity> {
-        if !self.access.is_entity_overridden(entity) {
-            // if we don't have override data, create it before proceeding
-            let override_data = EntityOverrideData::from_world(&self.world, entity)?;
+        let mut change_made_overridden = false;
+        let result = {
+            if !self.access.is_entity_overridden(entity) {
+                // if we don't have override data, create it before proceeding
+                let override_data = EntityOverrideData::from_world(&self.world, entity)?;
 
-            self.override_data
-                .borrow_mut()
-                .insert(entity, EntityOverride::Changed(override_data));
-            self.access.set_entity_overridden(entity);
-        }
-        let mut override_map = self.override_data.borrow_mut();
-        let entity_override = override_map
-            .get_mut(&entity)
-            .expect("override data not present despite entity being marked as overriden");
-        match entity_override {
-            EntityOverride::Deleted => return Err(NoSuchEntity),
-            EntityOverride::Changed(data) => unsafe {
-                for ty in &data.types {
-                    if self.access.has_active_borrows(entity, ty.id()) {
-                        panic!("Component {} on entity {:?} has an active borrow when despawning entity", ty.name().unwrap_or(""), entity);
+                self.override_data
+                    .borrow_mut()
+                    .insert(entity, EntityOverride::Changed(override_data));
+                self.access.set_entity_overridden(entity);
+                change_made_overridden = true;
+            }
+            let mut override_map = self.override_data.borrow_mut();
+            let entity_override = override_map
+                .get_mut(&entity)
+                .expect("override data not present despite entity being marked as overriden");
+            match entity_override {
+                EntityOverride::Deleted => return Err(NoSuchEntity),
+                EntityOverride::Changed(data) => unsafe {
+                    for ty in &data.types {
+                        if self.access.has_active_borrows(entity, ty.id()) {
+                            panic!("Component {} on entity {:?} has an active borrow when despawning entity", ty.name().unwrap_or(""), entity);
+                        }
+                        self.access.update_data_ptr(entity, &ty, null_mut());
                     }
-                    self.access.update_data_ptr(entity, &ty, null_mut());
-                }
-            },
-        }
-        *entity_override = EntityOverride::Deleted;
-        Ok(())
+                },
+            }
+            *entity_override = EntityOverride::Deleted;
+            Ok(())
+        };
+        self.on_entity_archetype_changed(entity, change_made_overridden);
+        result
     }
 
     pub(super) fn has_component<T: Component>(&self, entity: Entity) -> bool {
@@ -294,6 +337,37 @@ impl<'a> ErgoScope<'a> {
             &self.world.entities().meta,
             self.world.archetypes_inner(),
         )
+    }
+
+    fn on_entity_archetype_changed(&self, entity: Entity, change_made_overridden: bool) {
+        // Insert into override-results of active queries,
+        // if the entity is not already in the list.
+        // If the entity was not previously overridden, check if each query
+        // had already processed the entity in the archetype. If so, the entity was already
+        // processed and should be marked as such.
+        let query_states = self.query_states.borrow();
+        for state in query_states.iter() {
+            let mut state = state.borrow_mut();
+            let mut mark_as_processed = false;
+            if change_made_overridden {
+                if let Ok(original_location) = self.world.entities().get(entity) {
+                    mark_as_processed = original_location.archetype < state.archetype_idx
+                        || (original_location.archetype == state.archetype_idx
+                            && original_location.index <= state.archetype_iter_pos);
+                }
+            }
+            let mut found = false;
+            for (new_entity, processed) in &mut state.new_entities {
+                if *new_entity == entity {
+                    found = true;
+                    *processed |= mark_as_processed;
+                    break;
+                }
+            }
+            if !found {
+                state.new_entities.push((entity, mark_as_processed));
+            }
+        }
     }
 }
 
