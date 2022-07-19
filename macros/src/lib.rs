@@ -22,7 +22,8 @@ use syn::{parse_macro_input, DeriveInput};
 /// `World::remove`. Can be convenient when combined with other derives like `serde::Deserialize`.
 ///
 /// # Example
-/// ```ignore
+/// ```
+/// # use hecs::*;
 /// #[derive(Bundle)]
 /// struct Foo {
 ///     x: i32,
@@ -31,7 +32,7 @@ use syn::{parse_macro_input, DeriveInput};
 ///
 /// let mut world = World::new();
 /// let e = world.spawn(Foo { x: 42, y: 'a' });
-/// assert_eq!(*world.get::<i32>(e).unwrap(), 42);
+/// assert_eq!(*world.get::<&i32>(e).unwrap(), 42);
 /// ```
 #[proc_macro_derive(Bundle)]
 pub fn derive_bundle(input: TokenStream) -> TokenStream {
@@ -69,7 +70,8 @@ pub fn derive_dynamic_bundle_clone(input: TokenStream) -> TokenStream {
 /// lifetime.
 ///
 /// # Example
-/// ```ignore
+/// ```
+/// # use hecs::*;
 /// #[derive(Query, Debug, PartialEq)]
 /// struct Foo<'a> {
 ///     x: &'a i32,
