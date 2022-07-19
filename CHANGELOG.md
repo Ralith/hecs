@@ -1,3 +1,8 @@
+# Unreleased
+
+### Removed
+- APIs deprecated in 0.7
+
 # 0.8.1
 
 ### Fixed

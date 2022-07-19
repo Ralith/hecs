@@ -10,7 +10,6 @@ use core::any::TypeId;
 use core::borrow::Borrow;
 use core::convert::TryFrom;
 use core::hash::{BuildHasherDefault, Hasher};
-use core::marker::PhantomData;
 use spin::Mutex;
 
 use core::{fmt, ptr};
@@ -24,8 +23,8 @@ use crate::alloc::boxed::Box;
 use crate::archetype::{Archetype, TypeIdMap, TypeInfo};
 use crate::entities::{Entities, EntityMeta, Location, ReserveEntitiesIterator};
 use crate::{
-    Bundle, Column, ColumnBatch, ColumnMut, ComponentRef, DynamicBundle, Entity, EntityRef, Fetch,
-    MissingComponent, NoSuchEntity, Query, QueryBorrow, QueryItem, QueryMut, QueryOne, TakenEntity,
+    Bundle, ColumnBatch, ComponentRef, DynamicBundle, Entity, EntityRef, Fetch, MissingComponent,
+    NoSuchEntity, Query, QueryBorrow, QueryItem, QueryMut, QueryOne, TakenEntity,
 };
 
 /// An unordered collection of entities, each having any number of distinctly typed components
@@ -838,39 +837,6 @@ impl World {
     /// efficient serialization.
     pub fn archetypes(&self) -> impl ExactSizeIterator<Item = &'_ Archetype> + '_ {
         self.archetypes_inner().iter()
-    }
-
-    /// Borrow every `T` component for efficient random access
-    ///
-    /// [`Column::get`] is semantically equivalent to [`World::get`], except that every `T`
-    /// component is borrowed in advance, and repeated calls are much cheaper, at the cost of
-    /// additional work when the [`Column`] is fetched.
-    ///
-    /// Panics if a unique borrow is outstanding for any `T` component.
-    ///
-    /// # Example
-    /// ```
-    /// use::hecs::*;
-    /// let mut world = World::new();
-    /// let ent = world.spawn((123, "abc"));
-    /// let column = world.column::<i32>();
-    /// assert_eq!(*column.get(ent).unwrap(), 123);
-    /// ```
-    #[deprecated(since = "0.7.2", note = "use the more general QueryBorrow::view")]
-    pub fn column<T: Component>(&self) -> Column<'_, T> {
-        let archetypes = self.archetypes.archetypes.as_slice();
-        let entities = self.entities.meta.as_slice();
-        Column::new(entities, archetypes, PhantomData)
-    }
-
-    /// Uniquely borrows every `T` component for efficient random access
-    ///
-    /// See [`World::column`].
-    #[deprecated(since = "0.7.2", note = "use the more general QueryBorrow::view")]
-    pub fn column_mut<T: Component>(&self) -> ColumnMut<'_, T> {
-        let archetypes = self.archetypes.archetypes.as_slice();
-        let entities = self.entities.meta.as_slice();
-        ColumnMut::new(entities, archetypes, PhantomData)
     }
 
     /// Despawn `entity`, yielding a [`DynamicBundle`] of its components
