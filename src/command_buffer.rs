@@ -101,7 +101,7 @@ impl CommandBuffer {
     }
 
     /// Remove components from `entity` if they exist
-    /// 
+    ///
     /// When removing a single component, see [`remove_one`](Self::remove_one) for convenience.
     pub fn remove<T: Bundle + 'static>(&mut self, ent: Entity) {
         fn remove_bundle_and_ignore_result<T: Bundle + 'static>(world: &mut World, ents: Entity) {
