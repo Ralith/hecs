@@ -11,9 +11,9 @@ use core::ptr::{self, NonNull};
 use crate::alloc::alloc::{alloc, dealloc, Layout};
 use crate::alloc::vec::Vec;
 use crate::archetype::TypeInfo;
-use crate::World;
 use crate::{align, DynamicBundle};
 use crate::{Bundle, Entity};
+use crate::{Component, World};
 
 /// Records operations for future application to a [`World`]
 ///
@@ -80,6 +80,8 @@ impl CommandBuffer {
     /// Add components from `bundle` to `entity`, if it exists
     ///
     /// Pairs well with [`World::reserve_entity`] to spawn entities with a known handle.
+    ///
+    /// When inserting a single component, see [`insert_one`](Self::insert_one) for convenience.
     pub fn insert(&mut self, entity: Entity, components: impl DynamicBundle) {
         let first_component = self.components.len();
         unsafe {
@@ -91,7 +93,16 @@ impl CommandBuffer {
         });
     }
 
+    /// Add `component` to `entity`, if the entity exists
+    ///
+    /// See [`insert`](Self::insert).
+    pub fn insert_one(&mut self, entity: Entity, component: impl Component) {
+        self.insert(entity, (component,));
+    }
+
     /// Remove components from `entity` if they exist
+    ///
+    /// When removing a single component, see [`remove_one`](Self::remove_one) for convenience.
     pub fn remove<T: Bundle + 'static>(&mut self, ent: Entity) {
         fn remove_bundle_and_ignore_result<T: Bundle + 'static>(world: &mut World, ents: Entity) {
             let _ = world.remove::<T>(ents);
@@ -100,6 +111,13 @@ impl CommandBuffer {
             remove: remove_bundle_and_ignore_result::<T>,
             entity: ent,
         });
+    }
+
+    /// Remove a component from `entity` if it exists
+    ///
+    /// See [`remove`](Self::remove).
+    pub fn remove_one<T: Component>(&mut self, ent: Entity) {
+        self.remove::<(T,)>(ent);
     }
 
     /// Despawn `entity` from World
