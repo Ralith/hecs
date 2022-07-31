@@ -1,4 +1,4 @@
-# Unreleased
+# 0.8.3
 
 ### Added
 - `CommandBuffer::{insert_one, remove_one}` convenience methods (thanks tesselode!)
