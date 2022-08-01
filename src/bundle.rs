@@ -198,4 +198,6 @@ macro_rules! count {
     ($x: ident $(, $rest: ident)*) => { 1 + count!($($rest),*) };
 }
 
-smaller_tuples_too!(tuple_impl, O, N, M, L, K, J, I, H, G, F, E, D, C, B, A);
+smaller_tuples_too!(
+    tuple_impl, Z, Y, X, W, V, U, S, R, Q, P, O, N, M, L, K, J, I, H, G, F, E, D, C, B, A
+);
