@@ -778,7 +778,9 @@ impl World {
             .map(|(x,)| x)
     }
 
-    /// Borrow the `T` component of `entity` without safety checks
+    /// Borrow a single component of `entity` without safety checks
+    ///
+    /// `T` must be a shared or unique reference to a component type.
     ///
     /// Should only be used as a building block for safe abstractions.
     ///
@@ -786,39 +788,21 @@ impl World {
     ///
     /// `entity` must have been previously obtained from this [`World`], and no unique borrow of the
     /// same component of `entity` may be live simultaneous to the returned reference.
-    pub unsafe fn get_unchecked<T: Component>(&self, entity: Entity) -> Result<&T, ComponentError> {
-        let loc = self.entities.get(entity)?;
-        let archetype = &self.archetypes.archetypes[loc.archetype as usize];
-        let state = archetype
-            .get_state::<T>()
-            .ok_or_else(MissingComponent::new::<T>)?;
-        Ok(&*archetype
-            .get_base::<T>(state)
-            .as_ptr()
-            .add(loc.index as usize))
-    }
-
-    /// Uniquely borrow the `T` component of `entity` without safety checks
-    ///
-    /// Should only be used as a building block for safe abstractions.
-    ///
-    /// # Safety
-    ///
-    /// `entity` must have been previously obtained from this [`World`], and no borrow of the same
-    /// component of `entity` may be live simultaneous to the returned reference.
-    pub unsafe fn get_unchecked_mut<T: Component>(
-        &self,
+    pub unsafe fn get_unchecked<'a, T: ComponentRef<'a>>(
+        &'a self,
         entity: Entity,
-    ) -> Result<&mut T, ComponentError> {
+    ) -> Result<T, ComponentError> {
         let loc = self.entities.get(entity)?;
         let archetype = &self.archetypes.archetypes[loc.archetype as usize];
         let state = archetype
-            .get_state::<T>()
-            .ok_or_else(MissingComponent::new::<T>)?;
-        Ok(&mut *archetype
-            .get_base::<T>(state)
-            .as_ptr()
-            .add(loc.index as usize))
+            .get_state::<T::Component>()
+            .ok_or_else(MissingComponent::new::<T::Component>)?;
+        Ok(T::from_raw(
+            archetype
+                .get_base::<T::Component>(state)
+                .as_ptr()
+                .add(loc.index as usize),
+        ))
     }
 
     /// Convert all reserved entities into empty entities that can be iterated and accessed
