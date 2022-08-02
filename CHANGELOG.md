@@ -1,4 +1,4 @@
-# Unreleased
+# 0.9
 
 ### Changed
 - Updated `World::get_unchecked` to match 0.8's changes to `World::get`
