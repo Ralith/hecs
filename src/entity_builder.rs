@@ -115,7 +115,6 @@ unsafe impl DynamicBundle for BuiltEntity<'_> {
         f(&self.builder.ids)
     }
 
-    #[doc(hidden)]
     fn type_info(&self) -> Vec<TypeInfo> {
         self.builder.info.iter().map(|x| x.0).collect()
     }
