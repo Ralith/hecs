@@ -39,7 +39,7 @@
 #[cfg(feature = "std")]
 extern crate std;
 
-extern crate alloc;
+pub extern crate alloc;
 
 /// Imagine macro parameters, but more like those Russian dolls.
 ///
