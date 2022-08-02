@@ -101,6 +101,13 @@ pub use lazy_static;
 #[doc(hidden)]
 pub use query::Fetch;
 
+#[cfg(feature = "atomic-polyfill")]
+#[doc(hidden)]
+pub use atomic_polyfill as atomic;
+#[cfg(not(feature = "atomic-polyfill"))]
+#[doc(hidden)]
+pub use core::sync::atomic;
+
 #[cfg(feature = "macros")]
 pub use hecs_macros::{Bundle, DynamicBundleClone, Query};
 

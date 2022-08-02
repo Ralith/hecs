@@ -10,6 +10,8 @@ use core::any::TypeId;
 use core::borrow::Borrow;
 use core::convert::TryFrom;
 use core::hash::{BuildHasherDefault, Hasher};
+
+#[cfg(feature = "atomic")]
 use spin::Mutex;
 
 use core::{fmt, ptr};
@@ -61,6 +63,7 @@ pub struct World {
 
 impl World {
     /// Create an empty world
+    #[cfg(feature = "atomic")]
     pub fn new() -> Self {
         // AtomicU64 is unsupported on 32-bit MIPS and PPC architectures
         // For compatibility, use Mutex<u64>
@@ -71,6 +74,17 @@ impl World {
             *id = next;
             next
         };
+        Self::new_impl(id)
+    }
+
+    /// Create an empty world
+    #[cfg(not(feature = "atomic"))]
+    pub fn new_with_id(id: u64) -> Self {
+        Self::new_impl(id)
+    }
+    
+    /// Create an empty world
+    fn new_impl(id: u64) -> Self {
         Self {
             entities: Entities::default(),
             archetypes: ArchetypeSet::new(),
@@ -878,6 +892,7 @@ impl World {
 unsafe impl Send for World {}
 unsafe impl Sync for World {}
 
+#[cfg(feature = "atomic")]
 impl Default for World {
     fn default() -> Self {
         Self::new()
@@ -1046,6 +1061,7 @@ impl<A: DynamicBundle> Extend<A> for World {
     }
 }
 
+#[cfg(feature = "atomic")]
 impl<A: DynamicBundle> core::iter::FromIterator<A> for World {
     fn from_iter<I: IntoIterator<Item = A>>(iter: I) -> Self {
         let mut world = World::new();
