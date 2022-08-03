@@ -89,12 +89,10 @@ fn gen_bundle_impl(
     };
     let with_static_ids_body = if generics.params.is_empty() {
         quote! {
-            ::hecs::lazy_static::lazy_static! {
-                static ref ELEMENTS: [::std::any::TypeId; #num_tys] = {
-                    #with_static_ids_inner
-                };
-            }
-            f(&*ELEMENTS)
+            static ELEMENTS: ::hecs::once_cell::race::OnceBox<[::core::any::TypeId; #num_tys]> = ::hecs::once_cell::race::OnceBox::new();
+            f(ELEMENTS.get_or_init(||
+                ::hecs::alloc::boxed::Box::new(#with_static_ids_inner)
+            ))
         }
     } else {
         quote! {

@@ -97,7 +97,7 @@ pub use archetype::TypeInfo;
 pub use bundle::DynamicClone;
 #[cfg(feature = "macros")]
 #[doc(hidden)]
-pub use lazy_static;
+pub use once_cell;
 #[doc(hidden)]
 pub use query::Fetch;
 
