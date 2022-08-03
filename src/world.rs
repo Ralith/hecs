@@ -11,7 +11,9 @@ use core::borrow::Borrow;
 use core::convert::TryFrom;
 use core::hash::{BuildHasherDefault, Hasher};
 
-#[cfg(feature = "atomic")]
+#[cfg(not(feature = "spin"))]
+use crate::atomic::{AtomicU64, Ordering};
+#[cfg(feature = "spin")]
 use spin::Mutex;
 
 use core::{fmt, ptr};
@@ -63,7 +65,7 @@ pub struct World {
 
 impl World {
     /// Create an empty world
-    #[cfg(feature = "atomic")]
+    #[cfg(feature = "spin")]
     pub fn new() -> Self {
         // AtomicU64 is unsupported on 32-bit MIPS and PPC architectures
         // For compatibility, use Mutex<u64>
@@ -78,12 +80,14 @@ impl World {
     }
 
     /// Create an empty world
-    #[cfg(not(feature = "atomic"))]
-    pub fn new_with_id(id: u64) -> Self {
+    #[cfg(not(feature = "spin"))]
+    pub fn new() -> Self {
+        // Mutex is not available on some platforms, but AtomicU64 can be polyfilled
+        static ID: AtomicU64 = AtomicU64::new(1);
+        let id = ID.fetch_add(1, Ordering::Relaxed);
         Self::new_impl(id)
     }
-    
-    /// Create an empty world
+
     fn new_impl(id: u64) -> Self {
         Self {
             entities: Entities::default(),
@@ -892,7 +896,6 @@ impl World {
 unsafe impl Send for World {}
 unsafe impl Sync for World {}
 
-#[cfg(feature = "atomic")]
 impl Default for World {
     fn default() -> Self {
         Self::new()
@@ -1061,7 +1064,6 @@ impl<A: DynamicBundle> Extend<A> for World {
     }
 }
 
-#[cfg(feature = "atomic")]
 impl<A: DynamicBundle> core::iter::FromIterator<A> for World {
     fn from_iter<I: IntoIterator<Item = A>>(iter: I) -> Self {
         let mut world = World::new();

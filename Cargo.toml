@@ -19,10 +19,9 @@ rustdoc-args = ["--cfg", "docsrs"]
 maintenance = { status = "actively-developed" }
 
 [features]
-default = ["std", "atomic"]
+default = ["std", "spin"]
 std = []
-atomic = ["spin"]
-atomic-polyfill = ["once_cell/atomic-polyfill", "dep:atomic-polyfill"]
+enable-atomic-polyfill = ["once_cell/atomic-polyfill", "atomic-polyfill"]
 # Enables derive(Bundle)
 macros = ["hecs-macros", "once_cell"]
 # Enables the serialize::column module
