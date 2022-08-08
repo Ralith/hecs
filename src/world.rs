@@ -11,10 +11,8 @@ use core::borrow::Borrow;
 use core::convert::TryFrom;
 use core::hash::{BuildHasherDefault, Hasher};
 
-#[cfg(not(feature = "spin"))]
+#[cfg(feature = "prepared-queries")]
 use crate::atomic::{AtomicU64, Ordering};
-#[cfg(feature = "spin")]
-use spin::Mutex;
 
 use core::{fmt, ptr};
 
@@ -25,7 +23,9 @@ use hashbrown::hash_map::{Entry, HashMap};
 
 use crate::alloc::boxed::Box;
 use crate::archetype::{Archetype, TypeIdMap, TypeInfo};
-use crate::entities::{Entities, EntityMeta, Location, ReserveEntitiesIterator};
+use crate::entities::{Entities, Location, ReserveEntitiesIterator};
+#[cfg(feature = "prepared-queries")]
+use crate::entities::EntityMeta;
 use crate::{
     Bundle, ColumnBatch, ComponentRef, DynamicBundle, Entity, EntityRef, Fetch, MissingComponent,
     NoSuchEntity, Query, QueryBorrow, QueryItem, QueryMut, QueryOne, TakenEntity,
@@ -60,35 +60,16 @@ pub struct World {
     /// Maps source archetype and static bundle types to the archetype that an entity is moved to
     /// after removing the components from that bundle.
     remove_edges: IndexTypeIdMap<u32>,
+    #[cfg(feature = "prepared-queries")]
     id: u64,
 }
 
 impl World {
     /// Create an empty world
-    #[cfg(feature = "spin")]
+    #[cfg(feature = "prepared-queries")]
     pub fn new() -> Self {
-        // AtomicU64 is unsupported on 32-bit MIPS and PPC architectures
-        // For compatibility, use Mutex<u64>
-        static ID: Mutex<u64> = Mutex::new(1);
-        let id = {
-            let mut id = ID.lock();
-            let next = id.checked_add(1).unwrap();
-            *id = next;
-            next
-        };
-        Self::new_impl(id)
-    }
-
-    /// Create an empty world
-    #[cfg(not(feature = "spin"))]
-    pub fn new() -> Self {
-        // Mutex is not available on some platforms, but AtomicU64 can be polyfilled
         static ID: AtomicU64 = AtomicU64::new(1);
         let id = ID.fetch_add(1, Ordering::Relaxed);
-        Self::new_impl(id)
-    }
-
-    fn new_impl(id: u64) -> Self {
         Self {
             entities: Entities::default(),
             archetypes: ArchetypeSet::new(),
@@ -96,6 +77,18 @@ impl World {
             insert_edges: HashMap::default(),
             remove_edges: HashMap::default(),
             id,
+        }
+    }
+
+    /// Create an empty world
+    #[cfg(not(feature = "prepared-queries"))]
+    pub fn new() -> Self {
+        Self {
+            entities: Entities::default(),
+            archetypes: ArchetypeSet::new(),
+            bundle_to_archetype: HashMap::default(),
+            insert_edges: HashMap::default(),
+            remove_edges: HashMap::default(),
         }
     }
 
@@ -425,10 +418,12 @@ impl World {
         QueryMut::new(&self.entities.meta, &mut self.archetypes.archetypes)
     }
 
+    #[cfg(feature = "prepared-queries")]
     pub(crate) fn memo(&self) -> (u64, u32) {
         (self.id, self.archetypes.generation())
     }
 
+    #[cfg(feature = "prepared-queries")]
     pub(crate) fn entities_meta(&self) -> &[EntityMeta] {
         &self.entities.meta
     }

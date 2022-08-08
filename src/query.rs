@@ -7,14 +7,19 @@
 
 use core::any::TypeId;
 use core::marker::PhantomData;
+#[cfg(feature = "prepared-queries")]
 use core::mem;
 use core::ptr::NonNull;
 use core::slice::Iter as SliceIter;
 
-use crate::alloc::{boxed::Box, vec::Vec};
+#[cfg(feature = "prepared-queries")]
+use crate::alloc::boxed::Box;
+use crate::alloc::vec::Vec;
 use crate::archetype::Archetype;
 use crate::entities::EntityMeta;
-use crate::{Component, Entity, World};
+use crate::{Component, Entity};
+#[cfg(feature = "prepared-queries")]
+use crate::World;
 
 /// A collection of component types to fetch from a [`World`](crate::World)
 ///
@@ -1046,235 +1051,6 @@ macro_rules! tuple_impl {
 //smaller_tuples_too!(tuple_impl, B, A);
 smaller_tuples_too!(tuple_impl, O, N, M, L, K, J, I, H, G, F, E, D, C, B, A);
 
-/// A prepared query can be stored independently of the [`World`] to amortize query set-up costs.
-pub struct PreparedQuery<Q: Query> {
-    memo: (u64, u32),
-    state: Box<[(usize, <Q::Fetch as Fetch<'static>>::State)]>,
-    fetch: Box<[Option<Q::Fetch>]>,
-}
-
-impl<Q: Query> Default for PreparedQuery<Q> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl<Q: Query> PreparedQuery<Q> {
-    /// Create a prepared query which is not yet attached to any world
-    pub fn new() -> Self {
-        Self {
-            // This memo will not match any world as the first ID will be 1.
-            memo: (0, 0),
-            state: Default::default(),
-            fetch: Default::default(),
-        }
-    }
-
-    #[cold]
-    fn prepare(world: &World) -> Self {
-        let memo = world.memo();
-
-        let state = world
-            .archetypes()
-            .enumerate()
-            .filter_map(|(idx, x)| Q::Fetch::prepare(x).map(|state| (idx, state)))
-            .collect();
-
-        let fetch = world.archetypes().map(|_| None).collect();
-
-        Self { memo, state, fetch }
-    }
-
-    /// Query `world`, using dynamic borrow checking
-    ///
-    /// This will panic if it would violate an existing unique reference
-    /// or construct an invalid unique reference.
-    pub fn query<'q>(&'q mut self, world: &'q World) -> PreparedQueryBorrow<'q, Q> {
-        if self.memo != world.memo() {
-            *self = Self::prepare(world);
-        }
-
-        let meta = world.entities_meta();
-        let archetypes = world.archetypes_inner();
-
-        PreparedQueryBorrow::new(meta, archetypes, &*self.state, &mut *self.fetch)
-    }
-
-    /// Query a uniquely borrowed world
-    ///
-    /// Avoids the cost of the dynamic borrow checking performed by [`query`][Self::query].
-    pub fn query_mut<'q>(&'q mut self, world: &'q mut World) -> PreparedQueryIter<'q, Q> {
-        assert_borrow::<Q>();
-
-        if self.memo != world.memo() {
-            *self = Self::prepare(world);
-        }
-
-        let meta = world.entities_meta();
-        let archetypes = world.archetypes_inner();
-
-        let state: &'q [(usize, <Q::Fetch as Fetch<'q>>::State)] =
-            unsafe { mem::transmute(&*self.state) };
-
-        unsafe { PreparedQueryIter::new(meta, archetypes, state.iter()) }
-    }
-
-    /// Provide random access to query results for a uniquely borrow world
-    pub fn view_mut<'q>(&'q mut self, world: &'q mut World) -> PreparedView<'q, Q> {
-        assert_borrow::<Q>();
-
-        if self.memo != world.memo() {
-            *self = Self::prepare(world);
-        }
-
-        let meta = world.entities_meta();
-        let archetypes = world.archetypes_inner();
-
-        let state: &'q [(usize, <Q::Fetch as Fetch<'q>>::State)] =
-            unsafe { mem::transmute(&*self.state) };
-
-        unsafe { PreparedView::new(meta, archetypes, state.iter(), &mut *self.fetch) }
-    }
-}
-
-/// Combined borrow of a [`PreparedQuery`] and a [`World`]
-pub struct PreparedQueryBorrow<'q, Q: Query> {
-    meta: &'q [EntityMeta],
-    archetypes: &'q [Archetype],
-    state: &'q [(usize, <Q::Fetch as Fetch<'static>>::State)],
-    fetch: &'q mut [Option<Q::Fetch>],
-}
-
-impl<'q, Q: Query> PreparedQueryBorrow<'q, Q> {
-    fn new(
-        meta: &'q [EntityMeta],
-        archetypes: &'q [Archetype],
-        state: &'q [(usize, <Q::Fetch as Fetch<'static>>::State)],
-        fetch: &'q mut [Option<Q::Fetch>],
-    ) -> Self {
-        for (idx, state) in state {
-            if archetypes[*idx].is_empty() {
-                continue;
-            }
-            Q::Fetch::borrow(&archetypes[*idx], *state);
-        }
-
-        Self {
-            meta,
-            archetypes,
-            state,
-            fetch,
-        }
-    }
-
-    /// Execute the prepared query
-    // The lifetime narrowing here is required for soundness.
-    pub fn iter<'i>(&'i mut self) -> PreparedQueryIter<'i, Q> {
-        let state: &'i [(usize, <Q::Fetch as Fetch<'i>>::State)] =
-            unsafe { mem::transmute(self.state) };
-
-        unsafe { PreparedQueryIter::new(self.meta, self.archetypes, state.iter()) }
-    }
-
-    /// Provides random access to the results of the prepared query
-    pub fn view<'i>(&'i mut self) -> PreparedView<'i, Q> {
-        let state: &'i [(usize, <Q::Fetch as Fetch<'i>>::State)] =
-            unsafe { mem::transmute(self.state) };
-
-        unsafe { PreparedView::new(self.meta, self.archetypes, state.iter(), self.fetch) }
-    }
-}
-
-impl<Q: Query> Drop for PreparedQueryBorrow<'_, Q> {
-    fn drop(&mut self) {
-        for (idx, state) in self.state {
-            if self.archetypes[*idx].is_empty() {
-                continue;
-            }
-            Q::Fetch::release(&self.archetypes[*idx], *state);
-        }
-    }
-}
-
-/// Iterates over all entities matching a [`PreparedQuery`]
-pub struct PreparedQueryIter<'q, Q: Query> {
-    meta: &'q [EntityMeta],
-    archetypes: &'q [Archetype],
-    state: SliceIter<'q, (usize, <Q::Fetch as Fetch<'q>>::State)>,
-    iter: ChunkIter<Q>,
-}
-
-impl<'q, Q: Query> PreparedQueryIter<'q, Q> {
-    /// # Safety
-    ///
-    /// `'q` must be sufficient to guarantee that `Q` cannot violate borrow safety, either with
-    /// dynamic borrow checks or by representing exclusive access to the `World`.
-    unsafe fn new(
-        meta: &'q [EntityMeta],
-        archetypes: &'q [Archetype],
-        state: SliceIter<'q, (usize, <Q::Fetch as Fetch<'q>>::State)>,
-    ) -> Self {
-        Self {
-            meta,
-            archetypes,
-            state,
-            iter: ChunkIter::empty(),
-        }
-    }
-}
-
-unsafe impl<'q, Q: Query> Send for PreparedQueryIter<'q, Q> where <Q::Fetch as Fetch<'q>>::Item: Send
-{}
-unsafe impl<'q, Q: Query> Sync for PreparedQueryIter<'q, Q> where <Q::Fetch as Fetch<'q>>::Item: Send
-{}
-
-impl<'q, Q: Query> Iterator for PreparedQueryIter<'q, Q> {
-    type Item = (Entity, QueryItem<'q, Q>);
-
-    #[inline(always)]
-    fn next(&mut self) -> Option<Self::Item> {
-        loop {
-            match unsafe { self.iter.next() } {
-                None => {
-                    let (idx, state) = self.state.next()?;
-                    let archetype = &self.archetypes[*idx];
-                    self.iter = ChunkIter {
-                        entities: archetype.entities(),
-                        fetch: Q::Fetch::execute(archetype, *state),
-                        position: 0,
-                        len: archetype.len() as usize,
-                    };
-                    continue;
-                }
-                Some((id, components)) => {
-                    return Some((
-                        Entity {
-                            id,
-                            generation: unsafe { self.meta.get_unchecked(id as usize).generation },
-                        },
-                        components,
-                    ));
-                }
-            }
-        }
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        let n = self.len();
-        (n, Some(n))
-    }
-}
-
-impl<Q: Query> ExactSizeIterator for PreparedQueryIter<'_, Q> {
-    fn len(&self) -> usize {
-        self.state
-            .clone()
-            .map(|(idx, _)| self.archetypes[*idx].len() as usize)
-            .sum::<usize>()
-            + self.iter.remaining()
-    }
-}
-
 /// Provides random access to the results of a query
 pub struct View<'q, Q: Query> {
     meta: &'q [EntityMeta],
@@ -1382,96 +1158,335 @@ impl<'q, Q: Query> View<'q, Q> {
     }
 }
 
-/// Provides random access to the results of a prepared query
-pub struct PreparedView<'q, Q: Query> {
-    meta: &'q [EntityMeta],
-    fetch: &'q mut [Option<Q::Fetch>],
-}
+#[cfg(feature = "prepared-queries")]
+pub use prepared::*;
 
-unsafe impl<'q, Q: Query> Send for PreparedView<'q, Q> where <Q::Fetch as Fetch<'q>>::Item: Send {}
-unsafe impl<'q, Q: Query> Sync for PreparedView<'q, Q> where <Q::Fetch as Fetch<'q>>::Item: Send {}
+#[cfg(feature = "prepared-queries")]
+pub mod prepared {
+    use super::*;
 
-impl<'q, Q: Query> PreparedView<'q, Q> {
-    /// # Safety
-    ///
-    /// `'q` must be sufficient to guarantee that `Q` cannot violate borrow safety, either with
-    /// dynamic borrow checks or by representing exclusive access to the `World`.
-    unsafe fn new(
-        meta: &'q [EntityMeta],
-        archetypes: &'q [Archetype],
-        state: SliceIter<'q, (usize, <Q::Fetch as Fetch<'q>>::State)>,
-        fetch: &'q mut [Option<Q::Fetch>],
-    ) -> Self {
-        fetch.iter_mut().for_each(|fetch| *fetch = None);
+    /// A prepared query can be stored independently of the [`World`] to amortize query set-up costs.
+    pub struct PreparedQuery<Q: Query> {
+        memo: (u64, u32),
+        state: Box<[(usize, <Q::Fetch as Fetch<'static>>::State)]>,
+        fetch: Box<[Option<Q::Fetch>]>,
+    }
 
-        for (idx, state) in state {
-            let archetype = &archetypes[*idx];
-            fetch[*idx] = Some(Q::Fetch::execute(archetype, *state));
+    impl<Q: Query> Default for PreparedQuery<Q> {
+        fn default() -> Self {
+            Self::new()
         }
-
-        Self { meta, fetch }
     }
 
-    /// Retrieve the query results corresponding to `entity`
-    ///
-    /// Will yield `None` if the entity does not exist or does not match the query.
-    ///
-    /// Does not require exclusive access to the map, but is defined only for queries yielding only shared references.
-    pub fn get<'m>(&'m self, entity: Entity) -> Option<QueryItem<'q, Q>>
-    where
-        Q: QueryShared,
-    {
-        let meta = self.meta.get(entity.id as usize)?;
-        if meta.generation != entity.generation {
-            return None;
-        }
-
-        self.fetch[meta.location.archetype as usize]
-            .as_ref()
-            .map(|fetch| unsafe { fetch.get(meta.location.index as usize) })
-    }
-
-    /// Retrieve the query results corresponding to `entity`
-    ///
-    /// Will yield `None` if the entity does not exist or does not match the query.
-    pub fn get_mut<'m>(&'m mut self, entity: Entity) -> Option<QueryItem<'q, Q>> {
-        unsafe { self.get_unchecked(entity) }
-    }
-
-    /// Like `get_mut`, but allows simultaneous access to multiple entities
-    ///
-    /// # Safety
-    ///
-    /// Must not be invoked while any unique borrow of the fetched components of `entity` is live.
-    pub unsafe fn get_unchecked(&self, entity: Entity) -> Option<QueryItem<'q, Q>> {
-        let meta = self.meta.get(entity.id as usize)?;
-        if meta.generation != entity.generation {
-            return None;
-        }
-
-        self.fetch[meta.location.archetype as usize]
-            .as_ref()
-            .map(|fetch| fetch.get(meta.location.index as usize))
-    }
-
-    /// Like `get_mut`, but allows checked simultaneous access to multiple entities
-    ///
-    /// See [`View::get_mut_n`] for details.
-    pub fn get_mut_n<const N: usize>(
-        &mut self,
-        entities: [Entity; N],
-    ) -> [Option<QueryItem<'q, Q>>; N] {
-        assert_distinct(&entities);
-
-        let mut items = [(); N].map(|()| None);
-
-        for (item, entity) in items.iter_mut().zip(entities) {
-            unsafe {
-                *item = self.get_unchecked(entity);
+    impl<Q: Query> PreparedQuery<Q> {
+        /// Create a prepared query which is not yet attached to any world
+        pub fn new() -> Self {
+            Self {
+                // This memo will not match any world as the first ID will be 1.
+                memo: (0, 0),
+                state: Default::default(),
+                fetch: Default::default(),
             }
         }
 
-        items
+        #[cold]
+        fn prepare(world: &World) -> Self {
+            let memo = world.memo();
+
+            let state = world
+                .archetypes()
+                .enumerate()
+                .filter_map(|(idx, x)| Q::Fetch::prepare(x).map(|state| (idx, state)))
+                .collect();
+
+            let fetch = world.archetypes().map(|_| None).collect();
+
+            Self { memo, state, fetch }
+        }
+
+        /// Query `world`, using dynamic borrow checking
+        ///
+        /// This will panic if it would violate an existing unique reference
+        /// or construct an invalid unique reference.
+        pub fn query<'q>(&'q mut self, world: &'q World) -> PreparedQueryBorrow<'q, Q> {
+            if self.memo != world.memo() {
+                *self = Self::prepare(world);
+            }
+
+            let meta = world.entities_meta();
+            let archetypes = world.archetypes_inner();
+
+            PreparedQueryBorrow::new(meta, archetypes, &*self.state, &mut *self.fetch)
+        }
+
+        /// Query a uniquely borrowed world
+        ///
+        /// Avoids the cost of the dynamic borrow checking performed by [`query`][Self::query].
+        pub fn query_mut<'q>(&'q mut self, world: &'q mut World) -> PreparedQueryIter<'q, Q> {
+            assert_borrow::<Q>();
+
+            if self.memo != world.memo() {
+                *self = Self::prepare(world);
+            }
+
+            let meta = world.entities_meta();
+            let archetypes = world.archetypes_inner();
+
+            let state: &'q [(usize, <Q::Fetch as Fetch<'q>>::State)] =
+                unsafe { mem::transmute(&*self.state) };
+
+            unsafe { PreparedQueryIter::new(meta, archetypes, state.iter()) }
+        }
+
+        /// Provide random access to query results for a uniquely borrow world
+        pub fn view_mut<'q>(&'q mut self, world: &'q mut World) -> PreparedView<'q, Q> {
+            assert_borrow::<Q>();
+
+            if self.memo != world.memo() {
+                *self = Self::prepare(world);
+            }
+
+            let meta = world.entities_meta();
+            let archetypes = world.archetypes_inner();
+
+            let state: &'q [(usize, <Q::Fetch as Fetch<'q>>::State)] =
+                unsafe { mem::transmute(&*self.state) };
+
+            unsafe { PreparedView::new(meta, archetypes, state.iter(), &mut *self.fetch) }
+        }
+    }
+
+    /// Combined borrow of a [`PreparedQuery`] and a [`World`]
+    pub struct PreparedQueryBorrow<'q, Q: Query> {
+        meta: &'q [EntityMeta],
+        archetypes: &'q [Archetype],
+        state: &'q [(usize, <Q::Fetch as Fetch<'static>>::State)],
+        fetch: &'q mut [Option<Q::Fetch>],
+    }
+
+    impl<'q, Q: Query> PreparedQueryBorrow<'q, Q> {
+        fn new(
+            meta: &'q [EntityMeta],
+            archetypes: &'q [Archetype],
+            state: &'q [(usize, <Q::Fetch as Fetch<'static>>::State)],
+            fetch: &'q mut [Option<Q::Fetch>],
+        ) -> Self {
+            for (idx, state) in state {
+                if archetypes[*idx].is_empty() {
+                    continue;
+                }
+                Q::Fetch::borrow(&archetypes[*idx], *state);
+            }
+
+            Self {
+                meta,
+                archetypes,
+                state,
+                fetch,
+            }
+        }
+
+        /// Execute the prepared query
+        // The lifetime narrowing here is required for soundness.
+        pub fn iter<'i>(&'i mut self) -> PreparedQueryIter<'i, Q> {
+            let state: &'i [(usize, <Q::Fetch as Fetch<'i>>::State)] =
+                unsafe { mem::transmute(self.state) };
+
+            unsafe { PreparedQueryIter::new(self.meta, self.archetypes, state.iter()) }
+        }
+
+        /// Provides random access to the results of the prepared query
+        pub fn view<'i>(&'i mut self) -> PreparedView<'i, Q> {
+            let state: &'i [(usize, <Q::Fetch as Fetch<'i>>::State)] =
+                unsafe { mem::transmute(self.state) };
+
+            unsafe { PreparedView::new(self.meta, self.archetypes, state.iter(), self.fetch) }
+        }
+    }
+
+    impl<Q: Query> Drop for PreparedQueryBorrow<'_, Q> {
+        fn drop(&mut self) {
+            for (idx, state) in self.state {
+                if self.archetypes[*idx].is_empty() {
+                    continue;
+                }
+                Q::Fetch::release(&self.archetypes[*idx], *state);
+            }
+        }
+    }
+
+    /// Iterates over all entities matching a [`PreparedQuery`]
+    pub struct PreparedQueryIter<'q, Q: Query> {
+        meta: &'q [EntityMeta],
+        archetypes: &'q [Archetype],
+        state: SliceIter<'q, (usize, <Q::Fetch as Fetch<'q>>::State)>,
+        iter: ChunkIter<Q>,
+    }
+
+    impl<'q, Q: Query> PreparedQueryIter<'q, Q> {
+        /// # Safety
+        ///
+        /// `'q` must be sufficient to guarantee that `Q` cannot violate borrow safety, either with
+        /// dynamic borrow checks or by representing exclusive access to the `World`.
+        unsafe fn new(
+            meta: &'q [EntityMeta],
+            archetypes: &'q [Archetype],
+            state: SliceIter<'q, (usize, <Q::Fetch as Fetch<'q>>::State)>,
+        ) -> Self {
+            Self {
+                meta,
+                archetypes,
+                state,
+                iter: ChunkIter::empty(),
+            }
+        }
+    }
+
+    unsafe impl<'q, Q: Query> Send for PreparedQueryIter<'q, Q> where <Q::Fetch as Fetch<'q>>::Item: Send
+    {}
+    unsafe impl<'q, Q: Query> Sync for PreparedQueryIter<'q, Q> where <Q::Fetch as Fetch<'q>>::Item: Send
+    {}
+
+    impl<'q, Q: Query> Iterator for PreparedQueryIter<'q, Q> {
+        type Item = (Entity, QueryItem<'q, Q>);
+
+        #[inline(always)]
+        fn next(&mut self) -> Option<Self::Item> {
+            loop {
+                match unsafe { self.iter.next() } {
+                    None => {
+                        let (idx, state) = self.state.next()?;
+                        let archetype = &self.archetypes[*idx];
+                        self.iter = ChunkIter {
+                            entities: archetype.entities(),
+                            fetch: Q::Fetch::execute(archetype, *state),
+                            position: 0,
+                            len: archetype.len() as usize,
+                        };
+                        continue;
+                    }
+                    Some((id, components)) => {
+                        return Some((
+                            Entity {
+                                id,
+                                generation: unsafe {
+                                    self.meta.get_unchecked(id as usize).generation
+                                },
+                            },
+                            components,
+                        ));
+                    }
+                }
+            }
+        }
+
+        fn size_hint(&self) -> (usize, Option<usize>) {
+            let n = self.len();
+            (n, Some(n))
+        }
+    }
+
+    impl<Q: Query> ExactSizeIterator for PreparedQueryIter<'_, Q> {
+        fn len(&self) -> usize {
+            self.state
+                .clone()
+                .map(|(idx, _)| self.archetypes[*idx].len() as usize)
+                .sum::<usize>()
+                + self.iter.remaining()
+        }
+    }
+
+    /// Provides random access to the results of a prepared query
+    pub struct PreparedView<'q, Q: Query> {
+        meta: &'q [EntityMeta],
+        fetch: &'q mut [Option<Q::Fetch>],
+    }
+
+    unsafe impl<'q, Q: Query> Send for PreparedView<'q, Q> where <Q::Fetch as Fetch<'q>>::Item: Send {}
+    unsafe impl<'q, Q: Query> Sync for PreparedView<'q, Q> where <Q::Fetch as Fetch<'q>>::Item: Send {}
+
+    impl<'q, Q: Query> PreparedView<'q, Q> {
+        /// # Safety
+        ///
+        /// `'q` must be sufficient to guarantee that `Q` cannot violate borrow safety, either with
+        /// dynamic borrow checks or by representing exclusive access to the `World`.
+        unsafe fn new(
+            meta: &'q [EntityMeta],
+            archetypes: &'q [Archetype],
+            state: SliceIter<'q, (usize, <Q::Fetch as Fetch<'q>>::State)>,
+            fetch: &'q mut [Option<Q::Fetch>],
+        ) -> Self {
+            fetch.iter_mut().for_each(|fetch| *fetch = None);
+
+            for (idx, state) in state {
+                let archetype = &archetypes[*idx];
+                fetch[*idx] = Some(Q::Fetch::execute(archetype, *state));
+            }
+
+            Self { meta, fetch }
+        }
+
+        /// Retrieve the query results corresponding to `entity`
+        ///
+        /// Will yield `None` if the entity does not exist or does not match the query.
+        ///
+        /// Does not require exclusive access to the map, but is defined only for queries yielding only shared references.
+        pub fn get<'m>(&'m self, entity: Entity) -> Option<QueryItem<'q, Q>>
+        where
+            Q: QueryShared,
+        {
+            let meta = self.meta.get(entity.id as usize)?;
+            if meta.generation != entity.generation {
+                return None;
+            }
+
+            self.fetch[meta.location.archetype as usize]
+                .as_ref()
+                .map(|fetch| unsafe { fetch.get(meta.location.index as usize) })
+        }
+
+        /// Retrieve the query results corresponding to `entity`
+        ///
+        /// Will yield `None` if the entity does not exist or does not match the query.
+        pub fn get_mut<'m>(&'m mut self, entity: Entity) -> Option<QueryItem<'q, Q>> {
+            unsafe { self.get_unchecked(entity) }
+        }
+
+        /// Like `get_mut`, but allows simultaneous access to multiple entities
+        ///
+        /// # Safety
+        ///
+        /// Must not be invoked while any unique borrow of the fetched components of `entity` is live.
+        pub unsafe fn get_unchecked(&self, entity: Entity) -> Option<QueryItem<'q, Q>> {
+            let meta = self.meta.get(entity.id as usize)?;
+            if meta.generation != entity.generation {
+                return None;
+            }
+
+            self.fetch[meta.location.archetype as usize]
+                .as_ref()
+                .map(|fetch| fetch.get(meta.location.index as usize))
+        }
+
+        /// Like `get_mut`, but allows checked simultaneous access to multiple entities
+        ///
+        /// See [`View::get_mut_n`] for details.
+        pub fn get_mut_n<const N: usize>(
+            &mut self,
+            entities: [Entity; N],
+        ) -> [Option<QueryItem<'q, Q>>; N] {
+            assert_distinct(&entities);
+
+            let mut items = [(); N].map(|()| None);
+
+            for (item, entity) in items.iter_mut().zip(entities) {
+                unsafe {
+                    *item = self.get_unchecked(entity);
+                }
+            }
+
+            items
+        }
     }
 }
 

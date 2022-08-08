@@ -167,6 +167,7 @@ fn query_optional_component() {
 }
 
 #[test]
+#[cfg(feature = "prepared-queries")]
 fn prepare_query() {
     let mut world = World::new();
     let e = world.spawn(("abc", 123));
@@ -193,6 +194,7 @@ fn prepare_query() {
 }
 
 #[test]
+#[cfg(feature = "prepared-queries")]
 fn invalidate_prepared_query() {
     let mut world = World::new();
     let e = world.spawn(("abc", 123));
@@ -223,6 +225,7 @@ fn invalidate_prepared_query() {
 }
 
 #[test]
+#[cfg(feature = "prepared-queries")]
 fn random_access_via_view() {
     let mut world = World::new();
     let e = world.spawn(("abc", 123));
@@ -240,6 +243,7 @@ fn random_access_via_view() {
 }
 
 #[test]
+#[cfg(feature = "prepared-queries")]
 fn random_access_via_view_mut() {
     let mut world = World::new();
     let e = world.spawn(("abc", 123));

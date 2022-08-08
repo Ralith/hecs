@@ -19,8 +19,9 @@ rustdoc-args = ["--cfg", "docsrs"]
 maintenance = { status = "actively-developed" }
 
 [features]
-default = ["std", "spin"]
+default = ["std", "prepared-queries"]
 std = []
+prepared-queries = []
 enable-atomic-polyfill = ["once_cell/atomic-polyfill", "atomic-polyfill"]
 # Enables derive(Bundle)
 macros = ["hecs-macros", "once_cell"]
@@ -35,7 +36,6 @@ hecs-macros = { path = "macros", version = "0.8.2", optional = true }
 hashbrown = { version = "0.12.0", default-features = false, features = ["ahash", "inline-more"] }
 once_cell = { version = "1.12.0", default-features = false, optional = true, features = ["alloc"] }
 serde = { version = "1.0.117", default-features = false, optional = true }
-spin = { version = "0.9.2", default-features = false, optional = true, features = ["mutex", "spin_mutex"] }
 
 [dev-dependencies]
 bencher = "0.1.5"
@@ -48,6 +48,10 @@ serde_test = "1.0.117"
 name = "bench"
 harness = false
 required-features = ["macros"]
+
+[[example]]
+name = "ffa_simulation"
+required-features = ["prepared-queries"]
 
 [profile.release]
 debug = true
