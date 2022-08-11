@@ -1,6 +1,38 @@
-# Unreleased
+# 0.9
 
 ### Changed
+- Updated `World::get_unchecked` to match 0.8's changes to `World::get`
+
+# 0.8.3
+
+### Added
+- `CommandBuffer::{insert_one, remove_one}` convenience methods (thanks tesselode!)
+
+# 0.8.2
+
+### Removed
+- APIs deprecated in 0.7
+
+# 0.8.1
+
+### Fixed
+- Empty archetypes no longer participate in dynamic query borrow-checking
+
+# 0.8.0
+
+### Added
+- `World::satisfies` and `EntityRef::satisfies` to check if an entity would match a query
+
+### Changed
+- Many generic methods that previously took a `Component` now instead take either a
+  `ComponentRef<'a>` or a `Query` to improve consistency with queries and address a common footgun:
+  - `World::get`, `EntityRef::get`, and `Archetype::get` now take shared or unique references to
+    component types
+  - `EntityBuilder` and `EntityBuilderClone`'s `get` and `get_mut` refactored along the same lines
+    for consistency
+  - The `With`/`Without` query transformers now take a query that entities must/mustn't match rather
+    than a component type. Additionally, the order of their generic arguments was reversed to place
+    the query whose results will be yielded first.
 - `SerializeContext` traits now take their serializer arguments by value, and must call `end()`
   themselves.
 

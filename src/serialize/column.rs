@@ -130,7 +130,7 @@ where
     T: Component + Serialize,
     S: SerializeTuple,
 {
-    if let Some(xs) = archetype.get::<T>() {
+    if let Some(xs) = archetype.get::<&T>() {
         serialize_collection(&*xs, out)?;
     }
     Ok(())
@@ -757,7 +757,7 @@ mod tests {
     impl PartialEq for SerWorld {
         fn eq(&self, other: &Self) -> bool {
             fn same_components<T: Component + PartialEq>(x: &EntityRef, y: &EntityRef) -> bool {
-                x.get::<T>().as_ref().map(|x| &**x) == y.get::<T>().as_ref().map(|x| &**x)
+                x.get::<&T>().as_ref().map(|x| &**x) == y.get::<&T>().as_ref().map(|x| &**x)
             }
 
             for (x, y) in self.0.iter().zip(other.0.iter()) {
@@ -779,8 +779,8 @@ mod tests {
                     (
                         e.entity(),
                         (
-                            e.get::<Position>().map(|x| *x),
-                            e.get::<Velocity>().map(|x| *x),
+                            e.get::<&Position>().map(|x| *x),
+                            e.get::<&Velocity>().map(|x| *x),
                         ),
                     )
                 }))

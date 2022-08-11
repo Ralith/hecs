@@ -28,8 +28,8 @@
 //!   if flag { *number *= 2; }
 //! }
 //! // Random access is simple and safe
-//! assert_eq!(*world.get::<i32>(a).unwrap(), 246);
-//! assert_eq!(*world.get::<i32>(b).unwrap(), 42);
+//! assert_eq!(*world.get::<&i32>(a).unwrap(), 246);
+//! assert_eq!(*world.get::<&i32>(b).unwrap(), 42);
 //! ```
 
 #![warn(missing_docs)]
@@ -60,7 +60,6 @@ mod archetype;
 mod batch;
 mod borrow;
 mod bundle;
-mod column;
 mod command_buffer;
 mod entities;
 mod entity_builder;
@@ -74,14 +73,13 @@ pub mod serialize;
 mod take;
 mod world;
 
-pub use archetype::{Archetype, ArchetypeColumn};
+pub use archetype::{Archetype, ArchetypeColumn, ArchetypeColumnMut};
 pub use batch::{BatchIncomplete, BatchWriter, ColumnBatch, ColumnBatchBuilder, ColumnBatchType};
 pub use bundle::{Bundle, DynamicBundle, DynamicBundleClone, MissingComponent};
-pub use column::{Column, ColumnMut};
 pub use command_buffer::CommandBuffer;
 pub use entities::{Entity, NoSuchEntity};
 pub use entity_builder::{BuiltEntity, BuiltEntityClone, EntityBuilder, EntityBuilderClone};
-pub use entity_ref::{EntityRef, Ref, RefMut};
+pub use entity_ref::{ComponentRef, ComponentRefShared, EntityRef, Ref, RefMut};
 pub use query::{
     Access, Batch, BatchedIter, Or, PreparedQuery, PreparedQueryBorrow, PreparedQueryIter,
     PreparedView, Query, QueryBorrow, QueryItem, QueryIter, QueryMut, QueryShared, Satisfies, View,

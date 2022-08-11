@@ -3,7 +3,10 @@ use core::ops::{Deref, DerefMut};
 use core::ptr::NonNull;
 
 use crate::archetype::Archetype;
-use crate::{Component, Entity, MissingComponent, Query, QueryOne};
+use crate::{
+    ArchetypeColumn, ArchetypeColumnMut, Component, Entity, Fetch, MissingComponent, Query,
+    QueryOne,
+};
 
 /// Handle to an entity with any component types
 #[derive(Copy, Clone)]
@@ -28,24 +31,36 @@ impl<'a> EntityRef<'a> {
         self.entity
     }
 
+    /// Determine whether this entity would satisfy the query `Q`
+    pub fn satisfies<Q: Query>(&self) -> bool {
+        Q::Fetch::access(self.archetype).is_some()
+    }
+
     /// Determine whether this entity has a `T` component without borrowing it
+    ///
+    /// Equivalent to [`satisfies::<&T>`](Self::satisfies)
     pub fn has<T: Component>(&self) -> bool {
         self.archetype.has::<T>()
     }
 
-    /// Borrow the component of type `T`, if it exists
+    /// Borrow a single component, if it exists
     ///
-    /// Panics if the component is already uniquely borrowed from another entity with the same
-    /// components.
-    pub fn get<T: Component>(&self) -> Option<Ref<'a, T>> {
-        Some(unsafe { Ref::new(self.archetype, self.index).ok()? })
-    }
-
-    /// Uniquely borrow the component of type `T`, if it exists
+    /// `T` must be a shared or unique reference to a component type.
     ///
-    /// Panics if the component is already borrowed from another entity with the same components.
-    pub fn get_mut<T: Component>(&self) -> Option<RefMut<'a, T>> {
-        Some(unsafe { RefMut::new(self.archetype, self.index).ok()? })
+    /// # Example
+    /// ```
+    /// # use hecs::*;
+    /// let mut world = World::new();
+    /// let a = world.spawn((42, "abc"));
+    /// let e = world.entity(a).unwrap();
+    /// *e.get::<&mut i32>().unwrap() = 17;
+    /// assert_eq!(*e.get::<&i32>().unwrap(), 17);
+    /// ```
+    ///
+    /// Panics if `T` is a unique reference and the component is already borrowed, or if the
+    /// component is already uniquely borrowed.
+    pub fn get<T: ComponentRef<'a>>(&self) -> Option<T::Ref> {
+        T::get_component(*self)
     }
 
     /// Run a query against this entity
@@ -184,3 +199,85 @@ impl<'a, T: Component> DerefMut for RefMut<'a, T> {
         unsafe { self.target.as_mut() }
     }
 }
+
+/// `&T` or `&mut T` where `T` is some component type
+///
+/// The interface of this trait is a private implementation detail.
+pub trait ComponentRef<'a> {
+    /// Smart pointer to a component of the referenced type
+    #[doc(hidden)]
+    type Ref;
+
+    /// Smart pointer to a column of the referenced type in an [`Archetype`](crate::Archetype)
+    #[doc(hidden)]
+    type Column;
+
+    /// Component type referenced by `Ref`
+    #[doc(hidden)]
+    type Component: Component;
+
+    /// Fetch the component from `entity`
+    #[doc(hidden)]
+    fn get_component(entity: EntityRef<'a>) -> Option<Self::Ref>;
+
+    /// Construct from a raw pointer
+    ///
+    /// # Safety
+    ///
+    /// Dereferencing `raw` for lifetime `'a` must be sound
+    #[doc(hidden)]
+    unsafe fn from_raw(raw: *mut Self::Component) -> Self;
+
+    /// Borrow a column from an archetype
+    #[doc(hidden)]
+    fn get_column(archetype: &'a Archetype) -> Option<Self::Column>;
+}
+
+impl<'a, T: Component> ComponentRef<'a> for &'a T {
+    type Ref = Ref<'a, T>;
+
+    type Column = ArchetypeColumn<'a, T>;
+
+    type Component = T;
+
+    fn get_component(entity: EntityRef<'a>) -> Option<Self::Ref> {
+        Some(unsafe { Ref::new(entity.archetype, entity.index).ok()? })
+    }
+
+    unsafe fn from_raw(raw: *mut Self::Component) -> Self {
+        &*raw
+    }
+
+    fn get_column(archetype: &'a Archetype) -> Option<Self::Column> {
+        ArchetypeColumn::new(archetype)
+    }
+}
+
+impl<'a, T: Component> ComponentRef<'a> for &'a mut T {
+    type Ref = RefMut<'a, T>;
+
+    type Column = ArchetypeColumnMut<'a, T>;
+
+    type Component = T;
+
+    fn get_component(entity: EntityRef<'a>) -> Option<Self::Ref> {
+        Some(unsafe { RefMut::new(entity.archetype, entity.index).ok()? })
+    }
+
+    unsafe fn from_raw(raw: *mut Self::Component) -> Self {
+        &mut *raw
+    }
+
+    fn get_column(archetype: &'a Archetype) -> Option<Self::Column> {
+        ArchetypeColumnMut::new(archetype)
+    }
+}
+
+/// `&T` where `T` is some component type
+///
+/// Used when consistency demands that references to component types, rather than component types
+/// themselves, be supplied as a type parameter to a function that cannot operate on unique
+/// references.
+pub trait ComponentRefShared<'a>: ComponentRef<'a> {}
+
+impl<'a, T: Component> ComponentRefShared<'a> for &'a T {}

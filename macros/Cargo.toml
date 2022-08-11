@@ -1,6 +1,6 @@
 [package]
 name = "hecs-macros"
-version = "0.8.1"
+version = "0.8.2"
 description = "Procedural macro definitions for hecs"
 authors = ["Benjamin Saunders <ben.e.saunders@gmail.com>"]
 edition = "2018"
@@ -13,3 +13,8 @@ proc-macro = true
 syn = { version = "1.0", default-features = false, features = ["proc-macro", "parsing", "printing", "derive", "clone-impls", "visit-mut"] }
 quote = "1.0.3"
 proc-macro2 = "1.0.1"
+
+[dev-dependencies]
+# Remarkably, this isn't a circular dependency. Test crates coexist
+# with regular crates, even in unit tests!
+hecs = { features = ["macros"], path = ".." }

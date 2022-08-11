@@ -1,7 +1,7 @@
 use core::marker::PhantomData;
 
 use crate::query::{Fetch, With, Without};
-use crate::{Archetype, Component, Query, QueryItem};
+use crate::{Archetype, Query, QueryItem};
 
 /// A borrow of a [`World`](crate::World) sufficient to execute the query `Q` on a single entity
 pub struct QueryOne<'a, Q: Query> {
@@ -44,17 +44,17 @@ impl<'a, Q: Query> QueryOne<'a, Q> {
         unsafe { Some(fetch.get(self.index as usize)) }
     }
 
-    /// Transform the query into one that requires a certain component without borrowing it
+    /// Transform the query into one that requires another query be satisfied
     ///
-    /// See `QueryBorrow::with` for details.
-    pub fn with<T: Component>(self) -> QueryOne<'a, With<T, Q>> {
+    /// See `QueryBorrow::with`
+    pub fn with<R: Query>(self) -> QueryOne<'a, With<Q, R>> {
         self.transform()
     }
 
-    /// Transform the query into one that skips entities having a certain component
+    /// Transform the query into one that skips entities satisfying another
     ///
     /// See `QueryBorrow::without` for details.
-    pub fn without<T: Component>(self) -> QueryOne<'a, Without<T, Q>> {
+    pub fn without<R: Query>(self) -> QueryOne<'a, Without<Q, R>> {
         self.transform()
     }
 

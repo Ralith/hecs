@@ -82,7 +82,7 @@ pub fn try_serialize<T: Component + Serialize, K: Serialize + ?Sized, S: Seriali
     key: &K,
     map: &mut S,
 ) -> Result<(), S::Error> {
-    if let Some(x) = entity.get::<T>() {
+    if let Some(x) = entity.get::<&T>() {
         map.serialize_key(key)?;
         map.serialize_value(&*x)?;
     }
@@ -270,7 +270,7 @@ mod tests {
     impl PartialEq for SerWorld {
         fn eq(&self, other: &Self) -> bool {
             fn same_components<T: Component + PartialEq>(x: &EntityRef, y: &EntityRef) -> bool {
-                x.get::<T>().as_ref().map(|x| &**x) == y.get::<T>().as_ref().map(|x| &**x)
+                x.get::<&T>().as_ref().map(|x| &**x) == y.get::<&T>().as_ref().map(|x| &**x)
             }
 
             for (x, y) in self.0.iter().zip(other.0.iter()) {
@@ -292,8 +292,8 @@ mod tests {
                     (
                         e.entity(),
                         (
-                            e.get::<Position>().map(|x| *x),
-                            e.get::<Velocity>().map(|x| *x),
+                            e.get::<&Position>().map(|x| *x),
+                            e.get::<&Velocity>().map(|x| *x),
                         ),
                     )
                 }))

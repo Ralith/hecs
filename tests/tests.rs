@@ -15,12 +15,12 @@ fn random_access() {
     let mut world = World::new();
     let e = world.spawn(("abc", 123));
     let f = world.spawn(("def", 456, true));
-    assert_eq!(*world.get::<&str>(e).unwrap(), "abc");
-    assert_eq!(*world.get::<i32>(e).unwrap(), 123);
-    assert_eq!(*world.get::<&str>(f).unwrap(), "def");
-    assert_eq!(*world.get::<i32>(f).unwrap(), 456);
-    *world.get_mut::<i32>(f).unwrap() = 42;
-    assert_eq!(*world.get::<i32>(f).unwrap(), 42);
+    assert_eq!(*world.get::<&&str>(e).unwrap(), "abc");
+    assert_eq!(*world.get::<&i32>(e).unwrap(), 123);
+    assert_eq!(*world.get::<&&str>(f).unwrap(), "def");
+    assert_eq!(*world.get::<&i32>(f).unwrap(), 456);
+    *world.get::<&mut i32>(f).unwrap() = 42;
+    assert_eq!(*world.get::<&i32>(f).unwrap(), 42);
 }
 
 #[test]
@@ -31,10 +31,10 @@ fn despawn() {
     assert_eq!(world.query::<()>().iter().count(), 2);
     world.despawn(e).unwrap();
     assert_eq!(world.query::<()>().iter().count(), 1);
-    assert!(world.get::<&str>(e).is_err());
-    assert!(world.get::<i32>(e).is_err());
-    assert_eq!(*world.get::<&str>(f).unwrap(), "def");
-    assert_eq!(*world.get::<i32>(f).unwrap(), 456);
+    assert!(world.get::<&&str>(e).is_err());
+    assert!(world.get::<&i32>(e).is_err());
+    assert_eq!(*world.get::<&&str>(f).unwrap(), "def");
+    assert_eq!(*world.get::<&i32>(f).unwrap(), 456);
 }
 
 #[test]
@@ -282,10 +282,10 @@ fn build_entity() {
     entity.add(456);
     entity.add(789);
     let f = world.spawn(entity.build());
-    assert_eq!(*world.get::<&str>(e).unwrap(), "abc");
-    assert_eq!(*world.get::<i32>(e).unwrap(), 123);
-    assert_eq!(*world.get::<&str>(f).unwrap(), "def");
-    assert_eq!(*world.get::<i32>(f).unwrap(), 789);
+    assert_eq!(*world.get::<&&str>(e).unwrap(), "abc");
+    assert_eq!(*world.get::<&i32>(e).unwrap(), 123);
+    assert_eq!(*world.get::<&&str>(f).unwrap(), "def");
+    assert_eq!(*world.get::<&i32>(f).unwrap(), 789);
 }
 
 #[test]
@@ -308,14 +308,14 @@ fn build_entity_clone() {
         .unwrap();
 
     for e in [e, f, g] {
-        assert_eq!(*world.get::<&str>(e).unwrap(), "yup");
-        assert_eq!(*world.get::<i32>(e).unwrap(), 789);
-        assert_eq!(*world.get::<usize>(e).unwrap(), 42);
-        assert_eq!(*world.get::<f32>(e).unwrap(), 7.0);
-        assert_eq!(*world.get::<String>(e).unwrap(), "Bar");
+        assert_eq!(*world.get::<&&str>(e).unwrap(), "yup");
+        assert_eq!(*world.get::<&i32>(e).unwrap(), 789);
+        assert_eq!(*world.get::<&usize>(e).unwrap(), 42);
+        assert_eq!(*world.get::<&f32>(e).unwrap(), 7.0);
+        assert_eq!(*world.get::<&String>(e).unwrap(), "Bar");
     }
 
-    assert_eq!(*world.get::<Cow<'static, str>>(g).unwrap(), "after");
+    assert_eq!(*world.get::<&Cow<'static, str>>(g).unwrap(), "after");
 }
 
 #[test]
@@ -326,8 +326,8 @@ fn build_builder_clone() {
     let mut b = EntityBuilderClone::new();
     b.add(String::from("def"));
     b.add_bundle(&a.build());
-    assert_eq!(b.get::<String>(), Some(&String::from("abc")));
-    assert_eq!(b.get::<i32>(), Some(&123));
+    assert_eq!(b.get::<&String>(), Some(&String::from("abc")));
+    assert_eq!(b.get::<&i32>(), Some(&123));
 }
 
 #[test]
@@ -337,8 +337,8 @@ fn cloned_builder() {
 
     let mut world = World::new();
     let e = world.spawn(&builder.build().clone());
-    assert_eq!(*world.get::<String>(e).unwrap(), "abc");
-    assert_eq!(*world.get::<i32>(e).unwrap(), 123);
+    assert_eq!(*world.get::<&String>(e).unwrap(), "abc");
+    assert_eq!(*world.get::<&i32>(e).unwrap(), 123);
 }
 
 #[test]
@@ -365,13 +365,13 @@ fn build_dynamic_bundle() {
         .unwrap();
 
     for e in [e, f, g] {
-        assert_eq!(*world.get::<i32>(e).unwrap(), 5);
-        assert_eq!(*world.get::<char>(e).unwrap(), 'a');
-        assert_eq!(*world.get::<String>(e).unwrap(), "Bar");
-        assert_eq!(*world.get::<f32>(e).unwrap(), 6.0);
+        assert_eq!(*world.get::<&i32>(e).unwrap(), 5);
+        assert_eq!(*world.get::<&char>(e).unwrap(), 'a');
+        assert_eq!(*world.get::<&String>(e).unwrap(), "Bar");
+        assert_eq!(*world.get::<&f32>(e).unwrap(), 6.0);
     }
 
-    assert_eq!(*world.get::<Cow<'static, str>>(g).unwrap(), "after");
+    assert_eq!(*world.get::<&Cow<'static, str>>(g).unwrap(), "after");
 }
 
 #[test]
@@ -386,17 +386,17 @@ fn access_builder_components() {
     assert!(entity.has::<i32>());
     assert!(!entity.has::<usize>());
 
-    assert_eq!(*entity.get::<&str>().unwrap(), "abc");
-    assert_eq!(*entity.get::<i32>().unwrap(), 123);
-    assert_eq!(entity.get::<usize>(), None);
+    assert_eq!(*entity.get::<&&str>().unwrap(), "abc");
+    assert_eq!(*entity.get::<&i32>().unwrap(), 123);
+    assert_eq!(entity.get::<&usize>(), None);
 
-    *entity.get_mut::<i32>().unwrap() = 456;
-    assert_eq!(*entity.get::<i32>().unwrap(), 456);
+    *entity.get_mut::<&mut i32>().unwrap() = 456;
+    assert_eq!(*entity.get::<&i32>().unwrap(), 456);
 
     let g = world.spawn(entity.build());
 
-    assert_eq!(*world.get::<&str>(g).unwrap(), "abc");
-    assert_eq!(*world.get::<i32>(g).unwrap(), 456);
+    assert_eq!(*world.get::<&&str>(g).unwrap(), "abc");
+    assert_eq!(*world.get::<&i32>(g).unwrap(), 456);
 }
 
 #[test]
@@ -408,10 +408,10 @@ fn build_entity_bundle() {
     entity.add(456);
     entity.add_bundle(("def", [0u8; 1024], 789));
     let f = world.spawn(entity.build());
-    assert_eq!(*world.get::<&str>(e).unwrap(), "abc");
-    assert_eq!(*world.get::<i32>(e).unwrap(), 123);
-    assert_eq!(*world.get::<&str>(f).unwrap(), "def");
-    assert_eq!(*world.get::<i32>(f).unwrap(), 789);
+    assert_eq!(*world.get::<&&str>(e).unwrap(), "abc");
+    assert_eq!(*world.get::<&i32>(e).unwrap(), 123);
+    assert_eq!(*world.get::<&&str>(f).unwrap(), "def");
+    assert_eq!(*world.get::<&i32>(f).unwrap(), 789);
 }
 
 #[test]
@@ -462,11 +462,11 @@ fn spawn_buffered_entity() {
 
     buffer.run_on(&mut world);
 
-    assert_eq!(*world.get::<bool>(ent).unwrap(), true);
-    assert_eq!(*world.get::<&str>(ent1).unwrap(), "hecs");
-    assert_eq!(*world.get::<i32>(ent1).unwrap(), 13);
-    assert_eq!(*world.get::<bool>(ent2).unwrap(), false);
-    assert_eq!(*world.get::<u8>(ent3).unwrap(), 2);
+    assert_eq!(*world.get::<&bool>(ent).unwrap(), true);
+    assert_eq!(*world.get::<&&str>(ent1).unwrap(), "hecs");
+    assert_eq!(*world.get::<&i32>(ent1).unwrap(), 13);
+    assert_eq!(*world.get::<&bool>(ent2).unwrap(), false);
+    assert_eq!(*world.get::<&u8>(ent3).unwrap(), 2);
 }
 
 #[test]
@@ -489,8 +489,8 @@ fn remove_buffered_component() {
     buffer.remove::<(i32, &str)>(ent);
     buffer.run_on(&mut world);
 
-    assert!(world.get::<&str>(ent).is_err());
-    assert!(world.get::<i32>(ent).is_err());
+    assert!(world.get::<&&str>(ent).is_err());
+    assert!(world.get::<&i32>(ent).is_err());
 }
 
 #[test]
@@ -547,8 +547,8 @@ fn shared_borrow() {
 fn illegal_random_access() {
     let mut world = World::new();
     let e = world.spawn(("abc", 123));
-    let _borrow = world.get_mut::<i32>(e).unwrap();
-    world.get::<i32>(e).unwrap();
+    let _borrow = world.get::<&mut i32>(e).unwrap();
+    world.get::<&i32>(e).unwrap();
 }
 
 #[test]
@@ -562,8 +562,8 @@ fn derived_bundle() {
 
     let mut world = World::new();
     let e = world.spawn(Foo { x: 42, y: 'a' });
-    assert_eq!(*world.get::<i32>(e).unwrap(), 42);
-    assert_eq!(*world.get::<char>(e).unwrap(), 'a');
+    assert_eq!(*world.get::<&i32>(e).unwrap(), 42);
+    assert_eq!(*world.get::<&char>(e).unwrap(), 'a');
 }
 
 #[test]
@@ -623,14 +623,14 @@ fn exchange_components() {
     let mut world = World::new();
 
     let entity = world.spawn(("abc".to_owned(), 123));
-    assert!(world.get::<String>(entity).is_ok());
-    assert!(world.get::<i32>(entity).is_ok());
-    assert!(world.get::<bool>(entity).is_err());
+    assert!(world.get::<&String>(entity).is_ok());
+    assert!(world.get::<&i32>(entity).is_ok());
+    assert!(world.get::<&bool>(entity).is_err());
 
     world.exchange_one::<String, _>(entity, true).unwrap();
-    assert!(world.get::<String>(entity).is_err());
-    assert!(world.get::<i32>(entity).is_ok());
-    assert!(world.get::<bool>(entity).is_ok());
+    assert!(world.get::<&String>(entity).is_err());
+    assert!(world.get::<&i32>(entity).is_ok());
+    assert!(world.get::<&bool>(entity).is_ok());
 }
 
 #[test]
@@ -772,9 +772,9 @@ fn spawn_column_batch() {
             .spawn_column_batch(batch.build().unwrap())
             .collect::<Vec<_>>();
         assert_eq!(entities.len(), 2);
-        assert_eq!(*world.get::<i32>(b).unwrap(), 43);
-        assert_eq!(*world.get::<i32>(entities[0]).unwrap(), 44);
-        assert_eq!(*world.get::<i32>(entities[1]).unwrap(), 45);
+        assert_eq!(*world.get::<&i32>(b).unwrap(), 43);
+        assert_eq!(*world.get::<&i32>(entities[0]).unwrap(), 44);
+        assert_eq!(*world.get::<&i32>(entities[1]).unwrap(), 45);
     }
 }
 
@@ -788,11 +788,11 @@ fn columnar_access() {
     let _empty = archetypes.next().unwrap();
     let a = archetypes.next().unwrap();
     assert_eq!(a.ids(), &[e.id()]);
-    assert_eq!(*a.get::<i32>().unwrap(), [123]);
-    assert!(a.get::<bool>().is_none());
+    assert_eq!(*a.get::<&i32>().unwrap(), [123]);
+    assert!(a.get::<&bool>().is_none());
     let b = archetypes.next().unwrap();
     assert_eq!(b.ids(), &[f.id(), g.id()]);
-    assert_eq!(*b.get::<i32>().unwrap(), [456, 789]);
+    assert_eq!(*b.get::<&i32>().unwrap(), [456, 789]);
 }
 
 #[test]
@@ -822,28 +822,6 @@ fn query_or() {
 }
 
 #[test]
-fn column_get() {
-    let mut world = World::new();
-    let ent = world.spawn((123, "abc"));
-    let ent2 = world.spawn((true, "hecs"));
-    let column = world.column::<&str>();
-    assert_eq!(*column.get(ent).unwrap(), "abc");
-    assert_eq!(*column.get(ent2).unwrap(), "hecs");
-}
-
-#[test]
-fn column_get_mut() {
-    let mut world = World::new();
-    let ent = world.spawn((0, true));
-    {
-        let mut column = world.column_mut::<i32>();
-        *column.get(ent).unwrap() = 99;
-        assert_eq!(*column.get(ent).unwrap(), 99);
-    }
-    assert_eq!(*world.get::<i32>(ent).unwrap(), 99);
-}
-
-#[test]
 fn len() {
     let mut world = World::new();
     let ent = world.spawn(());
@@ -864,142 +842,22 @@ fn take() {
     let mut world_b = World::new();
     let e2 = world_b.spawn(world_a.take(e).unwrap());
     assert!(!world_a.contains(e));
-    assert_eq!(*world_b.get::<String>(e2).unwrap(), "abc");
-    assert_eq!(*world_b.get::<i32>(e2).unwrap(), 42);
-    assert_eq!(*world_a.get::<String>(f).unwrap(), "def");
-    assert_eq!(*world_a.get::<i32>(f).unwrap(), 17);
+    assert_eq!(*world_b.get::<&String>(e2).unwrap(), "abc");
+    assert_eq!(*world_b.get::<&i32>(e2).unwrap(), 42);
+    assert_eq!(*world_a.get::<&String>(f).unwrap(), "def");
+    assert_eq!(*world_a.get::<&i32>(f).unwrap(), 17);
     world_b.take(e2).unwrap();
     assert!(!world_b.contains(e2));
 }
 
-#[cfg(feature = "parallel-iterators")]
 #[test]
-fn pariter_iterator() {
-    // NOTE: This is currently a big monolithic test
-    // with a bunch of random nonsense just to validate
-    // various use cases.  It was simply easier to deal
-    // with during development.
-    // TODO: Break up into actual unique tests.
-
-    use std::sync::{
-        atomic::{AtomicUsize, Ordering},
-        Arc, Barrier,
-    };
-    use std::thread;
-
-    // Test constants.
-    const VARIANCE_LOOPS: usize = 100;
-    const MAX_THREADS: usize = 16;
-    const ENTITY_COUNT: usize = 10000;
-    const RANDOM_ADDITIONS: bool = true;
-    const RANDOM_OTHERS: usize = 1000;
-
-    // Run this multiple times so we get a bunch of different combinations.
-    for _ in 0..VARIANCE_LOOPS {
-        // Change the number of threads randomly.
-        let thread_count = 1 + (rand::random::<f32>() * ((MAX_THREADS - 1) as f32)) as usize;
-
-        // Create a simple world for testing purposes.
-        let mut world = World::new();
-        for i in 0_u32..ENTITY_COUNT as u32 {
-            world.spawn((i, 1234_usize));
-        }
-
-        if RANDOM_ADDITIONS {
-            // Add random unused components to the entities in order
-            // to validate archetype traversal.
-            let mut commands = hecs::CommandBuffer::new();
-            for entity in &world {
-                if rand::random::<f32>() >= 0.5 {
-                    commands.insert(entity.entity(), (1_u8, 2_u16));
-                }
-            }
-            for entity in &world {
-                if rand::random::<f32>() >= 0.5 {
-                    commands.insert(entity.entity(), (3_i64, 4_f32));
-                }
-            }
-            for entity in &world {
-                if rand::random::<f32>() >= 0.5 {
-                    commands.insert(entity.entity(), (3_u128, 4_f64));
-                }
-            }
-            commands.run_on(&mut world);
-        }
-
-        {
-            let mut commands = hecs::CommandBuffer::new();
-            // Add random unused entities just to have other archetypes.
-            for _ in 0..RANDOM_OTHERS {
-                let entity = world.reserve_entity();
-                if rand::random::<f32>() >= 0.5 {
-                    commands.insert(entity, (1_u8, 2_u16));
-                }
-                if rand::random::<f32>() >= 0.5 {
-                    commands.insert(entity, (1_u8, 2_u16));
-                }
-                if rand::random::<f32>() >= 0.5 {
-                    commands.insert(entity, (3_i64, 4_f32));
-                }
-                if rand::random::<f32>() >= 0.5 {
-                    commands.insert(entity, (3_u128, 4_f64));
-                }
-            }
-            commands.run_on(&mut world);
-        }
-
-        // Testing information.
-        let counter = Arc::new(AtomicUsize::new(0));
-        let start_barrier = Arc::new(Barrier::new(thread_count));
-
-        // Create the iterator.
-        let iter = ParallelIter::new();
-
-        // Use random partion sizes.
-        let partition_size = 1 + (rand::random::<f32>() * 100.0) as usize;
-        println!(
-            "Thread count: {} - Partition: {}",
-            thread_count, partition_size
-        );
-
-        // Spawn the threads to perform the iteration.
-        // They will pause on the barrier until all have been spawned.
-        // This is just a method to mostly guarantee that multiple threads
-        // will actively take partitions.
-        let handles = (0..thread_count)
-            .map(|_| {
-                let start_barrier = start_barrier.clone();
-                let iter = iter.clone();
-                let counter = counter.clone();
-
-                thread::Builder::new()
-                    .spawn({
-                        // Still have to strip the world reference lifetime here due to
-                        // raw threading expecting all 'static lifetimes.
-                        let world: &'static World = unsafe { std::mem::transmute(&world) };
-                        move || {
-                            start_barrier.wait();
-                            unsafe {
-                                world.parallel_query::<(&u32, &usize)>(
-                                    iter,
-                                    partition_size,
-                                    &|_, _| {
-                                        counter.fetch_add(1, Ordering::SeqCst);
-                                    },
-                                );
-                            };
-                        }
-                    })
-                    .unwrap()
-            })
-            .collect::<Vec<_>>();
-
-        // Join the threads before testing completion.
-        handles
-            .into_iter()
-            .for_each(move |handle| handle.join().expect("Thread failure!"));
-
-        // Check that we iterated everything.
-        assert_eq!(counter.load(Ordering::SeqCst), ENTITY_COUNT);
+fn empty_archetype_conflict() {
+    let mut world = World::new();
+    let _ = world.spawn((42, true));
+    let _ = world.spawn((17, "abc"));
+    let e = world.spawn((12, false, "def"));
+    world.despawn(e).unwrap();
+    for _ in world.query::<(&mut i32, &&str)>().iter() {
+        for _ in world.query::<(&mut i32, &bool)>().iter() {}
     }
 }

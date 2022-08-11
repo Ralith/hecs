@@ -10,7 +10,6 @@ use core::any::TypeId;
 use core::borrow::Borrow;
 use core::convert::TryFrom;
 use core::hash::{BuildHasherDefault, Hasher};
-use core::marker::PhantomData;
 use spin::Mutex;
 
 use core::{fmt, ptr};
@@ -27,9 +26,8 @@ use crate::alloc::boxed::Box;
 use crate::archetype::{Archetype, TypeIdMap, TypeInfo};
 use crate::entities::{Entities, EntityMeta, Location, ReserveEntitiesIterator};
 use crate::{
-    Bundle, Column, ColumnBatch, ColumnMut, DynamicBundle, Entity, EntityRef, Fetch,
-    MissingComponent, NoSuchEntity, Query, QueryBorrow, QueryItem, QueryMut, QueryOne, Ref, RefMut,
-    TakenEntity,
+    Bundle, ColumnBatch, ComponentRef, DynamicBundle, Entity, EntityRef, Fetch, MissingComponent,
+    NoSuchEntity, Query, QueryBorrow, QueryItem, QueryMut, QueryOne, TakenEntity,
 };
 
 /// An unordered collection of entities, each having any number of distinctly typed components
@@ -190,7 +188,7 @@ impl World {
     /// let mut world = World::new();
     /// let entities = world.spawn_batch((0..1_000).map(|i| (i, "abc"))).collect::<Vec<_>>();
     /// for i in 0..1_000 {
-    ///     assert_eq!(*world.get::<i32>(entities[i]).unwrap(), i as i32);
+    ///     assert_eq!(*world.get::<&i32>(entities[i]).unwrap(), i as i32);
     /// }
     /// ```
     pub fn spawn_batch<I>(&mut self, iter: I) -> SpawnBatchIter<'_, I::IntoIter>
@@ -489,25 +487,20 @@ impl World {
         unsafe { Ok(fetch.get(loc.index as usize)) }
     }
 
-    /// Borrow the `T` component of `entity`
-    ///
-    /// Panics if the component is already uniquely borrowed from another entity with the same
-    /// components.
-    pub fn get<T: Component>(&self, entity: Entity) -> Result<Ref<'_, T>, ComponentError> {
+    /// Short-hand for [`entity`](Self::entity) followed by [`EntityRef::get`]
+    pub fn get<'a, T: ComponentRef<'a>>(
+        &'a self,
+        entity: Entity,
+    ) -> Result<T::Ref, ComponentError> {
         Ok(self
             .entity(entity)?
-            .get()
-            .ok_or_else(MissingComponent::new::<T>)?)
+            .get::<T>()
+            .ok_or_else(MissingComponent::new::<T::Component>)?)
     }
 
-    /// Uniquely borrow the `T` component of `entity`
-    ///
-    /// Panics if the component is already borrowed from another entity with the same components.
-    pub fn get_mut<T: Component>(&self, entity: Entity) -> Result<RefMut<'_, T>, ComponentError> {
-        Ok(self
-            .entity(entity)?
-            .get_mut()
-            .ok_or_else(MissingComponent::new::<T>)?)
+    /// Short-hand for [`entity`](Self::entity) followed by [`EntityRef::satisfies`]
+    pub fn satisfies<Q: Query>(&self, entity: Entity) -> Result<bool, NoSuchEntity> {
+        Ok(self.entity(entity)?.satisfies::<Q>())
     }
 
     /// Access an entity regardless of its component types
@@ -567,8 +560,8 @@ impl World {
     /// let mut world = World::new();
     /// let e = world.spawn((123, "abc"));
     /// world.insert(e, (456, true));
-    /// assert_eq!(*world.get::<i32>(e).unwrap(), 456);
-    /// assert_eq!(*world.get::<bool>(e).unwrap(), true);
+    /// assert_eq!(*world.get::<&i32>(e).unwrap(), 456);
+    /// assert_eq!(*world.get::<&bool>(e).unwrap(), true);
     /// ```
     pub fn insert(
         &mut self,
@@ -578,7 +571,8 @@ impl World {
         self.flush();
 
         let loc = self.entities.get(entity)?;
-        self.insert_inner(entity, components, loc.archetype, loc)
+        self.insert_inner(entity, components, loc.archetype, loc);
+        Ok(())
     }
 
     /// The implementation backing [`insert`](Self::insert) exposed so that it can also be used by [`exchange`](Self::exchange).
@@ -592,7 +586,7 @@ impl World {
         components: impl DynamicBundle,
         graph_origin: u32,
         loc: Location,
-    ) -> Result<(), NoSuchEntity> {
+    ) {
         let target_storage;
         let target = match components.key() {
             None => {
@@ -624,7 +618,7 @@ impl World {
                 components.put(|ptr, ty| {
                     arch.put_dynamic(ptr, ty.id(), ty.layout().size(), loc.index);
                 });
-                return Ok(());
+                return;
             }
 
             let (source_arch, target_arch) = index2(
@@ -657,7 +651,6 @@ impl World {
                 self.entities.meta[moved as usize].location.index = loc.index;
             }
         }
-        Ok(())
     }
 
     /// Add `component` to `entity`
@@ -686,9 +679,9 @@ impl World {
     /// let mut world = World::new();
     /// let e = world.spawn((123, "abc", true));
     /// assert_eq!(world.remove::<(i32, &str)>(e), Ok((123, "abc")));
-    /// assert!(world.get::<i32>(e).is_err());
-    /// assert!(world.get::<&str>(e).is_err());
-    /// assert_eq!(*world.get::<bool>(e).unwrap(), true);
+    /// assert!(world.get::<&i32>(e).is_err());
+    /// assert!(world.get::<&&str>(e).is_err());
+    /// assert_eq!(*world.get::<&bool>(e).unwrap(), true);
     /// ```
     pub fn remove<T: Bundle + 'static>(&mut self, entity: Entity) -> Result<T, ComponentError> {
         self.flush();
@@ -788,7 +781,7 @@ impl World {
         let intermediate =
             Self::remove_target::<S>(&mut self.archetypes, &mut self.remove_edges, loc.archetype);
 
-        self.insert_inner(entity, components, intermediate, loc)?;
+        self.insert_inner(entity, components, intermediate, loc);
 
         Ok(bundle)
     }
@@ -805,7 +798,9 @@ impl World {
             .map(|(x,)| x)
     }
 
-    /// Borrow the `T` component of `entity` without safety checks
+    /// Borrow a single component of `entity` without safety checks
+    ///
+    /// `T` must be a shared or unique reference to a component type.
     ///
     /// Should only be used as a building block for safe abstractions.
     ///
@@ -813,39 +808,21 @@ impl World {
     ///
     /// `entity` must have been previously obtained from this [`World`], and no unique borrow of the
     /// same component of `entity` may be live simultaneous to the returned reference.
-    pub unsafe fn get_unchecked<T: Component>(&self, entity: Entity) -> Result<&T, ComponentError> {
-        let loc = self.entities.get(entity)?;
-        let archetype = &self.archetypes.archetypes[loc.archetype as usize];
-        let state = archetype
-            .get_state::<T>()
-            .ok_or_else(MissingComponent::new::<T>)?;
-        Ok(&*archetype
-            .get_base::<T>(state)
-            .as_ptr()
-            .add(loc.index as usize))
-    }
-
-    /// Uniquely borrow the `T` component of `entity` without safety checks
-    ///
-    /// Should only be used as a building block for safe abstractions.
-    ///
-    /// # Safety
-    ///
-    /// `entity` must have been previously obtained from this [`World`], and no borrow of the same
-    /// component of `entity` may be live simultaneous to the returned reference.
-    pub unsafe fn get_unchecked_mut<T: Component>(
-        &self,
+    pub unsafe fn get_unchecked<'a, T: ComponentRef<'a>>(
+        &'a self,
         entity: Entity,
-    ) -> Result<&mut T, ComponentError> {
+    ) -> Result<T, ComponentError> {
         let loc = self.entities.get(entity)?;
         let archetype = &self.archetypes.archetypes[loc.archetype as usize];
         let state = archetype
-            .get_state::<T>()
-            .ok_or_else(MissingComponent::new::<T>)?;
-        Ok(&mut *archetype
-            .get_base::<T>(state)
-            .as_ptr()
-            .add(loc.index as usize))
+            .get_state::<T::Component>()
+            .ok_or_else(MissingComponent::new::<T::Component>)?;
+        Ok(T::from_raw(
+            archetype
+                .get_base::<T::Component>(state)
+                .as_ptr()
+                .add(loc.index as usize),
+        ))
     }
 
     /// Convert all reserved entities into empty entities that can be iterated and accessed
@@ -864,39 +841,6 @@ impl World {
     /// efficient serialization.
     pub fn archetypes(&self) -> impl ExactSizeIterator<Item = &'_ Archetype> + '_ {
         self.archetypes_inner().iter()
-    }
-
-    /// Borrow every `T` component for efficient random access
-    ///
-    /// [`Column::get`] is semantically equivalent to [`World::get`], except that every `T`
-    /// component is borrowed in advance, and repeated calls are much cheaper, at the cost of
-    /// additional work when the [`Column`] is fetched.
-    ///
-    /// Panics if a unique borrow is outstanding for any `T` component.
-    ///
-    /// # Example
-    /// ```
-    /// use::hecs::*;
-    /// let mut world = World::new();
-    /// let ent = world.spawn((123, "abc"));
-    /// let column = world.column::<i32>();
-    /// assert_eq!(*column.get(ent).unwrap(), 123);
-    /// ```
-    #[deprecated(since = "0.7.2", note = "use the more general QueryBorrow::view")]
-    pub fn column<T: Component>(&self) -> Column<'_, T> {
-        let archetypes = self.archetypes.archetypes.as_slice();
-        let entities = self.entities.meta.as_slice();
-        Column::new(entities, archetypes, PhantomData)
-    }
-
-    /// Uniquely borrows every `T` component for efficient random access
-    ///
-    /// See [`World::column`].
-    #[deprecated(since = "0.7.2", note = "use the more general QueryBorrow::view")]
-    pub fn column_mut<T: Component>(&self) -> ColumnMut<'_, T> {
-        let archetypes = self.archetypes.archetypes.as_slice();
-        let entities = self.entities.meta.as_slice();
-        ColumnMut::new(entities, archetypes, PhantomData)
     }
 
     /// Despawn `entity`, yielding a [`DynamicBundle`] of its components
@@ -1409,13 +1353,13 @@ mod tests {
     fn reuse_populated() {
         let mut world = World::new();
         let a = world.spawn((42,));
-        assert_eq!(*world.get::<i32>(a).unwrap(), 42);
+        assert_eq!(*world.get::<&i32>(a).unwrap(), 42);
         world.despawn(a).unwrap();
         let b = world.spawn((true,));
         assert_eq!(a.id, b.id);
         assert_ne!(a.generation, b.generation);
-        assert!(world.get::<i32>(b).is_err());
-        assert!(*world.get::<bool>(b).unwrap());
+        assert!(world.get::<&i32>(b).is_err());
+        assert!(*world.get::<&bool>(b).unwrap());
     }
 
     #[test]
