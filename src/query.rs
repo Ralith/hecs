@@ -1040,7 +1040,10 @@ macro_rules! tuple_impl {
 }
 
 //smaller_tuples_too!(tuple_impl, B, A);
-smaller_tuples_too!(tuple_impl, O, N, M, L, K, J, I, H, G, F, E, D, C, B, A);
+smaller_tuples_too!(
+    tuple_impl, AA, BB, CC, DD, EE, FF, GG, HH, II, JJ, KK, LL, MM, NN, OO, PP, QQ, RR, SS, TT, UU,
+    VV, WW, XX, YY, ZZ, Z, Y, X, W, V, U, S, R, Q, P, O, N, M, L, K, J, I, H, G, F, E, D, C, B, A
+);
 
 /// A prepared query can be stored independently of the [`World`] to amortize query set-up costs.
 pub struct PreparedQuery<Q: Query> {
