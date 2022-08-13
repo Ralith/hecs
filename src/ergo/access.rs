@@ -3,7 +3,7 @@ use core::{
     any::TypeId,
     cell::{Cell, RefCell},
     ops::{Deref, DerefMut},
-    ptr::{null_mut, NonNull},
+    ptr::NonNull,
 };
 
 use crate::{Component, Entity, TypeInfo, World};
@@ -198,7 +198,9 @@ impl AccessControl {
     pub(super) fn has_active_refs(&self) -> bool {
         for chunk in self.borrow_counter_chunks.borrow().iter() {
             for item in chunk.iter() {
-                return item.refs.get() > 0;
+                if item.refs.get() > 0 {
+                    return true;
+                }
             }
         }
         false
@@ -240,7 +242,7 @@ impl Clone for DynComponentRef {
         let access = unsafe { &*self.access_ptr };
         access.increment_refs();
         Self {
-            access_ptr: self.access_ptr.clone(),
+            access_ptr: self.access_ptr,
         }
     }
 }
@@ -366,7 +368,7 @@ pub struct ComponentRef<T: Component> {
 impl<T: Component> ComponentRef<T> {
     pub fn read(&self) -> Ref<T> {
         let access = unsafe { &*self.component_ref.access_ptr };
-        if access.data_addr.get() == null_mut() {
+        if access.data_addr.get().is_null() {
             panic!(
                 "Component read attempted on removed component {} for entity {:?}",
                 access.component_type.get().name().unwrap_or(""),
@@ -382,7 +384,7 @@ impl<T: Component> ComponentRef<T> {
     }
     pub fn write(&mut self) -> RefMut<T> {
         let access = unsafe { &*self.component_ref.access_ptr };
-        if access.data_addr.get() == null_mut() {
+        if access.data_addr.get().is_null() {
             panic!(
                 "Component write attempted on removed component {} for entity {:?}",
                 access.component_type.get().name().unwrap_or(""),

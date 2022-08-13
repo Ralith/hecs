@@ -1,16 +1,13 @@
 use core::cell::RefCell;
-use core::f32::consts::E;
 use core::slice::Iter as SliceIter;
 use core::{marker::PhantomData, ptr::NonNull};
 
 use alloc::rc::Rc;
-use alloc::vec::Vec;
 
-use crate::entities::Entities;
 use crate::{entities::EntityMeta, Archetype, Component, Entity};
-use crate::{query, ComponentError, ErgoScope, MissingComponent, TypeInfo};
+use crate::{ComponentError, ErgoScope, MissingComponent, TypeInfo};
 
-use super::access::{AccessControl, ComponentRef};
+use super::access::ComponentRef;
 use super::scope::ActiveQueryState;
 
 /// Errors that arise when fetching
@@ -305,27 +302,28 @@ unsafe impl<'a, L: Fetch<'a>, R: Fetch<'a>> Fetch<'a> for FetchOr<L, R> {
 ///
 /// # Example
 /// ```
-/// # use hecs::*;
+/// # use hecs::ergo::*;
 /// let mut world = World::new();
 /// let a = world.spawn((123, true, "abc"));
 /// let b = world.spawn((456, false));
 /// let c = world.spawn((42, "def"));
-/// let entities = world.query::<Without<bool, &i32>>()
+/// let ergo = ErgoScope::new(&mut world);
+/// let entities = ergo.query::<Without<&i32, &bool>>()
 ///     .iter()
-///     .map(|(e, &i)| (e, i))
+///     .map(|(e, i)| (e, *i.read()))
 ///     .collect::<Vec<_>>();
 /// assert_eq!(entities, &[(c, 42)]);
 /// ```
-pub struct Without<T, Q>(PhantomData<(Q, fn(T))>);
+pub struct Without<Q, R>(PhantomData<(Q, fn(R))>);
 
-impl<T: Component, Q: Query> Query for Without<T, Q> {
-    type Fetch = FetchWithout<T, Q::Fetch>;
+impl<Q: Query, R: Query> Query for Without<Q, R> {
+    type Fetch = FetchWithout<Q::Fetch, R::Fetch>;
 }
 
 #[doc(hidden)]
-pub struct FetchWithout<T, F>(F, PhantomData<fn(T)>);
+pub struct FetchWithout<F, G>(F, PhantomData<fn(G)>);
 
-unsafe impl<'a, T: Component, F: Fetch<'a>> Fetch<'a> for FetchWithout<T, F> {
+unsafe impl<'a, F: Fetch<'a>, G: Fetch<'a>> Fetch<'a> for FetchWithout<F, G> {
     type Item = F::Item;
 
     type State = F::State;
@@ -335,7 +333,7 @@ unsafe impl<'a, T: Component, F: Fetch<'a>> Fetch<'a> for FetchWithout<T, F> {
     }
 
     fn prepare(archetype: &Archetype) -> Option<Self::State> {
-        if archetype.has::<T>() {
+        if G::prepare(archetype).is_some() {
             return None;
         }
         F::prepare(archetype)
@@ -349,11 +347,7 @@ unsafe impl<'a, T: Component, F: Fetch<'a>> Fetch<'a> for FetchWithout<T, F> {
     }
 
     unsafe fn get_overridden(scope: &ErgoScope, entity: Entity) -> Result<Self::Item, FetchError> {
-        if !scope.has_component::<T>(entity) {
-            F::get_overridden(scope, entity)
-        } else {
-            Err(FetchError::InvalidMatch)
-        }
+        F::get_overridden(scope, entity)
     }
 }
 
@@ -363,29 +357,30 @@ unsafe impl<'a, T: Component, F: Fetch<'a>> Fetch<'a> for FetchWithout<T, F> {
 ///
 /// # Example
 /// ```
-/// # use hecs::*;
+/// # use hecs::ergo::*;
 /// let mut world = World::new();
 /// let a = world.spawn((123, true, "abc"));
 /// let b = world.spawn((456, false));
 /// let c = world.spawn((42, "def"));
-/// let entities = world.query::<With<bool, &i32>>()
+/// let ergo = ErgoScope::new(&mut world);
+/// let entities = ergo.query::<With<&i32, &bool>>()
 ///     .iter()
-///     .map(|(e, &i)| (e, i))
+///     .map(|(e, i)| (e, *i.read()))
 ///     .collect::<Vec<_>>();
 /// assert_eq!(entities.len(), 2);
 /// assert!(entities.contains(&(a, 123)));
 /// assert!(entities.contains(&(b, 456)));
 /// ```
-pub struct With<T, Q>(PhantomData<(Q, fn(T))>);
+pub struct With<Q, R>(PhantomData<(Q, fn(R))>);
 
-impl<T: Component, Q: Query> Query for With<T, Q> {
-    type Fetch = FetchWith<T, Q::Fetch>;
+impl<Q: Query, R: Query> Query for With<Q, R> {
+    type Fetch = FetchWith<Q::Fetch, R::Fetch>;
 }
 
 #[doc(hidden)]
-pub struct FetchWith<T, F>(F, PhantomData<fn(T)>);
+pub struct FetchWith<F, G>(F, PhantomData<fn(G)>);
 
-unsafe impl<'a, T: Component, F: Fetch<'a>> Fetch<'a> for FetchWith<T, F> {
+unsafe impl<'a, F: Fetch<'a>, G: Fetch<'a>> Fetch<'a> for FetchWith<F, G> {
     type Item = F::Item;
 
     type State = F::State;
@@ -395,9 +390,7 @@ unsafe impl<'a, T: Component, F: Fetch<'a>> Fetch<'a> for FetchWith<T, F> {
     }
 
     fn prepare(archetype: &Archetype) -> Option<Self::State> {
-        if !archetype.has::<T>() {
-            return None;
-        }
+        G::prepare(archetype)?;
         F::prepare(archetype)
     }
     fn execute(archetype: &'a Archetype, state: Self::State) -> Self {
@@ -419,12 +412,13 @@ unsafe impl<'a, T: Component, F: Fetch<'a>> Fetch<'a> for FetchWith<T, F> {
 ///
 /// # Example
 /// ```
-/// # use hecs::*;
+/// # use hecs::ergo::*;
 /// let mut world = World::new();
 /// let a = world.spawn((123, true, "abc"));
 /// let b = world.spawn((456, false));
 /// let c = world.spawn((42, "def"));
-/// let entities = world.query::<Satisfies<&bool>>()
+/// let ergo = ErgoScope::new(&mut world);
+/// let entities = ergo.query::<Satisfies<&bool>>()
 ///     .iter()
 ///     .map(|(e, x)| (e, x))
 ///     .collect::<Vec<_>>();
@@ -515,20 +509,21 @@ impl<'w, Q: Query> QueryBorrow<'w, Q> {
     ///
     /// # Example
     /// ```
-    /// # use hecs::*;
+    /// # use hecs::ergo::*;
     /// let mut world = World::new();
     /// let a = world.spawn((123, true, "abc"));
     /// let b = world.spawn((456, false));
     /// let c = world.spawn((42, "def"));
-    /// let entities = world.query::<&i32>()
-    ///     .with::<bool>()
+    /// let ergo = ErgoScope::new(&mut world);
+    /// let entities = ergo.query::<&i32>()
+    ///     .with::<&bool>()
     ///     .iter()
-    ///     .map(|(e, &i)| (e, i)) // Copy out of the world
+    ///     .map(|(e, i)| (e, *i.read())) // Copy out of the world
     ///     .collect::<Vec<_>>();
     /// assert!(entities.contains(&(a, 123)));
     /// assert!(entities.contains(&(b, 456)));
     /// ```
-    pub fn with<T: Component>(self) -> QueryBorrow<'w, With<T, Q>> {
+    pub fn with<R: Query>(self) -> QueryBorrow<'w, With<Q, R>> {
         self.transform()
     }
 
@@ -538,21 +533,28 @@ impl<'w, Q: Query> QueryBorrow<'w, Q> {
     ///
     /// # Example
     /// ```
-    /// # use hecs::*;
+    /// # use hecs::ergo::*;
     /// let mut world = World::new();
     /// let a = world.spawn((123, true, "abc"));
     /// let b = world.spawn((456, false));
     /// let c = world.spawn((42, "def"));
-    /// let entities = world.query::<&i32>()
-    ///     .without::<bool>()
+    /// let ergo = ErgoScope::new(&mut world);
+    /// let entities = ergo.query::<&i32>()
+    ///     .without::<&bool>()
     ///     .iter()
-    ///     .map(|(e, &i)| (e, i)) // Copy out of the world
+    ///     .map(|(e, i)| (e, *i.read())) // Copy out of the world
     ///     .collect::<Vec<_>>();
     /// assert_eq!(entities, &[(c, 42)]);
     /// ```
-    pub fn without<T: Component>(self) -> QueryBorrow<'w, Without<T, Q>> {
+    pub fn without<R: Query>(self) -> QueryBorrow<'w, Without<Q, R>> {
         self.transform()
     }
+
+    // TODO implement
+    /// Determine whether this entity would satisfy the query `Q`
+    // pub fn satisfies<R: Query>(&self) -> bool {
+    //     R::Fetch::prepare(self.archetype).is_some()
+    // }
 
     /// Helper to change the type of the query
     fn transform<R: Query>(self) -> QueryBorrow<'w, R> {
@@ -820,9 +822,9 @@ fn assert_distinct<const N: usize>(entities: &[Entity; N]) {
 }
 #[cfg(test)]
 mod tests {
-    use crate::{ErgoScope, World};
+    use alloc::vec::Vec;
 
-    use super::*;
+    use crate::{ErgoScope, World};
 
     #[test]
     fn ergo_query_iter() {

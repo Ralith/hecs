@@ -700,9 +700,9 @@ impl World {
                 unsafe {
                     let ptr = source_arch
                         .get_dynamic(ty.id(), ty.layout().size(), old_index)
-                        .ok_or(ComponentError::MissingComponent(
-                            MissingComponent::new_dynamic(*ty),
-                        ))?;
+                        .ok_or_else(|| {
+                            ComponentError::MissingComponent(MissingComponent::new_dynamic(*ty))
+                        })?;
                     builder.inner.add(ptr.as_ptr(), *ty, ());
                 }
             }
@@ -744,9 +744,9 @@ impl World {
     /// let mut world = World::new();
     /// let e = world.spawn((123, "abc", true));
     /// assert_eq!(world.remove::<(i32, &str)>(e), Ok((123, "abc")));
-    /// assert!(world.get::<i32>(e).is_err());
-    /// assert!(world.get::<&str>(e).is_err());
-    /// assert_eq!(*world.get::<bool>(e).unwrap(), true);
+    /// assert!(world.get::<&i32>(e).is_err());
+    /// assert!(world.get::<&&str>(e).is_err());
+    /// assert_eq!(*world.get::<&bool>(e).unwrap(), true);
     /// ```
     pub fn remove<T: Bundle + 'static>(&mut self, entity: Entity) -> Result<T, ComponentError> {
         self.flush();

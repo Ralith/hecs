@@ -54,7 +54,7 @@ impl<'a> ErgoScope<'a> {
 
     pub(super) fn alloc_query_state(&self) -> Rc<RefCell<ActiveQueryState>> {
         for query_state in self.query_states.borrow().iter() {
-            if Rc::strong_count(&query_state) == 1 {
+            if Rc::strong_count(query_state) == 1 {
                 *query_state.borrow_mut() = Default::default();
                 return query_state.clone();
             }
@@ -74,9 +74,9 @@ impl<'a> ErgoScope<'a> {
             unsafe {
                 let addr = archetype
                     .get_dynamic(type_info.id(), layout.size(), location.index)
-                    .ok_or(ComponentError::MissingComponent(
-                        MissingComponent::new::<T>(),
-                    ))?;
+                    .ok_or_else(
+                        || ComponentError::MissingComponent(MissingComponent::new::<T>()),
+                    )?;
                 Ok(self
                     .access
                     .get_typed_component_ref(entity, &type_info, addr))
@@ -95,16 +95,12 @@ impl<'a> ErgoScope<'a> {
             .get(&entity)
             .expect("override data not present despite entity being marked as overriden");
         match data {
-            EntityOverride::Deleted => {
-                return Err(ComponentError::NoSuchEntity);
-            }
+            EntityOverride::Deleted => Err(ComponentError::NoSuchEntity),
             EntityOverride::Changed(data) => {
                 let type_info = TypeInfo::of::<T>();
-                let addr =
-                    data.get_data_ptr(type_info.id())
-                        .ok_or(ComponentError::MissingComponent(
-                            MissingComponent::new::<T>(),
-                        ))?;
+                let addr = data.get_data_ptr(type_info.id()).ok_or_else(|| {
+                    ComponentError::MissingComponent(MissingComponent::new::<T>())
+                })?;
                 unsafe {
                     Ok(self
                         .access
@@ -270,20 +266,10 @@ impl<'a> ErgoScope<'a> {
         result
     }
 
-    pub(super) fn has_component<T: Component>(&self, entity: Entity) -> bool {
-        if self.access.is_entity_overridden(entity) {
-            let mut override_map = self.override_data.borrow_mut();
-            let data = override_map
-                .get_mut(&entity)
-                .expect("override data not present despite entity being marked as overriden");
-            match data {
-                EntityOverride::Deleted => false,
-                EntityOverride::Changed(data) => data.get_data_ptr(TypeId::of::<T>()).is_some(),
-            }
-        } else {
-            self.world.get::<T>(entity).is_ok()
-        }
-    }
+    // TODO implement
+    // pub fn satisfies<Q: Query>(&self, entity: Entity) -> Result<bool, NoSuchEntity> {
+    //     Ok(self.entity(entity)?.satisfies::<Q>())
+    // }
 
     /// Whether `entity` still exists
     pub fn contains(&self, entity: Entity) -> bool {
@@ -297,6 +283,8 @@ impl<'a> ErgoScope<'a> {
             self.world.contains(entity)
         }
     }
+
+    // TODO implement query_one
 
     /// Iterate over all entities that have certain components.
     ///
@@ -318,14 +306,15 @@ impl<'a> ErgoScope<'a> {
     ///
     /// # Example
     /// ```
-    /// # use hecs::*;
+    /// # use hecs::ergo::*;
     /// let mut world = World::new();
     /// let a = world.spawn((123, true, "abc"));
     /// let b = world.spawn((456, false));
     /// let c = world.spawn((42, "def"));
-    /// let entities = world.query::<(&i32, &bool)>()
+    /// let ergo = ErgoScope::new(&mut world);
+    /// let entities = ergo.query::<(&i32, &bool)>()
     ///     .iter()
-    ///     .map(|(e, (&i, &b))| (e, i, b)) // Copy out of the world
+    ///     .map(|(e, (i, b))| (e, *i.read(), *b.read())) // Copy out of the world
     ///     .collect::<Vec<_>>();
     /// assert_eq!(entities.len(), 2);
     /// assert!(entities.contains(&(a, 123, true)));
@@ -478,12 +467,11 @@ struct EntityOverrideData {
 impl Drop for EntityOverrideData {
     fn drop(&mut self) {
         for i in 0..self.types.len() {
-            match self.components[i] {
-                ComponentData::ScopeOwned(ptr) => unsafe {
+            if let ComponentData::ScopeOwned(ptr) = &self.components[i] {
+                unsafe {
                     self.types[i].drop(ptr.as_ptr());
                     alloc::alloc::dealloc(ptr.as_ptr(), self.types[i].layout())
-                },
-                _ => {}
+                }
             }
         }
     }
@@ -630,12 +618,9 @@ unsafe impl DynamicBundle for EntityOverrideData {
 
     unsafe fn put(mut self, mut f: impl FnMut(*mut u8, TypeInfo)) {
         for idx in 0..self.types.len() {
-            match &self.components[idx] {
-                ComponentData::ScopeOwned(data_ptr) => {
-                    f(data_ptr.as_ptr(), self.types[idx]);
-                    alloc::alloc::dealloc(data_ptr.as_ptr(), self.types[idx].layout());
-                }
-                _ => {}
+            if let ComponentData::ScopeOwned(data_ptr) = &self.components[idx] {
+                f(data_ptr.as_ptr(), self.types[idx]);
+                alloc::alloc::dealloc(data_ptr.as_ptr(), self.types[idx].layout());
             }
         }
         self.components.clear();
@@ -739,13 +724,13 @@ mod test {
 
         // check that the inserted component exists in the world
         let component = world
-            .get::<usize>(e)
+            .get::<&usize>(e)
             .expect("failed to get inserted component");
         assert_eq!(*component, 8usize);
 
         // check that modified components have their values in the world
         let component = world
-            .get::<i32>(e)
+            .get::<&i32>(e)
             .expect("failed to get inserted component");
         assert_eq!(*component, 7i32);
     }
@@ -799,10 +784,10 @@ mod test {
         }
 
         // check that removed components are removed in world
-        assert!(world.get::<i32>(e).is_err());
+        assert!(world.get::<&i32>(e).is_err());
         // check that other components still work
         let component = world
-            .get::<f32>(e)
+            .get::<&f32>(e)
             .expect("failed to get inserted component");
         assert_eq!(*component, 1.5f32);
     }
@@ -837,7 +822,7 @@ mod test {
         }
         assert!(!world.contains(e));
 
-        assert!(world.get::<i32>(e).is_err());
+        assert!(world.get::<&i32>(e).is_err());
     }
 
     #[should_panic]
