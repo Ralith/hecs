@@ -367,20 +367,26 @@ pub struct ComponentRef<T: Component> {
 
 impl<T: Component> ComponentRef<T> {
     pub fn read(&self) -> Ref<T> {
-        let access = unsafe { &*self.component_ref.access_ptr };
-        if access.data_addr.get().is_null() {
+        self.try_read().unwrap_or_else(|| {
+            let access = unsafe { &*self.component_ref.access_ptr };
             panic!(
                 "Component read attempted on removed component {} for entity {:?}",
                 access.component_type.get().name().unwrap_or(""),
                 access.entity.get()
             );
+        })
+    }
+    pub fn try_read(&self) -> Option<Ref<T>> {
+        let access = unsafe { &*self.component_ref.access_ptr };
+        if access.data_addr.get().is_null() {
+            return None;
         }
         access.increment_read();
 
-        Ref {
+        Some(Ref {
             access_ptr: self.component_ref.access_ptr,
             phantom: Default::default(),
-        }
+        })
     }
     pub fn write(&mut self) -> RefMut<T> {
         let access = unsafe { &*self.component_ref.access_ptr };
@@ -396,5 +402,16 @@ impl<T: Component> ComponentRef<T> {
             access_ptr: self.component_ref.access_ptr,
             phantom: Default::default(),
         }
+    }
+    pub fn try_write(&mut self) -> Option<RefMut<T>> {
+        let access = unsafe { &*self.component_ref.access_ptr };
+        if access.data_addr.get().is_null() {
+            return None;
+        }
+        access.take_write_lock();
+        Some(RefMut {
+            access_ptr: self.component_ref.access_ptr,
+            phantom: Default::default(),
+        })
     }
 }
