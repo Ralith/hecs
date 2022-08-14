@@ -681,6 +681,46 @@ fn query_batched() {
 }
 
 #[test]
+fn query_mut_batched() {
+    let mut world = World::new();
+    let a = world.spawn(());
+    let b = world.spawn(());
+    let c = world.spawn((42,));
+    assert_eq!(world.query_mut::<()>().into_iter_batched(1).count(), 3);
+    assert_eq!(world.query_mut::<()>().into_iter_batched(2).count(), 2);
+    assert_eq!(
+        world
+            .query_mut::<()>()
+            .into_iter_batched(2)
+            .flatten()
+            .count(),
+        3
+    );
+    // different archetypes are always in different batches
+    assert_eq!(world.query_mut::<()>().into_iter_batched(3).count(), 2);
+    assert_eq!(
+        world
+            .query_mut::<()>()
+            .into_iter_batched(3)
+            .flatten()
+            .count(),
+        3
+    );
+    assert_eq!(world.query_mut::<()>().into_iter_batched(4).count(), 2);
+    let entities = world
+        .query_mut::<()>()
+        .into_iter_batched(1)
+        .flatten()
+        .map(|(e, ())| e)
+        .collect::<Vec<_>>();
+    dbg!(&entities);
+    assert_eq!(entities.len(), 3);
+    assert!(entities.contains(&a));
+    assert!(entities.contains(&b));
+    assert!(entities.contains(&c));
+}
+
+#[test]
 fn spawn_batch() {
     let mut world = World::new();
     world.spawn_batch((0..10).map(|x| (x, "abc")));

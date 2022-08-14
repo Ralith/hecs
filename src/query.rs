@@ -824,6 +824,13 @@ impl<'q, Q: Query> QueryMut<'q, Q> {
             iter: unsafe { QueryIter::new(self.iter.meta, self.iter.archetypes) },
         }
     }
+
+    /// Like `into_iter`, but returns child iterators of at most `batch_size` elements
+    ///
+    /// Useful for distributing work over a threadpool.
+    pub fn into_iter_batched(self, batch_size: u32) -> BatchedIter<'q, Q> {
+        unsafe { BatchedIter::new(self.iter.meta, self.iter.archetypes, batch_size) }
+    }
 }
 
 impl<'q, Q: Query> IntoIterator for QueryMut<'q, Q> {
