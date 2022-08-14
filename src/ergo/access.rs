@@ -221,9 +221,12 @@ impl AccessControl {
     pub(super) fn is_entity_overridden(&self, entity: Entity) -> bool {
         let overrides = self.entity_overrides.borrow();
         let idx = entity.id;
-        let override_bitchunk = idx / BitsetChunk::BITS;
+        let override_bitchunk = (idx / BitsetChunk::BITS) as usize;
         let bit_mask = 1 << (idx % BitsetChunk::BITS);
-        (overrides.storage[override_bitchunk as usize] & bit_mask) != 0
+        if override_bitchunk >= overrides.storage.len() {
+            return false;
+        }
+        (overrides.storage[override_bitchunk] & bit_mask) != 0
     }
 
     pub(super) fn set_entity_overridden(&self, entity: Entity) {

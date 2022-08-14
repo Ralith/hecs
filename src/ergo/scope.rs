@@ -200,7 +200,35 @@ impl<'a> ErgoScope<'a> {
     /// ```
     pub fn spawn(&self, components: impl DynamicBundle) -> Entity {
         let entity = self.world.reserve_entity();
-        self.access.set_entity_overridden(entity);
+        self.spawn_at(entity, components);
+        entity
+    }
+
+    /// Create an entity with certain components and a specific [`Entity`] handle.
+    ///
+    /// See [`spawn`](Self::spawn).
+    ///
+    /// Despawns any existing entity with the same [`Entity::id`].
+    ///
+    /// # Example
+    /// ```
+    /// # use hecs::ergo::*;
+    /// let mut world = World::new();
+    /// let ergo = ErgoScope::new(&mut world);
+    /// let a = ergo.spawn((123, "abc"));
+    /// let b = ergo.spawn((456, true));
+    /// ergo.despawn(a);
+    /// assert!(!ergo.contains(a));
+    /// // all previous Entity values pointing to 'a' will be live again, instead pointing to the new entity.
+    /// ergo.spawn_at(a, (789, "ABC"));
+    /// assert!(ergo.contains(a));
+    /// ```
+    pub fn spawn_at(&self, entity: Entity, components: impl DynamicBundle) {
+        if self.access.is_entity_overridden(entity) {
+            let _ = self.despawn(entity);
+        } else {
+            self.access.set_entity_overridden(entity);
+        }
         // first create a EntityOverrideData from the entity's existing data
         let mut override_data = EntityOverrideData::new();
         // then put the new components in the data
@@ -215,7 +243,11 @@ impl<'a> ErgoScope<'a> {
             .borrow_mut()
             .insert(entity, EntityOverride::Changed(override_data));
         self.on_entity_archetype_changed(entity, true);
-        entity
+    }
+
+    /// Allocate an entity ID
+    pub fn reserve_entity(&self) -> Entity {
+        self.world.entities().reserve_entity()
     }
 
     /// Remove the `T` component from `entity`
