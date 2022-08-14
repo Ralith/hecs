@@ -229,9 +229,12 @@ impl AccessControl {
     pub(super) fn set_entity_overridden(&self, entity: Entity) {
         let mut overrides = self.entity_overrides.borrow_mut();
         let idx = entity.id;
-        let override_bitchunk = idx / BitsetChunk::BITS;
+        let override_bitchunk = (idx / BitsetChunk::BITS) as usize;
         let bit_mask = 1 << (idx % BitsetChunk::BITS);
-        overrides.storage[override_bitchunk as usize] |= bit_mask;
+        if override_bitchunk >= overrides.storage.len() {
+            overrides.storage.resize(override_bitchunk + 1, 0);
+        }
+        overrides.storage[override_bitchunk] |= bit_mask;
     }
 }
 

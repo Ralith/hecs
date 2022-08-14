@@ -178,6 +178,46 @@ impl<'a> ErgoScope<'a> {
         result
     }
 
+    /// Create an entity with certain components
+    ///
+    /// Returns the ID of the newly created entity.
+    ///
+    /// Arguments can be tuples, structs annotated with [`#[derive(Bundle)]`](macro@Bundle), or the
+    /// result of calling [`build`](crate::EntityBuilder::build) on an
+    /// [`EntityBuilder`](crate::EntityBuilder), which is useful if the set of components isn't
+    /// statically known. To spawn an entity with only one component, use a one-element tuple like
+    /// `(x,)`.
+    ///
+    /// Any type that satisfies `Send + Sync + 'static` can be used as a component.
+    ///
+    /// # Example
+    /// ```
+    /// # use hecs::ergo::*;
+    /// let mut world = World::new();
+    /// let ergo = ErgoScope::new(&mut world);
+    /// let a = ergo.spawn((123, "abc"));
+    /// let b = ergo.spawn((456, true));
+    /// ```
+    pub fn spawn(&self, components: impl DynamicBundle) -> Entity {
+        let entity = self.world.reserve_entity();
+        self.access.set_entity_overridden(entity);
+        // first create a EntityOverrideData from the entity's existing data
+        let mut override_data = EntityOverrideData::new();
+        // then put the new components in the data
+        unsafe {
+            components.put(|ptr, ty| {
+                if let Some(new_ptr) = override_data.put_component(ty, ptr) {
+                    self.access.update_data_ptr(entity, &ty, new_ptr);
+                }
+            });
+        };
+        self.override_data
+            .borrow_mut()
+            .insert(entity, EntityOverride::Changed(override_data));
+        self.on_entity_archetype_changed(entity, true);
+        entity
+    }
+
     /// Remove the `T` component from `entity`
     ///
     /// See [`remove`](Self::remove).
@@ -273,7 +313,7 @@ impl<'a> ErgoScope<'a> {
     //     Ok(self.entity(entity)?.satisfies::<Q>())
     // }
 
-    /// Whether `entity` still exists
+    /// Whether `entity` exists
     pub fn contains(&self, entity: Entity) -> bool {
         if self.access.is_entity_overridden(entity) {
             let mut override_map = self.override_data.borrow_mut();
@@ -445,15 +485,17 @@ impl EntityOverride {
                         removed_components.push(data.types[idx]);
                     }
                 }
-                if !removed_components.is_empty() {
-                    let _removed_data = world
-                        .remove_dynamic(entity, &removed_components)
-                        .expect("error removing components in move_to_world");
-                }
                 if !world.contains(entity) {
                     world.spawn_at(entity, data);
                 } else {
-                    let _insert_result = world.insert(entity, data);
+                    if !removed_components.is_empty() {
+                        let _removed_data = world
+                            .remove_dynamic(entity, &removed_components)
+                            .expect("error removing components in move_to_world");
+                    }
+                    world
+                        .insert(entity, data)
+                        .expect("failed to insert components when moving changed data to world");
                 }
             }
         }
@@ -480,6 +522,12 @@ impl Drop for EntityOverrideData {
 }
 
 impl EntityOverrideData {
+    fn new() -> Self {
+        Self {
+            components: Vec::new(),
+            types: Vec::new(),
+        }
+    }
     // Moves a component into self, adding or replacing existing data
     unsafe fn put_component(&mut self, type_info: TypeInfo, src_ptr: *mut u8) -> Option<*mut u8> {
         match self.get_component_data_mut(type_info.id()) {
@@ -874,5 +922,22 @@ mod test {
                 .expect("failed to remove component");
             assert_eq!(*component.read(), 5i32);
         }
+    }
+
+    #[test]
+    fn ergo_spawn() {
+        let mut world = World::new();
+        let e = {
+            let ergo_scope = ErgoScope::new(&mut world);
+            let e = ergo_scope.spawn((5i32, 1.5f32));
+            let component = ergo_scope.get::<i32>(e).expect("failed to get component");
+            assert_eq!(*component.read(), 5i32);
+            e
+        };
+
+        let c1 = world.get::<&i32>(e).expect("failed to get component");
+        assert_eq!(*c1, 5i32);
+        let c2 = world.get::<&f32>(e).expect("failed to get component");
+        assert_eq!(*c2, 1.5f32);
     }
 }

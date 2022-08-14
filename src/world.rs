@@ -648,21 +648,19 @@ impl World {
         self.insert(entity, (component,))
     }
 
-    /// Remove components from `entity`
+    /// Remove components from `entity` given their TypeInfo.
     ///
     /// Computational cost is proportional to the number of components `entity` has. The entity
     /// itself is not removed, even if no components remain; use `despawn` for that. If any
     /// component in `T` is not present in `entity`, no components are removed and an error is
     /// returned.
-    ///
-    /// When removing a single component, see [`remove_one`](Self::remove_one) for convenience.
-    ///
+    //
     /// # Example
     /// ```
     /// # use hecs::*;
     /// let mut world = World::new();
     /// let e = world.spawn((123, "abc", true));
-    /// assert_eq!(world.remove::<(i32, &str)>(e), Ok((123, "abc")));
+    /// world.remove_dynamic(e, &[TypeInfo::of::<i32>(), TypeInfo::of::<&str>()]);
     /// assert!(world.get::<&i32>(e).is_err());
     /// assert!(world.get::<&&str>(e).is_err());
     /// assert_eq!(*world.get::<&bool>(e).unwrap(), true);
