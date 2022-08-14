@@ -115,14 +115,15 @@ pub struct AccessControl {
 
 impl AccessControl {
     pub fn prepare(&mut self, world: &World) {
-        let capacity = (world.len() + 1).next_power_of_two();
+        let entity_max = world.entities().meta.len();
+        let capacity = (entity_max + 1).next_power_of_two();
         let mut overrides = self.entity_overrides.borrow_mut();
         overrides
             .storage
             .reserve(capacity as usize / BitVec::chunk_bit_size());
         overrides
             .storage
-            .resize(world.len() as usize / BitVec::chunk_bit_size() + 1, 0);
+            .resize(entity_max as usize / BitVec::chunk_bit_size() + 1, 0);
     }
 
     pub(super) unsafe fn update_data_ptr(
