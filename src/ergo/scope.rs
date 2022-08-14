@@ -266,6 +266,8 @@ impl<'a> ErgoScope<'a> {
         result
     }
 
+    // TODO implement len()
+
     // TODO implement
     // pub fn satisfies<Q: Query>(&self, entity: Entity) -> Result<bool, NoSuchEntity> {
     //     Ok(self.entity(entity)?.satisfies::<Q>())
