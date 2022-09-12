@@ -731,6 +731,13 @@ impl<'q, Q: Query> QueryIter<'q, Q> {
             iter: ChunkIter::empty(),
         }
     }
+
+    /// Access the next result without advancing the iterator
+    pub fn peek(&mut self) -> Option<<Q::Fetch as Fetch<'_>>::Item> {
+        // Safety: returned lifetime borrows `self`, ensuring it can't overlap with a future call to
+        // `peek` or `next`
+        unsafe { self.iter.peek().map(|x| x.1) }
+    }
 }
 
 unsafe impl<'q, Q: Query> Send for QueryIter<'q, Q> where <Q::Fetch as Fetch<'q>>::Item: Send {}
@@ -871,15 +878,22 @@ impl<Q: Query> ChunkIter<Q> {
         }
     }
 
+    /// Safety: `'a` must be appropriate
     #[inline]
     unsafe fn next<'a>(&mut self) -> Option<(u32, <Q::Fetch as Fetch<'a>>::Item)> {
+        let result = self.peek()?;
+        self.position += 1;
+        Some(result)
+    }
+
+    /// Safety: `'a` must be appropriate
+    #[inline]
+    unsafe fn peek<'a>(&mut self) -> Option<(u32, <Q::Fetch as Fetch<'a>>::Item)> {
         if self.position == self.len {
             return None;
         }
         let entity = self.entities.as_ptr().add(self.position);
-        let item = self.fetch.get(self.position);
-        self.position += 1;
-        Some((*entity, item))
+        Some((*entity, self.fetch.get(self.position)))
     }
 
     fn remaining(&self) -> usize {

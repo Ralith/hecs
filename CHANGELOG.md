@@ -1,3 +1,8 @@
+# Unreleased
+
+### Added
+- `QueryIter::peek` to access the next result without advancing the iterator
+
 # 0.9
 
 ### Changed
