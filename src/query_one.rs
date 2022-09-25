@@ -1,7 +1,7 @@
 use core::marker::PhantomData;
 
 use crate::query::{Fetch, With, Without};
-use crate::{Archetype, Query, QueryItem};
+use crate::{Archetype, Query};
 
 /// A borrow of a [`World`](crate::World) sufficient to execute the query `Q` on a single entity
 pub struct QueryOne<'a, Q: Query> {
@@ -33,7 +33,7 @@ impl<'a, Q: Query> QueryOne<'a, Q> {
     /// Panics if called more than once or if it would construct a borrow that clashes with another
     /// pre-existing borrow.
     // Note that this uses self's lifetime, not 'a, for soundness.
-    pub fn get(&mut self) -> Option<QueryItem<'_, Q>> {
+    pub fn get(&mut self) -> Option<Q::Item<'_>> {
         if self.borrowed {
             panic!("called QueryOnce::get twice; construct a new query instead");
         }
@@ -41,7 +41,7 @@ impl<'a, Q: Query> QueryOne<'a, Q> {
         Q::Fetch::borrow(self.archetype, state);
         let fetch = Q::Fetch::execute(self.archetype, state);
         self.borrowed = true;
-        unsafe { Some(fetch.get(self.index as usize)) }
+        unsafe { Some(Q::get(&fetch, self.index as usize)) }
     }
 
     /// Transform the query into one that requires another query be satisfied
