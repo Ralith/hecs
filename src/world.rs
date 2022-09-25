@@ -24,7 +24,7 @@ use crate::archetype::{Archetype, TypeIdMap, TypeInfo};
 use crate::entities::{Entities, EntityMeta, Location, ReserveEntitiesIterator};
 use crate::{
     Bundle, ColumnBatch, ComponentRef, DynamicBundle, Entity, EntityRef, Fetch, MissingComponent,
-    NoSuchEntity, Query, QueryBorrow, QueryItem, QueryMut, QueryOne, TakenEntity,
+    NoSuchEntity, Query, QueryBorrow, QueryMut, QueryOne, TakenEntity,
 };
 
 /// An unordered collection of entities, each having any number of distinctly typed components
@@ -459,12 +459,12 @@ impl World {
     pub fn query_one_mut<Q: Query>(
         &mut self,
         entity: Entity,
-    ) -> Result<QueryItem<'_, Q>, QueryOneError> {
+    ) -> Result<Q::Item<'_>, QueryOneError> {
         let loc = self.entities.get(entity)?;
         let archetype = &self.archetypes.archetypes[loc.archetype as usize];
         let state = Q::Fetch::prepare(archetype).ok_or(QueryOneError::Unsatisfied)?;
         let fetch = Q::Fetch::execute(archetype, state);
-        unsafe { Ok(fetch.get(loc.index as usize)) }
+        unsafe { Ok(Q::get(&fetch, loc.index as usize)) }
     }
 
     /// Short-hand for [`entity`](Self::entity) followed by [`EntityRef::get`]

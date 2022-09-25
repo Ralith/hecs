@@ -1,10 +1,10 @@
 error: lifetime may not live long enough
- --> tests/derive/wrong_lifetime.rs:3:10
+ --> $DIR/wrong_lifetime.rs:3:10
   |
 3 | #[derive(Query)]
   |          ^^^^^
   |          |
-  |          lifetime `'a` defined here
-  |          this usage requires that `'a` must outlive `'static`
+  |          lifetime `'q` defined here
+  |          type annotation requires that `'q` must outlive `'static`
   |
   = note: this error originates in the derive macro `Query` (in Nightly builds, run with -Z macro-backtrace for more info)

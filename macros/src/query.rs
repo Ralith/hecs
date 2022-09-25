@@ -36,14 +36,14 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream2> {
         ));
     }
 
-    let (fields, fetches) = match data.fields {
+    let (fields, queries) = match data.fields {
         syn::Fields::Named(ref fields) => fields
             .named
             .iter()
             .map(|f| {
                 (
                     syn::Member::Named(f.ident.clone().unwrap()),
-                    query_fetch_ty(&lifetime, &f.ty),
+                    query_ty(&lifetime, &f.ty),
                 )
             })
             .unzip(),
@@ -57,13 +57,16 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream2> {
                         index: i as u32,
                         span: Span::call_site(),
                     }),
-                    query_fetch_ty(&lifetime, &f.ty),
+                    query_ty(&lifetime, &f.ty),
                 )
             })
             .unzip(),
         syn::Fields::Unit => (Vec::new(), Vec::new()),
     };
-    let fetches = fetches.into_iter().collect::<Vec<_>>();
+    let fetches = queries
+        .iter()
+        .map(|ty| quote! { <#ty as ::hecs::Query>::Fetch })
+        .collect::<Vec<_>>();
     let fetch_ident = Ident::new(&format!("__HecsInternal{}Fetch", ident), Span::call_site());
     let fetch = match data.fields {
         syn::Fields::Named(_) => quote! {
@@ -84,15 +87,15 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream2> {
     let state = match data.fields {
         syn::Fields::Named(_) => quote! {
             #[derive(Clone, Copy)]
-            #vis struct #state_ident<'a> {
+            #vis struct #state_ident {
                 #(
-                    #fields: <#fetches as ::hecs::Fetch<'a>>::State,
+                    #fields: <#fetches as ::hecs::Fetch>::State,
                 )*
             }
         },
         syn::Fields::Unnamed(_) => quote! {
             #[derive(Clone, Copy)]
-            #vis struct #state_ident<'a>(#(<#fetches as ::hecs::Fetch<'a>>::State),*);
+            #vis struct #state_ident(#(<#fetches as ::hecs::Fetch>::State),*);
         },
         syn::Fields::Unit => quote! {
             #[derive(Clone, Copy)]
@@ -100,9 +103,29 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream2> {
         },
     };
 
+    let intermediates = fields
+        .iter()
+        .map(|x| match x {
+            syn::Member::Named(ref ident) => ident.clone(),
+            syn::Member::Unnamed(ref index) => {
+                Ident::new(&format!("field_{}", index.index), Span::call_site())
+            }
+        })
+        .collect::<Vec<_>>();
+
     Ok(quote! {
         impl<'a> ::hecs::Query for #ident<'a> {
+            type Item<'q> = #ident<'q>;
+
             type Fetch = #fetch_ident;
+
+            #[allow(unused_variables)]
+            unsafe fn get<'q>(fetch: &Self::Fetch, n: usize) -> Self::Item<'q> {
+                #(
+                    let #intermediates: <#queries as ::hecs::Query>::Item<'q> = <#queries as ::hecs::Query>::get(&fetch.#fields, n);
+                )*
+                #ident {#(#fields: #intermediates,)*}
+            }
         }
 
         #[doc(hidden)]
@@ -111,10 +134,8 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream2> {
         #[doc(hidden)]
         #state
 
-        unsafe impl<'a> ::hecs::Fetch<'a> for #fetch_ident {
-            type Item = #ident<'a>;
-
-            type State = #state_ident<'a>;
+        unsafe impl ::hecs::Fetch for #fetch_ident {
+            type State = #state_ident;
 
             fn dangling() -> Self {
                 Self {
@@ -148,7 +169,7 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream2> {
             }
 
             #[allow(unused_variables)]
-            fn execute(archetype: &'a ::hecs::Archetype, state: Self::State) -> Self {
+            fn execute(archetype: &::hecs::Archetype, state: Self::State) -> Self {
                 Self {
                     #(
                         #fields: #fetches::execute(archetype, state.#fields),
@@ -164,23 +185,14 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream2> {
             #[allow(unused_variables, unused_mut)]
             fn for_each_borrow(mut f: impl ::core::ops::FnMut(::core::any::TypeId, bool)) {
                 #(
-                    <#fetches as ::hecs::Fetch<'static>>::for_each_borrow(&mut f);
+                    <#fetches as ::hecs::Fetch>::for_each_borrow(&mut f);
                 )*
-            }
-
-            #[allow(unused_variables)]
-            unsafe fn get(&self, n: usize) -> Self::Item {
-                #ident {
-                    #(
-                        #fields: <#fetches as ::hecs::Fetch<'a>>::get(&self.#fields, n),
-                    )*
-                }
             }
         }
     })
 }
 
-fn query_fetch_ty(lifetime: &Lifetime, ty: &Type) -> TokenStream2 {
+fn query_ty(lifetime: &Lifetime, ty: &Type) -> TokenStream2 {
     struct Visitor<'a> {
         replace: &'a Lifetime,
     }
@@ -194,7 +206,5 @@ fn query_fetch_ty(lifetime: &Lifetime, ty: &Type) -> TokenStream2 {
 
     let mut ty = ty.clone();
     syn::visit_mut::visit_type_mut(&mut Visitor { replace: lifetime }, &mut ty);
-    quote! {
-        <#ty as ::hecs::Query>::Fetch
-    }
+    quote! { #ty }
 }
