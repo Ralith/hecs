@@ -426,7 +426,24 @@ impl World {
         let meta = &self.entities.meta;
         let archetypes = &self.archetypes.archetypes;
 
-        iter.execute::<Q>(meta, archetypes, partition_size, &func)
+        iter.execute::<Q>(meta, archetypes, partition_size, func)
+    }
+
+    /// Alternative parallel iteration solution.  This has several advantages mostly revolving
+    /// around the fact that this provides a late binding solution such that the iterator does
+    /// not have to carry around unsafe borrows with erased lifetimes.  This is still unsafe
+    /// as it does not perform borrow checks.
+    #[cfg(feature = "parallel-iterators")]
+    pub unsafe fn parallel_query_mut<'a, Q: Query>(
+        &self,
+        iter: ParallelIter,
+        partition_size: usize,
+        func: &'a mut dyn FnMut(Entity, QueryItem<'a, Q>),
+    ) {
+        let meta = &self.entities.meta;
+        let archetypes = &self.archetypes.archetypes;
+
+        iter.execute_mut::<Q>(meta, archetypes, partition_size, func)
     }
 
     pub(crate) fn memo(&self) -> (u64, u32) {

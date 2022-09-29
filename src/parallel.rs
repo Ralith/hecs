@@ -262,4 +262,75 @@ impl ParallelIter {
             }
         }
     }
+
+    pub(crate) fn execute_mut<'a, Q: Query>(
+        &self,
+        meta: &[EntityMeta],
+        archetypes: &[Archetype],
+        partition_size: usize,
+        func: &mut dyn FnMut(Entity, QueryItem<'a, Q>),
+    ) {
+        // Loop until we run out of archetypes to process.
+        loop {
+            let shared = self.load();
+            let mut shared_archetype = shared.archetype();
+
+            if shared_archetype < archetypes.len() {
+                if let Some(archetype_state) = Q::Fetch::prepare(&archetypes[shared_archetype]) {
+                    // This is a valid archetype to iterate, attempt to claim a range of entries to process.
+                    let archetype = &archetypes[shared_archetype];
+                    let start = shared.index();
+
+                    if start < archetype.len() as usize {
+                        // Compute the end, clamping it to the end of the archetype.
+                        let end = (start + partition_size).min(archetype.len() as usize);
+
+                        // Attempt to take the range.
+                        match self.0.compare_exchange(
+                            shared.into(),
+                            ParIterParts::with(shared_archetype, end).into(),
+                            Ordering::Acquire,
+                            Ordering::Relaxed,
+                        ) {
+                            Ok(_) => {
+                                // All good.
+                                // Iterate the entities+components.
+                                let fetch = Q::Fetch::execute(archetype, archetype_state);
+                                let entities = archetype.entities().as_ptr();
+
+                                for index in start..end {
+                                    unsafe {
+                                        let entity = *entities.add(index);
+                                        let entity = Entity {
+                                            id: entity,
+                                            generation: meta
+                                                .get_unchecked(entity as usize)
+                                                .generation,
+                                        };
+                                        (func)(entity, fetch.get(index));
+                                    }
+                                }
+                                continue;
+                            }
+                            Err(_) => {
+                                // Try again from the top.
+                                continue;
+                            }
+                        }
+                    }
+                }
+
+                // Invalid archetype.  Try the next one.
+                shared_archetype += 1;
+                // Success or fail, restart the loop.
+                self.store(
+                    shared.into(),
+                    ParIterParts::with(shared_archetype, 0).into(),
+                );
+            } else {
+                // Done with the iteration.
+                break;
+            }
+        }
+    }
 }
