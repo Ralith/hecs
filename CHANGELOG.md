@@ -27,9 +27,12 @@
 - Many generic methods that previously took a `Component` now instead take either a
   `ComponentRef<'a>` or a `Query` to improve consistency with queries and address a common footgun:
   - `World::get`, `EntityRef::get`, and `Archetype::get` now take shared or unique references to
-    component types
-  - `EntityBuilder` and `EntityBuilderClone`'s `get` and `get_mut` refactored along the same lines
-    for consistency
+    component types.
+  - Since `World::get_mut` and `EntityRef::get_mut` have been subsumed by their respective `get`
+    methods, they have been removed.
+  - `EntityBuilder` and `EntityBuilderClone`'s `get` and `get_mut` were refactored along the same
+    lines for consistency. However, the `get_mut` method was not removed for these types since they
+    do not perform dynamic borrow checking.
   - The `With`/`Without` query transformers now take a query that entities must/mustn't match rather
     than a component type. Additionally, the order of their generic arguments was reversed to place
     the query whose results will be yielded first.
