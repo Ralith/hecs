@@ -5,7 +5,7 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
-use core::sync::atomic::{AtomicUsize, Ordering};
+use crate::atomic::{AtomicUsize, Ordering};
 
 /// A bit mask used to signal the `AtomicBorrow` has an active mutable borrow.
 const UNIQUE_BIT: usize = !(usize::max_value() >> 1);

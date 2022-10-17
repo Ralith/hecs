@@ -39,7 +39,7 @@
 #[cfg(feature = "std")]
 extern crate std;
 
-extern crate alloc;
+pub extern crate alloc;
 
 /// Imagine macro parameters, but more like those Russian dolls.
 ///
@@ -79,10 +79,11 @@ pub use entities::{Entity, NoSuchEntity};
 pub use entity_builder::{BuiltEntity, BuiltEntityClone, EntityBuilder, EntityBuilderClone};
 pub use entity_ref::{ComponentRef, ComponentRefShared, EntityRef, Ref, RefMut};
 pub use query::{
-    Access, Batch, BatchedIter, Or, PreparedQuery, PreparedQueryBorrow, PreparedQueryIter,
-    PreparedView, Query, QueryBorrow, QueryItem, QueryIter, QueryMut, QueryShared, Satisfies, View,
+    Access, Batch, BatchedIter, Or, Query, QueryBorrow, QueryItem, QueryIter, QueryMut, QueryShared, Satisfies, View,
     With, Without,
 };
+#[cfg(feature = "prepared-queries")]
+pub use query::{PreparedQuery, PreparedQueryBorrow, PreparedQueryIter, PreparedView};
 pub use query_one::QueryOne;
 pub use take::TakenEntity;
 pub use world::{
@@ -97,9 +98,16 @@ pub use archetype::TypeInfo;
 pub use bundle::DynamicClone;
 #[cfg(feature = "macros")]
 #[doc(hidden)]
-pub use lazy_static;
+pub use once_cell;
 #[doc(hidden)]
 pub use query::Fetch;
+
+#[cfg(feature = "atomic-polyfill")]
+#[doc(hidden)]
+pub use atomic_polyfill as atomic;
+#[cfg(not(feature = "atomic-polyfill"))]
+#[doc(hidden)]
+pub use core::sync::atomic;
 
 #[cfg(feature = "macros")]
 pub use hecs_macros::{Bundle, DynamicBundleClone, Query};

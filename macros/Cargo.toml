@@ -9,6 +9,10 @@ license = "Apache-2.0"
 [lib]
 proc-macro = true
 
+[features]
+default = ["std"]
+std = []
+
 [dependencies]
 syn = { version = "1.0", default-features = false, features = ["proc-macro", "parsing", "printing", "derive", "clone-impls", "visit-mut"] }
 quote = "1.0.3"
