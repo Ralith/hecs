@@ -1312,7 +1312,7 @@ impl<'q, Q: Query> View<'q, Q> {
     /// Will yield `None` if the entity does not exist or does not match the query.
     ///
     /// Does not require exclusive access to the map, but is defined only for queries yielding only shared references.
-    pub fn get<'m>(&'m self, entity: Entity) -> Option<QueryItem<'q, Q>>
+    pub fn get(&self, entity: Entity) -> Option<QueryItem<'_, Q>>
     where
         Q: QueryShared,
     {
@@ -1329,7 +1329,7 @@ impl<'q, Q: Query> View<'q, Q> {
     /// Retrieve the query results corresponding to `entity`
     ///
     /// Will yield `None` if the entity does not exist or does not match the query.
-    pub fn get_mut<'m>(&'m mut self, entity: Entity) -> Option<QueryItem<'q, Q>> {
+    pub fn get_mut(&mut self, entity: Entity) -> Option<QueryItem<'_, Q>> {
         unsafe { self.get_unchecked(entity) }
     }
 
@@ -1338,7 +1338,7 @@ impl<'q, Q: Query> View<'q, Q> {
     /// # Safety
     ///
     /// Must not be invoked while any unique borrow of the fetched components of `entity` is live.
-    pub unsafe fn get_unchecked(&self, entity: Entity) -> Option<QueryItem<'q, Q>> {
+    pub unsafe fn get_unchecked(&self, entity: Entity) -> Option<QueryItem<'_, Q>> {
         let meta = self.meta.get(entity.id as usize)?;
         if meta.generation != entity.generation {
             return None;
@@ -1374,7 +1374,7 @@ impl<'q, Q: Query> View<'q, Q> {
     pub fn get_mut_n<const N: usize>(
         &mut self,
         entities: [Entity; N],
-    ) -> [Option<QueryItem<'q, Q>>; N] {
+    ) -> [Option<QueryItem<'_, Q>>; N] {
         assert_distinct(&entities);
 
         let mut items = [(); N].map(|()| None);
@@ -1424,7 +1424,7 @@ impl<'q, Q: Query> PreparedView<'q, Q> {
     /// Will yield `None` if the entity does not exist or does not match the query.
     ///
     /// Does not require exclusive access to the map, but is defined only for queries yielding only shared references.
-    pub fn get<'m>(&'m self, entity: Entity) -> Option<QueryItem<'q, Q>>
+    pub fn get(&self, entity: Entity) -> Option<QueryItem<'_, Q>>
     where
         Q: QueryShared,
     {
@@ -1441,7 +1441,7 @@ impl<'q, Q: Query> PreparedView<'q, Q> {
     /// Retrieve the query results corresponding to `entity`
     ///
     /// Will yield `None` if the entity does not exist or does not match the query.
-    pub fn get_mut<'m>(&'m mut self, entity: Entity) -> Option<QueryItem<'q, Q>> {
+    pub fn get_mut(&mut self, entity: Entity) -> Option<QueryItem<'_, Q>> {
         unsafe { self.get_unchecked(entity) }
     }
 
@@ -1450,7 +1450,7 @@ impl<'q, Q: Query> PreparedView<'q, Q> {
     /// # Safety
     ///
     /// Must not be invoked while any unique borrow of the fetched components of `entity` is live.
-    pub unsafe fn get_unchecked(&self, entity: Entity) -> Option<QueryItem<'q, Q>> {
+    pub unsafe fn get_unchecked(&self, entity: Entity) -> Option<QueryItem<'_, Q>> {
         let meta = self.meta.get(entity.id as usize)?;
         if meta.generation != entity.generation {
             return None;
@@ -1467,7 +1467,7 @@ impl<'q, Q: Query> PreparedView<'q, Q> {
     pub fn get_mut_n<const N: usize>(
         &mut self,
         entities: [Entity; N],
-    ) -> [Option<QueryItem<'q, Q>>; N] {
+    ) -> [Option<QueryItem<'_, Q>>; N] {
         assert_distinct(&entities);
 
         let mut items = [(); N].map(|()| None);
