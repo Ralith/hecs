@@ -155,10 +155,10 @@ impl World {
             Some(k) => {
                 let archetypes = &mut self.archetypes;
                 *self.bundle_to_archetype.entry(k).or_insert_with(|| {
-                    components.with_ids(|ids| archetypes.get(ids, &|| components.type_info()))
+                    components.with_ids(|ids| archetypes.get(ids, || components.type_info()))
                 })
             }
-            None => components.with_ids(|ids| self.archetypes.get(ids, &|| components.type_info())),
+            None => components.with_ids(|ids| self.archetypes.get(ids, || components.type_info())),
         };
 
         let archetype = &mut self.archetypes.archetypes[archetype_id as usize];
@@ -329,7 +329,7 @@ impl World {
             .entry(TypeId::of::<T>())
             .or_insert_with(|| {
                 T::with_static_ids(|ids| {
-                    archetypes.get(ids, &|| T::with_static_type_info(|info| info.to_vec()))
+                    archetypes.get(ids, || T::with_static_type_info(|info| info.to_vec()))
                 })
             });
 
@@ -1001,7 +1001,7 @@ impl<'a> Iterator for Iter<'a> {
                     self.index = 0;
                 }
                 Some(current) => {
-                    if self.index == current.len() as u32 {
+                    if self.index == current.len() {
                         self.current = None;
                         continue;
                     }
