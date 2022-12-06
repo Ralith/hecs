@@ -469,7 +469,7 @@ impl Hasher for TypeIdHasher {
 /// faster no-op hash.
 pub(crate) type TypeIdMap<V> = HashMap<TypeId, V, BuildHasherDefault<TypeIdHasher>>;
 
-struct OrderedTypeIdMap<V>(Box<[(TypeId, V)]>);
+pub(crate) struct OrderedTypeIdMap<V>(Box<[(TypeId, V)]>);
 
 impl<V> OrderedTypeIdMap<V> {
     fn new(iter: impl Iterator<Item = (TypeId, V)>) -> Self {
@@ -559,6 +559,16 @@ impl TypeInfo {
     /// represents.
     pub fn drop_shim(&self) -> unsafe fn(*mut u8) {
         self.drop
+    }
+
+    #[cfg(debug_assertions)]
+    pub(crate) fn name(&self) -> Option<&str> {
+        Some(self.type_name)
+    }
+
+    #[cfg(not(debug_assertions))]
+    pub(crate) fn name(&self) -> Option<&str> {
+        None
     }
 }
 

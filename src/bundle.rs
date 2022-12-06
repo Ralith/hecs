@@ -95,19 +95,36 @@ impl DynamicClone {
 }
 
 /// Error indicating that an entity did not have a required component
-#[derive(Debug, Clone, Eq, PartialEq, Hash)]
-pub struct MissingComponent(&'static str);
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum MissingComponent {
+    /// Compile-time name string
+    Static(&'static str),
+    /// Name string sourced from TypeInfo
+    Dynamic(TypeInfo),
+}
 
 impl MissingComponent {
     /// Construct an error representing a missing `T`
     pub fn new<T: Component>() -> Self {
-        Self(type_name::<T>())
+        Self::Static(type_name::<T>())
+    }
+
+    /// Construct an error representing a missing type described by TypeInfo
+    pub fn new_dynamic(ty: TypeInfo) -> Self {
+        Self::Dynamic(ty)
     }
 }
 
 impl fmt::Display for MissingComponent {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "missing {} component", self.0)
+        write!(
+            f,
+            "missing {} component",
+            match self {
+                MissingComponent::Static(name) => name,
+                MissingComponent::Dynamic(type_info) => type_info.name().unwrap_or("unknown"),
+            }
+        )
     }
 }
 

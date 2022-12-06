@@ -64,6 +64,7 @@ mod command_buffer;
 mod entities;
 mod entity_builder;
 mod entity_ref;
+pub mod ergo;
 mod query;
 mod query_one;
 #[cfg(any(feature = "row-serialize", feature = "column-serialize"))]
@@ -78,6 +79,7 @@ pub use command_buffer::CommandBuffer;
 pub use entities::{Entity, NoSuchEntity};
 pub use entity_builder::{BuiltEntity, BuiltEntityClone, EntityBuilder, EntityBuilderClone};
 pub use entity_ref::{ComponentRef, ComponentRefShared, EntityRef, Ref, RefMut};
+pub use ergo::ErgoScope;
 pub use query::{
     Access, Batch, BatchedIter, Or, PreparedQuery, PreparedQueryBorrow, PreparedQueryIter,
     PreparedView, Query, QueryBorrow, QueryItem, QueryIter, QueryMut, QueryShared, Satisfies, View,

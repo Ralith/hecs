@@ -31,7 +31,7 @@ use crate::{align, Component, ComponentRef, ComponentRefShared, DynamicBundle};
 /// ```
 #[derive(Default)]
 pub struct EntityBuilder {
-    inner: Common<()>,
+    pub(crate) inner: Common<()>,
 }
 
 impl EntityBuilder {
@@ -277,7 +277,7 @@ impl From<BuiltEntityClone> for EntityBuilderClone {
     }
 }
 
-struct Common<M> {
+pub(crate) struct Common<M> {
     storage: NonNull<u8>,
     layout: Layout,
     cursor: usize,
@@ -336,7 +336,7 @@ impl<M> Common<M> {
         }
     }
 
-    unsafe fn add(&mut self, ptr: *mut u8, ty: TypeInfo, meta: M) {
+    pub(crate) unsafe fn add(&mut self, ptr: *mut u8, ty: TypeInfo, meta: M) {
         match self.indices.entry(ty.id()) {
             Entry::Occupied(occupied) => {
                 let index = *occupied.get();

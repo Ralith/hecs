@@ -23,8 +23,8 @@ use crate::alloc::boxed::Box;
 use crate::archetype::{Archetype, TypeIdMap, TypeInfo};
 use crate::entities::{Entities, EntityMeta, Location, ReserveEntitiesIterator};
 use crate::{
-    Bundle, ColumnBatch, ComponentRef, DynamicBundle, Entity, EntityRef, Fetch, MissingComponent,
-    NoSuchEntity, Query, QueryBorrow, QueryItem, QueryMut, QueryOne, TakenEntity,
+    Bundle, ColumnBatch, ComponentRef, DynamicBundle, Entity, EntityBuilder, EntityRef, Fetch,
+    MissingComponent, NoSuchEntity, Query, QueryBorrow, QueryItem, QueryMut, QueryOne, TakenEntity,
 };
 
 /// An unordered collection of entities, each having any number of distinctly typed components
@@ -415,6 +415,10 @@ impl World {
         &self.entities.meta
     }
 
+    pub(crate) fn entities(&self) -> &Entities {
+        &self.entities
+    }
+
     pub(crate) fn archetypes_inner(&self) -> &[Archetype] {
         &self.archetypes.archetypes
     }
@@ -642,6 +646,85 @@ impl World {
         component: impl Component,
     ) -> Result<(), NoSuchEntity> {
         self.insert(entity, (component,))
+    }
+
+    /// Remove components from `entity` given their TypeInfo.
+    ///
+    /// Computational cost is proportional to the number of components `entity` has. The entity
+    /// itself is not removed, even if no components remain; use `despawn` for that. If any
+    /// component in `T` is not present in `entity`, no components are removed and an error is
+    /// returned.
+    //
+    /// # Example
+    /// ```
+    /// # use hecs::*;
+    /// let mut world = World::new();
+    /// let e = world.spawn((123, "abc", true));
+    /// world.remove_dynamic(e, &[TypeInfo::of::<i32>(), TypeInfo::of::<&str>()]);
+    /// assert!(world.get::<&i32>(e).is_err());
+    /// assert!(world.get::<&&str>(e).is_err());
+    /// assert_eq!(*world.get::<&bool>(e).unwrap(), true);
+    /// ```
+    pub fn remove_dynamic(
+        &mut self,
+        entity: Entity,
+        removed: &[TypeInfo],
+    ) -> Result<EntityBuilder, ComponentError> {
+        self.flush();
+
+        // Gather current metadata
+        let loc = self.entities.get_mut(entity)?;
+        let old_index = loc.index;
+        let source_arch = &self.archetypes.archetypes[loc.archetype as usize];
+
+        // Find the target archetype ID
+        let info = source_arch
+            .types()
+            .iter()
+            .cloned()
+            .filter(|x| !removed.iter().any(|r| r.id() == x.id()))
+            .collect::<Vec<_>>();
+        let elements = info.iter().map(|x| x.id()).collect::<Box<_>>();
+        let target = self.archetypes.get(&*elements, move || info);
+
+        let mut builder = EntityBuilder::new();
+        // Store components to the target archetype and update metadata
+        if loc.archetype != target {
+            let source_arch = &self.archetypes.archetypes[loc.archetype as usize];
+            // If we actually removed any components, the entity needs to be moved into a new archetype
+
+            // Move out of the source archetype, or bail out if a component is missing
+            for ty in removed {
+                unsafe {
+                    let ptr = source_arch
+                        .get_dynamic(ty.id(), ty.layout().size(), old_index)
+                        .ok_or_else(|| {
+                            ComponentError::MissingComponent(MissingComponent::new_dynamic(*ty))
+                        })?;
+                    builder.inner.add(ptr.as_ptr(), *ty, ());
+                }
+            }
+            unsafe {
+                let (source_arch, target_arch) = index2(
+                    &mut self.archetypes.archetypes,
+                    loc.archetype as usize,
+                    target as usize,
+                );
+                let target_index = target_arch.allocate(entity.id);
+                loc.archetype = target;
+                loc.index = target_index;
+                if let Some(moved) = source_arch.move_to(old_index, |src, ty, size| {
+                    // Only move the components present in the target archetype, i.e. the non-removed ones.
+                    if let Some(dst) = target_arch.get_dynamic(ty, size, target_index) {
+                        ptr::copy_nonoverlapping(src, dst.as_ptr(), size);
+                    }
+                }) {
+                    self.entities.meta[moved as usize].location.index = old_index;
+                }
+            }
+        }
+
+        Ok(builder)
     }
 
     /// Remove components from `entity`
@@ -901,7 +984,7 @@ fn index2<T>(x: &mut [T], i: usize, j: usize) -> (&mut T, &mut T) {
 }
 
 /// Errors that arise when accessing components
-#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub enum ComponentError {
     /// The entity was already despawned
     NoSuchEntity,
