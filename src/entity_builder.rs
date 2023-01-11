@@ -111,6 +111,10 @@ pub struct BuiltEntity<'a> {
 }
 
 unsafe impl DynamicBundle for BuiltEntity<'_> {
+    fn has<T: Component>(&self) -> bool {
+        self.builder.has::<T>()
+    }
+
     fn with_ids<T>(&self, f: impl FnOnce(&[TypeId]) -> T) -> T {
         f(&self.builder.ids)
     }
@@ -237,6 +241,10 @@ impl EntityBuilderClone {
 pub struct BuiltEntityClone(Common<DynamicClone>);
 
 unsafe impl DynamicBundle for &'_ BuiltEntityClone {
+    fn has<T: Component>(&self) -> bool {
+        self.0.has::<T>()
+    }
+
     fn with_ids<T>(&self, f: impl FnOnce(&[TypeId]) -> T) -> T {
         f(&self.0.ids)
     }
