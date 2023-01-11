@@ -1,3 +1,8 @@
+# Unreleased
+
+### Added
+- `DynamicBundle::has` to check whether a bundle contains a component
+
 # 0.9
 
 ### Changed

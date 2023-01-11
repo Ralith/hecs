@@ -41,6 +41,10 @@ fn gen_dynamic_bundle_impl(
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
     quote! {
         unsafe impl #impl_generics ::hecs::DynamicBundle for #ident #ty_generics #where_clause {
+            fn has<__hecs__T: ::hecs::Component>(&self) -> bool {
+                false #(|| ::std::any::TypeId::of::<#tys>() == ::std::any::TypeId::of::<__hecs__T>())*
+            }
+
             fn key(&self) -> ::core::option::Option<::core::any::TypeId> {
                 ::core::option::Option::Some(::core::any::TypeId::of::<Self>())
             }

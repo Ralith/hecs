@@ -16,13 +16,27 @@ use crate::Component;
 /// A dynamically typed collection of components
 ///
 /// Bundles composed of exactly the same types are semantically equivalent, regardless of order. The
-/// interface of this trait is a private implementation detail.
+/// interface of this trait, except `has` is a private implementation detail.
 #[allow(clippy::missing_safety_doc)]
 pub unsafe trait DynamicBundle {
     /// Returns a `TypeId` uniquely identifying the set of components, if known
     #[doc(hidden)]
     fn key(&self) -> Option<TypeId> {
         None
+    }
+
+    /// Checks if the Bundle contains the given `T`:
+    ///
+    /// ```
+    /// # use hecs::DynamicBundle;
+    ///
+    /// let my_bundle = (0i32, 10.0f32);
+    /// assert!(my_bundle.has::<i32>());
+    /// assert!(my_bundle.has::<f32>());
+    /// assert!(!my_bundle.has::<usize>());
+    /// ```
+    fn has<T: Component>(&self) -> bool {
+        self.with_ids(|types| types.contains(&TypeId::of::<T>()))
     }
 
     /// Invoke a callback on the fields' type IDs, sorted by descending alignment then id
@@ -117,6 +131,10 @@ impl std::error::Error for MissingComponent {}
 macro_rules! tuple_impl {
     ($($name: ident),*) => {
         unsafe impl<$($name: Component),*> DynamicBundle for ($($name,)*) {
+            fn has<T: Component>(&self) -> bool {
+                false $(|| TypeId::of::<$name>() == TypeId::of::<T>())*
+            }
+
             fn key(&self) -> Option<TypeId> {
                 Some(TypeId::of::<Self>())
             }
