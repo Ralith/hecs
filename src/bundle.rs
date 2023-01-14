@@ -59,19 +59,6 @@ pub unsafe trait DynamicBundle {
 /// interface of this trait, except `has_static`, is a private implementation detail.
 #[allow(clippy::missing_safety_doc)]
 pub unsafe trait Bundle: DynamicBundle {
-    /// Checks if the Bundle contains the given `T`:
-    ///
-    /// ```
-    /// fn test_bundle<T: hecs::Bundle>(input: T) {
-    ///     assert!(T::has_static::<i32>());
-    ///     assert!(T::has_static::<f32>());
-    ///     assert!(!T::has_static::<usize>());
-    /// }
-    /// ```
-    fn has_static<T: Component>() -> bool {
-        Self::with_static_ids(|types| types.contains(&TypeId::of::<T>()))
-    }
-
     #[doc(hidden)]
     fn with_static_ids<T>(f: impl FnOnce(&[TypeId]) -> T) -> T;
 
@@ -144,6 +131,16 @@ impl std::error::Error for MissingComponent {}
 macro_rules! tuple_impl {
     ($($name: ident),*) => {
         unsafe impl<$($name: Component),*> DynamicBundle for ($($name,)*) {
+            fn has<T: Component>(&self) -> bool {
+                $(
+                    if TypeId::of::<$name>() == TypeId::of::<T>() {
+                        return true;
+                    }
+                )*
+
+                false
+            }
+
             fn key(&self) -> Option<TypeId> {
                 Some(TypeId::of::<Self>())
             }
