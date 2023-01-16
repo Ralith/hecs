@@ -17,9 +17,9 @@ fn derive() {
         "export.rs",
     ];
     for &passing_test in successes {
-        t.pass(&format!("{}/{}", TEST_DIR, passing_test));
+        t.pass(format!("{}/{}", TEST_DIR, passing_test));
     }
     for &failing_test in failures {
-        t.compile_fail(&format!("{}/{}", TEST_DIR, failing_test));
+        t.compile_fail(format!("{}/{}", TEST_DIR, failing_test));
     }
 }

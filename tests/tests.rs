@@ -331,6 +331,7 @@ fn build_builder_clone() {
 }
 
 #[test]
+#[allow(clippy::redundant_clone)]
 fn cloned_builder() {
     let mut builder = EntityBuilderClone::new();
     builder.add(String::from("abc")).add(123);
@@ -457,15 +458,16 @@ fn spawn_buffered_entity() {
 
     buffer.insert(ent, (1, true));
     buffer.insert(ent1, (13, 7.11, "hecs"));
-    buffer.insert(ent2, (17 as i8, false, 'o'));
-    buffer.insert(ent3, (2 as u8, "qwe", 101.103, false));
+    buffer.insert(ent2, (17i8, false, 'o'));
+    buffer.insert(ent3, (2u8, "qwe", 101.103, false));
 
     buffer.run_on(&mut world);
 
-    assert_eq!(*world.get::<&bool>(ent).unwrap(), true);
+    assert!(*world.get::<&bool>(ent).unwrap());
+    assert!(!*world.get::<&bool>(ent2).unwrap());
+
     assert_eq!(*world.get::<&&str>(ent1).unwrap(), "hecs");
     assert_eq!(*world.get::<&i32>(ent1).unwrap(), 13);
-    assert_eq!(*world.get::<&bool>(ent2).unwrap(), false);
     assert_eq!(*world.get::<&u8>(ent3).unwrap(), 2);
 }
 
@@ -724,12 +726,8 @@ fn query_mut_batched() {
 fn spawn_batch() {
     let mut world = World::new();
     world.spawn_batch((0..10).map(|x| (x, "abc")));
-    let entities = world
-        .query::<&i32>()
-        .iter()
-        .map(|(_, &x)| x)
-        .collect::<Vec<_>>();
-    assert_eq!(entities.len(), 10);
+    let entity_count = world.query::<&i32>().iter().count();
+    assert_eq!(entity_count, 10);
 }
 
 #[test]
