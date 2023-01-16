@@ -331,12 +331,13 @@ fn build_builder_clone() {
 }
 
 #[test]
+#[allow(clippy::redundant_clone)]
 fn cloned_builder() {
     let mut builder = EntityBuilderClone::new();
     builder.add(String::from("abc")).add(123);
 
     let mut world = World::new();
-    let e = world.spawn(&builder.build());
+    let e = world.spawn(&builder.build().clone());
     assert_eq!(*world.get::<&String>(e).unwrap(), "abc");
     assert_eq!(*world.get::<&i32>(e).unwrap(), 123);
 }
