@@ -2,6 +2,8 @@
 
 ### Added
 - `DynamicBundle::has` to check whether a bundle contains a component
+- `Archetype::satisfies` to check whether an archetype satisfies a query
+- `serialize::{row,column}::serialize_satisfying` to serialize all entities that satisfy a query
 
 # 0.9
 

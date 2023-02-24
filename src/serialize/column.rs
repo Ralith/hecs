@@ -23,7 +23,7 @@ use serde::{
 };
 
 use crate::{
-    Archetype, ColumnBatch, ColumnBatchBuilder, ColumnBatchType, Component, Entity, World,
+    Archetype, ColumnBatch, ColumnBatchBuilder, ColumnBatchType, Component, Entity, Query, World,
 };
 
 /// Implements serialization of archetypes
@@ -173,6 +173,19 @@ where
     S: Serializer,
     C: SerializeContext,
 {
+    serialize_satisfying::<(), C, S>(world, context, serializer)
+}
+
+/// Serialize all entities in a [`World`] that satisfy the given [`Query`] through a [`SerializeContext`] to a [`Serializer`]
+pub fn serialize_satisfying<Q: Query, C, S>(
+    world: &World,
+    context: &mut C,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+    C: SerializeContext,
+{
     struct SerializeArchetype<'a, C> {
         world: &'a World,
         archetype: &'a Archetype,
@@ -277,9 +290,9 @@ where
         }
     }
 
-    let mut seq =
-        serializer.serialize_seq(Some(world.archetypes().filter(|x| !x.is_empty()).count()))?;
-    for archetype in world.archetypes().filter(|x| !x.is_empty()) {
+    let predicate = |x: &&Archetype| -> bool { !x.is_empty() && x.satisfies::<Q>() };
+    let mut seq = serializer.serialize_seq(Some(world.archetypes().filter(predicate).count()))?;
+    for archetype in world.archetypes().filter(predicate) {
         seq.serialize_element(&SerializeArchetype {
             world,
             archetype,
@@ -750,11 +763,14 @@ mod tests {
         Velocity,
     }
 
-    #[derive(Serialize, Deserialize)]
     /// Bodge into serde_test's very strict interface
-    struct SerWorld(#[serde(with = "helpers")] World);
+    #[derive(Deserialize)]
+    struct SerWorld<Q>(
+        #[serde(deserialize_with = "helpers::deserialize")] World,
+        #[serde(skip)] PhantomData<Q>,
+    );
 
-    impl PartialEq for SerWorld {
+    impl<Q> PartialEq for SerWorld<Q> {
         fn eq(&self, other: &Self) -> bool {
             fn same_components<T: Component + PartialEq>(x: &EntityRef, y: &EntityRef) -> bool {
                 x.get::<&T>().as_ref().map(|x| &**x) == y.get::<&T>().as_ref().map(|x| &**x)
@@ -772,7 +788,7 @@ mod tests {
         }
     }
 
-    impl fmt::Debug for SerWorld {
+    impl<Q> fmt::Debug for SerWorld<Q> {
         fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             f.debug_map()
                 .entries(self.0.iter().map(|e| {
@@ -788,10 +804,27 @@ mod tests {
         }
     }
 
+    struct SerWorldInner<'a, Q>(&'a World, PhantomData<Q>);
+
+    impl<'a, Q: Query> Serialize for SerWorldInner<'a, Q> {
+        fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+            helpers::serialize::<Q, S>(&self.0, s)
+        }
+    }
+
+    impl<Q: Query> Serialize for SerWorld<Q> {
+        fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+            use serde::ser::SerializeTupleStruct;
+            let mut t = s.serialize_tuple_struct("SerWorld", 1)?;
+            t.serialize_field(&SerWorldInner(&self.0, self.1))?;
+            t.end()
+        }
+    }
+
     mod helpers {
         use super::*;
-        pub fn serialize<S: Serializer>(x: &World, s: S) -> Result<S::Ok, S::Error> {
-            crate::serialize::column::serialize(
+        pub fn serialize<Q: Query, S: Serializer>(x: &World, s: S) -> Result<S::Ok, S::Error> {
+            crate::serialize::column::serialize_satisfying::<Q, _, _>(
                 x,
                 &mut Context {
                     components: Vec::new(),
@@ -895,8 +928,8 @@ mod tests {
         let e1 = world.spawn((p1,));
         let e2 = world.spawn(());
 
-        assert_tokens(&SerWorld(world), &[
-            Token::NewtypeStruct { name: "SerWorld" },
+        assert_tokens(&SerWorld(world, PhantomData::<()>), &[
+            Token::TupleStruct { name: "SerWorld", len: 1 },
             Token::Seq { len: Some(3) },
 
             Token::Tuple { len: 4 },
@@ -963,6 +996,59 @@ mod tests {
             Token::TupleEnd,
 
             Token::SeqEnd,
+            Token::TupleStructEnd,
+        ])
+    }
+
+    #[test]
+    #[rustfmt::skip]
+    fn test_serialize_satisfying() {
+        use serde_test::{Token, assert_ser_tokens};
+
+        let mut world = World::new();
+        let p0 = Position([0.0, 0.0, 0.0]);
+        let v0 = Velocity([1.0, 1.0, 1.0]);
+        let p1 = Position([2.0, 2.0, 2.0]);
+        let e0 = world.spawn((p0, v0));
+        let _e1 = world.spawn((p1,));
+        let _e2 = world.spawn(());
+
+        assert_ser_tokens(&SerWorld(world, PhantomData::<(&Velocity,)>), &[
+            Token::TupleStruct { name: "SerWorld", len: 1 },
+            Token::Seq { len: Some(1) },
+
+            Token::Tuple { len: 4 },
+            Token::U32(1),
+            Token::U32(2),
+            Token::Tuple { len: 2 },
+            Token::UnitVariant { name: "ComponentId", variant: "Position" },
+            Token::UnitVariant { name: "ComponentId", variant: "Velocity" },
+            Token::TupleEnd,
+            Token::Tuple { len: 3 },
+            Token::Tuple { len: 1 },
+            Token::U64(e0.to_bits().into()),
+            Token::TupleEnd,
+            Token::Tuple { len: 1 },
+            Token::NewtypeStruct { name: "Position" },
+            Token::Tuple { len: 3 },
+            Token::F32(0.0),
+            Token::F32(0.0),
+            Token::F32(0.0),
+            Token::TupleEnd,
+            Token::TupleEnd,
+            Token::Tuple { len: 1 },
+            Token::NewtypeStruct { name: "Velocity" },
+            Token::Tuple { len: 3 },
+            Token::F32(1.0),
+            Token::F32(1.0),
+            Token::F32(1.0),
+            Token::TupleEnd,
+            Token::TupleEnd,
+            Token::TupleEnd,
+            Token::TupleEnd,
+
+            Token::SeqEnd,
+            Token::TupleStructEnd,
         ])
     }
 }
