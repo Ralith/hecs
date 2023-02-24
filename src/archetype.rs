@@ -367,6 +367,11 @@ impl Archetype {
         Q::Fetch::access(self)
     }
 
+    /// Determine whether this archetype would satisfy the query `Q`
+    pub fn satisfies<Q: Query>(&self) -> bool {
+        self.access::<Q>().is_some()
+    }
+
     /// Add components from another archetype with identical components
     ///
     /// # Safety
