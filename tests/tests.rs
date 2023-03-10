@@ -526,6 +526,42 @@ fn illegal_query_mut_borrow() {
 }
 
 #[test]
+#[should_panic(expected = "query violates a unique borrow")]
+fn illegal_query_one_borrow() {
+    let mut world = World::new();
+    let entity = world.spawn(("abc", 123));
+
+    world.query_one::<(&mut i32, &i32)>(entity).unwrap();
+}
+
+#[test]
+#[should_panic(expected = "query violates a unique borrow")]
+fn illegal_query_one_borrow_2() {
+    let mut world = World::new();
+    let entity = world.spawn(("abc", 123));
+
+    world.query_one::<(&mut i32, &mut i32)>(entity).unwrap();
+}
+
+#[test]
+#[should_panic(expected = "query violates a unique borrow")]
+fn illegal_query_one_mut_borrow() {
+    let mut world = World::new();
+    let entity = world.spawn(("abc", 123));
+
+    world.query_one_mut::<(&mut i32, &i32)>(entity).unwrap();
+}
+
+#[test]
+#[should_panic(expected = "query violates a unique borrow")]
+fn illegal_query_one_mut_borrow_2() {
+    let mut world = World::new();
+    let entity = world.spawn(("abc", 123));
+
+    world.query_one_mut::<(&mut i32, &mut i32)>(entity).unwrap();
+}
+
+#[test]
 fn disjoint_queries() {
     let mut world = World::new();
     world.spawn(("abc", true));
