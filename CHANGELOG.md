@@ -5,6 +5,9 @@
 - `Archetype::satisfies` to check whether an archetype satisfies a query
 - `serialize::{row,column}::serialize_satisfying` to serialize all entities that satisfy a query
 
+### Fixed
+-  `World::{query_one, query_one_mut}` allowed violating a unique borrow.
+
 # 0.9
 
 ### Changed

@@ -841,7 +841,7 @@ impl<'q, Q: Query> IntoIterator for QueryMut<'q, Q> {
     }
 }
 
-fn assert_borrow<Q: Query>() {
+pub(crate) fn assert_borrow<Q: Query>() {
     // This looks like an ugly O(n^2) loop, but everything's constant after inlining, so in
     // practice LLVM optimizes it out entirely.
     let mut i = 0;

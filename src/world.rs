@@ -22,6 +22,7 @@ use hashbrown::hash_map::{Entry, HashMap};
 use crate::alloc::boxed::Box;
 use crate::archetype::{Archetype, TypeIdMap, TypeInfo};
 use crate::entities::{Entities, EntityMeta, Location, ReserveEntitiesIterator};
+use crate::query::assert_borrow;
 use crate::{
     Bundle, ColumnBatch, ComponentRef, DynamicBundle, Entity, EntityRef, Fetch, MissingComponent,
     NoSuchEntity, Query, QueryBorrow, QueryMut, QueryOne, TakenEntity,
@@ -460,6 +461,8 @@ impl World {
         &mut self,
         entity: Entity,
     ) -> Result<Q::Item<'_>, QueryOneError> {
+        assert_borrow::<Q>();
+
         let loc = self.entities.get(entity)?;
         let archetype = &self.archetypes.archetypes[loc.archetype as usize];
         let state = Q::Fetch::prepare(archetype).ok_or(QueryOneError::Unsatisfied)?;

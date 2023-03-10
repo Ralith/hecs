@@ -1,6 +1,6 @@
 use core::marker::PhantomData;
 
-use crate::query::{Fetch, With, Without};
+use crate::query::{assert_borrow, Fetch, With, Without};
 use crate::{Archetype, Query};
 
 /// A borrow of a [`World`](crate::World) sufficient to execute the query `Q` on a single entity
@@ -18,6 +18,8 @@ impl<'a, Q: Query> QueryOne<'a, Q> {
     ///
     /// `index` must be in-bounds for `archetype`
     pub(crate) unsafe fn new(archetype: &'a Archetype, index: u32) -> Self {
+        assert_borrow::<Q>();
+
         Self {
             archetype,
             index,
