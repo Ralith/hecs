@@ -5,8 +5,17 @@
 - `Archetype::satisfies` to check whether an archetype satisfies a query
 - `serialize::{row,column}::serialize_satisfying` to serialize all entities that satisfy a query
 
+### Changed
+- MSRV raised to 1.65
+- `hecs::QueryItem` replaced with GAT `Query::Item`
+
 ### Fixed
 -  `World::{query_one, query_one_mut}` allowed violating a unique borrow.
+
+# 0.9.1
+
+### Fixed
+- Unsound lifetimes in view accessors
 
 # 0.9
 
