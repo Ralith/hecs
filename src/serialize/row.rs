@@ -117,6 +117,7 @@ where
 {
     let entity_count = world
         .archetypes()
+        .iter()
         .filter(|a| a.satisfies::<Q>())
         .map(|a| a.len() as usize)
         .sum();
