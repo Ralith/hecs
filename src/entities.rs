@@ -548,9 +548,13 @@ impl EntityMeta {
     };
 }
 
+/// Where an entity is currently stored
 #[derive(Copy, Clone)]
-pub(crate) struct Location {
+pub struct Location {
+    /// Index of the enclosing archetype in [`World::archetypes`](crate::World::archetypes)
     pub archetype: u32,
+    /// Index of the entity's components in [`Archetype::get`](crate::Archetype::get) on the
+    /// associated [`Archetype`](crate::Archetype)
     pub index: u32,
 }
 

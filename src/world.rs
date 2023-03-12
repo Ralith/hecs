@@ -504,6 +504,15 @@ impl World {
         }
     }
 
+    /// Storage location of `entity`
+    ///
+    /// Useful in combination with [`archetypes`](Self::archetypes). May be invalidated when
+    /// [`archetypes_generation`](Self::archetypes_generation) changes.
+    #[inline]
+    pub fn location_of(&self, entity: Entity) -> Result<Location, NoSuchEntity> {
+        self.entities.get(entity)
+    }
+
     /// Given an id obtained from [`Entity::id`], reconstruct the still-live [`Entity`].
     ///
     /// # Safety

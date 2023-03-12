@@ -75,7 +75,7 @@ pub use archetype::{Archetype, ArchetypeColumn, ArchetypeColumnMut};
 pub use batch::{BatchIncomplete, BatchWriter, ColumnBatch, ColumnBatchBuilder, ColumnBatchType};
 pub use bundle::{Bundle, DynamicBundle, DynamicBundleClone, MissingComponent};
 pub use command_buffer::CommandBuffer;
-pub use entities::{Entity, NoSuchEntity};
+pub use entities::{Entity, Location, NoSuchEntity};
 pub use entity_builder::{BuiltEntity, BuiltEntityClone, EntityBuilder, EntityBuilderClone};
 pub use entity_ref::{ComponentRef, ComponentRefShared, EntityRef, Ref, RefMut};
 pub use query::{
