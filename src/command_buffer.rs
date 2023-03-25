@@ -137,7 +137,7 @@ impl CommandBuffer {
         })));
     }
 
-    /// Updates all entities satisfying the query with the given function
+    /// Updates an entity with the given function if it satisfies the query
     pub fn update_one<Q, F>(&mut self, ent: Entity, update_fn: F)
     where
         Q: Query,
