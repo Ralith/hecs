@@ -8,9 +8,12 @@
 use core::any::TypeId;
 use core::ptr::{self, NonNull};
 
+use alloc::boxed::Box;
+
 use crate::alloc::alloc::{alloc, dealloc, Layout};
 use crate::alloc::vec::Vec;
 use crate::archetype::TypeInfo;
+use crate::Query;
 use crate::{align, DynamicBundle};
 use crate::{Bundle, Entity};
 use crate::{Component, World};
@@ -31,6 +34,7 @@ use crate::{Component, World};
 pub struct CommandBuffer {
     entities: Vec<EntityIndex>,
     remove_comps: Vec<RemovedComps>,
+    update_comps: Vec<UpdatedComps>,
     despawn_ent: Vec<Entity>,
     storage: NonNull<u8>,
     layout: Layout,
@@ -120,6 +124,19 @@ impl CommandBuffer {
         self.remove::<(T,)>(ent);
     }
 
+    /// Updates all entities satisfying the query with the given function
+    pub fn update<Q, F>(&mut self, update_fn: F)
+    where
+        Q: Query,
+        F: for<'a> Fn(Entity, Q::Item<'a>) + Send + Sync + 'static,
+    {
+        self.update_comps.push(UpdatedComps(Box::new(move |world| {
+            for (ent, components) in world.query_mut::<Q>() {
+                update_fn(ent, components);
+            }
+        })));
+    }
+
     /// Despawn `entity` from World
     pub fn despawn(&mut self, entity: Entity) {
         self.despawn_ent.push(entity);
@@ -167,6 +184,10 @@ impl CommandBuffer {
 
         for entity in self.despawn_ent.iter() {
             let _ = world.despawn(*entity);
+        }
+
+        for comp in self.update_comps.iter() {
+            (comp.0)(world);
         }
 
         self.clear();
@@ -224,6 +245,7 @@ impl Default for CommandBuffer {
             ids: Vec::new(),
             despawn_ent: Vec::new(),
             remove_comps: Vec::new(),
+            update_comps: Vec::new(),
         }
     }
 }
@@ -259,7 +281,7 @@ unsafe impl DynamicBundle for RecordedEntity<'_> {
     }
 }
 
-/// Data required to store components and their offset  
+/// Data required to store components and their offset
 struct ComponentInfo {
     ty: TypeInfo,
     // Position in 'storage'
@@ -278,6 +300,9 @@ struct RemovedComps {
     remove: fn(&mut World, Entity),
     entity: Entity,
 }
+
+/// Data required to update a set of components on an entity
+struct UpdatedComps(Box<dyn for<'a> Fn(&'a mut World) + Send + Sync + 'static>);
 
 #[cfg(test)]
 mod tests {

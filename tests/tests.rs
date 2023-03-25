@@ -496,6 +496,23 @@ fn remove_buffered_component() {
 }
 
 #[test]
+fn update_buffered_component() {
+    let mut world = World::new();
+    let ent = world.reserve_entity();
+    world.insert(ent, (true, 0i32)).unwrap();
+
+    let mut buffer = CommandBuffer::new();
+    for i in 1..5 {
+        buffer.update::<(&mut i32,), _>(move |_ent, (num,)| {
+            *num += i;
+        });
+    }
+    buffer.run_on(&mut world);
+
+    assert_eq!(*world.get::<&i32>(ent).unwrap(), 10);
+}
+
+#[test]
 #[should_panic(expected = "already borrowed")]
 fn illegal_borrow() {
     let mut world = World::new();
