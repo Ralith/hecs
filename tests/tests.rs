@@ -521,6 +521,27 @@ fn update_buffered_component() {
 }
 
 #[test]
+fn upsert_buffered_component() {
+    let mut world = World::new();
+    let ent = world.reserve_entity();
+    world.insert(ent, ("test",)).unwrap();
+
+    let mut buffer = CommandBuffer::new();
+    for i in 1..4 {
+        buffer.upsert_one::<(&mut Vec<u32>,), _, _, _>(
+            ent,
+            move || (vec![i],),
+            move |(vec,)| {
+                vec.push(i);
+            },
+        );
+    }
+    buffer.run_on(&mut world);
+
+    assert_eq!(*world.get::<&Vec<u32>>(ent).unwrap(), vec![1, 2, 3]);
+}
+
+#[test]
 #[should_panic(expected = "already borrowed")]
 fn illegal_borrow() {
     let mut world = World::new();

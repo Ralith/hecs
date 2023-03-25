@@ -150,6 +150,24 @@ impl CommandBuffer {
         })));
     }
 
+    /// Updates an entity with the given function if it satisfies the query, otherwise clones and
+    /// inserts the given components
+    pub fn upsert_one<Q, U, B, I>(&mut self, ent: Entity, insert_fn: I, update_fn: U)
+    where
+        Q: Query,
+        U: for<'a> Fn(Q::Item<'a>) + Send + Sync + 'static,
+        B: DynamicBundle + Send + Sync + 'static,
+        I: for<'a> Fn() -> B + Send + Sync + 'static,
+    {
+        self.update_comps.push(UpdatedComps(Box::new(move |world| {
+            if let Ok(components) = world.query_one_mut::<Q>(ent) {
+                update_fn(components);
+                return;
+            }
+            let _ = world.insert(ent, insert_fn());
+        })));
+    }
+
     /// Despawn `entity` from World
     pub fn despawn(&mut self, entity: Entity) {
         self.despawn_ent.push(entity);
