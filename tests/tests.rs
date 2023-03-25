@@ -496,7 +496,7 @@ fn remove_buffered_component() {
 }
 
 #[test]
-fn update_buffered_component() {
+fn buffered_commands() {
     let mut world = World::new();
     let ent = world.reserve_entity();
     let ent2 = world.reserve_entity();
@@ -505,40 +505,16 @@ fn update_buffered_component() {
 
     let mut buffer = CommandBuffer::new();
     for i in 1..5 {
-        buffer.update::<(&mut i32,), _>(move |_ent, (num,)| {
-            *num += i;
-        });
-    }
-    for i in 2..6 {
-        buffer.update_one::<(&mut i32,), _>(ent, move |(num,)| {
-            *num += i;
+        buffer.command(move |world| {
+            for (_ent, (num,)) in world.query_mut::<(&mut i32,)>() {
+                *num += i;
+            }
         });
     }
     buffer.run_on(&mut world);
 
-    assert_eq!(*world.get::<&i32>(ent).unwrap(), 24);
+    assert_eq!(*world.get::<&i32>(ent).unwrap(), 10);
     assert_eq!(*world.get::<&i32>(ent2).unwrap(), 10);
-}
-
-#[test]
-fn upsert_buffered_component() {
-    let mut world = World::new();
-    let ent = world.reserve_entity();
-    world.insert(ent, ("test",)).unwrap();
-
-    let mut buffer = CommandBuffer::new();
-    for i in 1..4 {
-        buffer.upsert_one::<(&mut Vec<u32>,), _, _, _>(
-            ent,
-            move || (vec![i],),
-            move |(vec,)| {
-                vec.push(i);
-            },
-        );
-    }
-    buffer.run_on(&mut world);
-
-    assert_eq!(*world.get::<&Vec<u32>>(ent).unwrap(), vec![1, 2, 3]);
 }
 
 #[test]

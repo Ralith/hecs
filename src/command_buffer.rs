@@ -13,7 +13,6 @@ use alloc::boxed::Box;
 use crate::alloc::alloc::{alloc, dealloc, Layout};
 use crate::alloc::vec::Vec;
 use crate::archetype::TypeInfo;
-use crate::Query;
 use crate::{align, DynamicBundle};
 use crate::{Bundle, Entity};
 use crate::{Component, World};
@@ -34,7 +33,7 @@ use crate::{Component, World};
 pub struct CommandBuffer {
     entities: Vec<EntityIndex>,
     remove_comps: Vec<RemovedComps>,
-    update_comps: Vec<UpdatedComps>,
+    commands: Vec<Command>,
     despawn_ent: Vec<Entity>,
     storage: NonNull<u8>,
     layout: Layout,
@@ -124,48 +123,9 @@ impl CommandBuffer {
         self.remove::<(T,)>(ent);
     }
 
-    /// Updates all entities satisfying the query with the given function
-    pub fn update<Q, F>(&mut self, update_fn: F)
-    where
-        Q: Query,
-        F: for<'a> Fn(Entity, Q::Item<'a>) + Send + Sync + 'static,
-    {
-        self.update_comps.push(UpdatedComps(Box::new(move |world| {
-            for (ent, components) in world.query_mut::<Q>() {
-                update_fn(ent, components);
-            }
-        })));
-    }
-
-    /// Updates an entity with the given function if it satisfies the query
-    pub fn update_one<Q, F>(&mut self, ent: Entity, update_fn: F)
-    where
-        Q: Query,
-        F: for<'a> Fn(Q::Item<'a>) + Send + Sync + 'static,
-    {
-        self.update_comps.push(UpdatedComps(Box::new(move |world| {
-            if let Ok(components) = world.query_one_mut::<Q>(ent) {
-                update_fn(components);
-            }
-        })));
-    }
-
-    /// Updates an entity with the given function if it satisfies the query, otherwise clones and
-    /// inserts the given components
-    pub fn upsert_one<Q, U, B, I>(&mut self, ent: Entity, insert_fn: I, update_fn: U)
-    where
-        Q: Query,
-        U: for<'a> Fn(Q::Item<'a>) + Send + Sync + 'static,
-        B: DynamicBundle + Send + Sync + 'static,
-        I: for<'a> Fn() -> B + Send + Sync + 'static,
-    {
-        self.update_comps.push(UpdatedComps(Box::new(move |world| {
-            if let Ok(components) = world.query_one_mut::<Q>(ent) {
-                update_fn(components);
-                return;
-            }
-            let _ = world.insert(ent, insert_fn());
-        })));
+    /// Updates the world with the given command after all other operations have run
+    pub fn command<F: Fn(&mut World) + Send + Sync + 'static>(&mut self, command_fn: F) {
+        self.commands.push(Command(Box::new(command_fn)));
     }
 
     /// Despawn `entity` from World
@@ -217,7 +177,7 @@ impl CommandBuffer {
             let _ = world.despawn(*entity);
         }
 
-        for comp in self.update_comps.iter() {
+        for comp in self.commands.iter() {
             (comp.0)(world);
         }
 
@@ -276,7 +236,7 @@ impl Default for CommandBuffer {
             ids: Vec::new(),
             despawn_ent: Vec::new(),
             remove_comps: Vec::new(),
-            update_comps: Vec::new(),
+            commands: Vec::new(),
         }
     }
 }
@@ -333,7 +293,7 @@ struct RemovedComps {
 }
 
 /// Data required to update a set of components on an entity
-struct UpdatedComps(Box<dyn for<'a> Fn(&'a mut World) + Send + Sync + 'static>);
+struct Command(Box<dyn for<'a> Fn(&'a mut World) + Send + Sync + 'static>);
 
 #[cfg(test)]
 mod tests {
