@@ -499,7 +499,9 @@ fn remove_buffered_component() {
 fn update_buffered_component() {
     let mut world = World::new();
     let ent = world.reserve_entity();
+    let ent2 = world.reserve_entity();
     world.insert(ent, (true, 0i32)).unwrap();
+    world.insert(ent2, (true, 0i32)).unwrap();
 
     let mut buffer = CommandBuffer::new();
     for i in 1..5 {
@@ -507,9 +509,15 @@ fn update_buffered_component() {
             *num += i;
         });
     }
+    for i in 2..6 {
+        buffer.update_one::<(&mut i32,), _>(ent, move |(num,)| {
+            *num += i;
+        });
+    }
     buffer.run_on(&mut world);
 
-    assert_eq!(*world.get::<&i32>(ent).unwrap(), 10);
+    assert_eq!(*world.get::<&i32>(ent).unwrap(), 24);
+    assert_eq!(*world.get::<&i32>(ent2).unwrap(), 10);
 }
 
 #[test]

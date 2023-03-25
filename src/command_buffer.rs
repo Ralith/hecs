@@ -137,6 +137,19 @@ impl CommandBuffer {
         })));
     }
 
+    /// Updates all entities satisfying the query with the given function
+    pub fn update_one<Q, F>(&mut self, ent: Entity, update_fn: F)
+    where
+        Q: Query,
+        F: for<'a> Fn(Q::Item<'a>) + Send + Sync + 'static,
+    {
+        self.update_comps.push(UpdatedComps(Box::new(move |world| {
+            if let Ok(components) = world.query_one_mut::<Q>(ent) {
+                update_fn(components);
+            }
+        })));
+    }
+
     /// Despawn `entity` from World
     pub fn despawn(&mut self, entity: Entity) {
         self.despawn_ent.push(entity);
