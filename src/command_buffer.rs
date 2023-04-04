@@ -259,6 +259,22 @@ unsafe impl DynamicBundle for RecordedEntity<'_> {
     }
 }
 
+impl Drop for RecordedEntity<'_> {
+    fn drop(&mut self) {
+        // If `put` was never called, we still need to drop this entity's components and discard
+        // their info.
+        unsafe {
+            for info in self
+                .cmd
+                .components
+                .drain(self.cmd.entities[self.index].first_component..)
+            {
+                info.ty.drop(self.cmd.storage.as_ptr().add(info.offset));
+            }
+        }
+    }
+}
+
 /// Data required to store components and their offset  
 struct ComponentInfo {
     ty: TypeInfo,
@@ -297,5 +313,34 @@ mod tests {
         buffer.insert(entb, (1.0, "a"));
         buffer.run_on(&mut world);
         assert_eq!(world.archetypes().len(), 4);
+    }
+
+    #[test]
+    fn failed_insert_regression() {
+        // Verify that failing to insert components doesn't lead to concatenating components
+        // together
+        #[derive(Clone)]
+        struct A;
+
+        let mut world = World::new();
+
+        // Get two IDs
+        let a = world.spawn((A,));
+        let b = world.spawn((A,));
+
+        // Invalidate them both
+        world.clear();
+
+        let mut cmd = CommandBuffer::new();
+        cmd.insert_one(a, A);
+        cmd.insert_one(b, A);
+
+        // Make `a` valid again
+        world.spawn_at(a, ());
+
+        // The insert to `a` should succeed
+        cmd.run_on(&mut world);
+
+        assert!(world.satisfies::<&A>(a).unwrap());
     }
 }
