@@ -1,4 +1,4 @@
-# 0.10.1
+# 0.10.2
 
 ### Fixed
 - Entity concatenation when inserts recorded in a `CommandBuffer` failed
