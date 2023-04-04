@@ -1,3 +1,9 @@
+# 0.10.1
+
+### Fixed
+- Entity concatenation when inserts recorded in a `CommandBuffer` failed
+- Incorrect access mode for `Satisfies` queries
+
 # 0.10
 
 ### Added
