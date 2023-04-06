@@ -1,5 +1,5 @@
 use core::any::TypeId;
-use core::fmt::{Debug, Formatter, self};
+use core::fmt::{self, Debug, Formatter};
 use core::ops::{Deref, DerefMut};
 use core::ptr::NonNull;
 
