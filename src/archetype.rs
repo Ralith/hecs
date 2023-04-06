@@ -127,6 +127,12 @@ impl Archetype {
         }
     }
 
+    pub(crate) unsafe fn borrow_raw(&self, state: usize) {
+        if !self.data[state].state.borrow() {
+            panic!("state index {} already borrowed uniquely", state);
+        }
+    }
+
     pub(crate) fn borrow_mut<T: Component>(&self, state: usize) {
         assert_eq!(self.types[state].id, TypeId::of::<T>());
 
@@ -142,6 +148,14 @@ impl Archetype {
 
     pub(crate) fn release_mut<T: Component>(&self, state: usize) {
         assert_eq!(self.types[state].id, TypeId::of::<T>());
+        self.data[state].state.release_mut();
+    }
+
+    pub(crate) unsafe fn release_raw(&self, state: usize) {
+        self.data[state].state.release();
+    }
+
+    pub(crate) unsafe fn release_raw_mut(&self, state: usize) {
         self.data[state].state.release_mut();
     }
 
