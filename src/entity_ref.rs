@@ -1,4 +1,5 @@
 use core::any::TypeId;
+use core::fmt::{self, Debug, Formatter};
 use core::ops::{Deref, DerefMut};
 use core::ptr::NonNull;
 
@@ -151,6 +152,12 @@ impl<'a, T: Component> Deref for Ref<'a, T> {
     }
 }
 
+impl<'a, T: Component + Debug> Debug for Ref<'a, T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        Debug::fmt(self.deref(), f)
+    }
+}
+
 /// Unique borrow of an entity's component
 pub struct RefMut<'a, T: Component> {
     archetype: &'a Archetype,
@@ -197,6 +204,12 @@ impl<'a, T: Component> Deref for RefMut<'a, T> {
 impl<'a, T: Component> DerefMut for RefMut<'a, T> {
     fn deref_mut(&mut self) -> &mut T {
         unsafe { self.target.as_mut() }
+    }
+}
+
+impl<'a, T: Component + Debug> Debug for RefMut<'a, T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        Debug::fmt(self.deref(), f)
     }
 }
 
