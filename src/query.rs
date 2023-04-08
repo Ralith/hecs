@@ -363,7 +363,7 @@ unsafe impl<L: Fetch, R: Fetch> Fetch for FetchOr<L, R> {
     }
 }
 
-/// Query transformer skipping entities that satisfy another query
+/// Transforms query `Q` by skipping entities satisfying query `R`
 ///
 /// See also `QueryBorrow::without`.
 ///
@@ -433,7 +433,7 @@ unsafe impl<F: Fetch, G: Fetch> Fetch for FetchWithout<F, G> {
     }
 }
 
-/// Query transformer skipping entities that do not satisfy another query
+/// Transforms query `Q` by skipping entities not satisfying query `R`
 ///
 /// See also `QueryBorrow::with`.
 ///
@@ -503,7 +503,7 @@ unsafe impl<F: Fetch, G: Fetch> Fetch for FetchWith<F, G> {
     }
 }
 
-/// A query that yields `true` iff an entity would satisfy the query `Q`
+/// A query that matches all entities, yielding `bool`s indicating whether each satisfies query `Q`
 ///
 /// Does not borrow any components, making it faster and more concurrency-friendly than `Option<Q>`.
 ///
