@@ -134,8 +134,8 @@ unsafe impl<T: ?Sized + Sync> Send for Ref<'_, T> {}
 unsafe impl<T: ?Sized + Sync> Sync for Ref<'_, T> {}
 
 impl<'a, T: ?Sized> Ref<'a, T> {
-    /// Makes a new `Ref<'_>` for a component of the borrowed component, e.g.
-    /// a struct field or enum variant.
+    /// Transform the `Ref<'_>` to point to to a part of the borrowed data, e.g.
+    /// a struct field.
     ///
     /// The `Ref<'_>` is already borrowed, so this cannot fail.
     ///
@@ -215,8 +215,8 @@ unsafe impl<T: ?Sized + Send> Send for RefMut<'_, T> {}
 unsafe impl<T: ?Sized + Sync> Sync for RefMut<'_, T> {}
 
 impl<'a, T: ?Sized> RefMut<'a, T> {
-    /// Makes a new `RefMut<'_>` for a component of the borrowed component, e.g.
-    /// a struct field or enum variant.
+    /// Transform the `RefMut<'_>` to point to to a part of the borrowed data, e.g.
+    /// a struct field.
     ///
     /// The `RefMut<'_>` is already mutably borrowed, so this cannot fail.
     ///
@@ -352,11 +352,13 @@ impl<'a, T: Component> ComponentRefShared<'a> for &'a T {}
 
 struct ComponentBorrow<'a> {
     archetype: &'a Archetype,
-    /// State index for `component` in `archetype`
+    /// State index for the borrowed component in the `archetype`.
     state: usize,
 }
 
 impl<'a> ComponentBorrow<'a> {
+    // This method is unsafe as the `index` parameter is not validated
+    // to actually point to the correct component in the `archetype`.
     unsafe fn for_component<T: Component>(
         archetype: &'a Archetype,
         index: u32,
@@ -396,11 +398,13 @@ impl<'a> Drop for ComponentBorrow<'a> {
 
 struct ComponentBorrowMut<'a> {
     archetype: &'a Archetype,
-    /// State index for `component` in `archetype`
+    /// State index for the borrowed component in the `archetype`.
     state: usize,
 }
 
 impl<'a> ComponentBorrowMut<'a> {
+    // This method is unsafe as the `index` parameter is not validated
+    // to actually point to the correct component in the `archetype`.
     unsafe fn for_component<T: Component>(
         archetype: &'a Archetype,
         index: u32,
