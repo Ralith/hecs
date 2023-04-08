@@ -184,8 +184,8 @@ impl<'a, T: ?Sized> Clone for Ref<'a, T> {
     fn clone(&self) -> Self {
         Self {
             borrow: self.borrow.clone(),
-            target: self.target.clone(),
-            _phantom: self._phantom.clone(),
+            target: self.target,
+            _phantom: self._phantom,
         }
     }
 }
