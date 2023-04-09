@@ -1,4 +1,4 @@
-# Unreleased
+# 0.10.3
 
 ### Added
 - `Ref::map` and `RefMut::map` to reborrow a subfield of a component, or cast it to an unsized type
