@@ -1,3 +1,12 @@
+# Unreleased
+
+### Added
+- `Ref::map` and `RefMut::map` to reborrow a subfield of a component, or cast it to an unsized type
+
+### Fixed
+- `Ref::clone()` is now callable when containing types which do not implement `Clone`
+- `Ref::clone()` could cause a panic as internal state wasn't being updated correctly
+
 # 0.10.2
 
 ### Fixed

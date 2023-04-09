@@ -935,3 +935,34 @@ fn empty_archetype_conflict() {
         for _ in world.query::<(&mut i32, &bool)>().iter() {}
     }
 }
+
+#[test]
+fn component_ref_map() {
+    struct TestComponent {
+        id: i32,
+    }
+
+    let mut world = World::new();
+    let e = world.spawn((TestComponent { id: 21 },));
+
+    let e_ref = world.entity(e).unwrap();
+    {
+        let comp = e_ref.get::<&'_ TestComponent>().unwrap();
+        // Test that no unbalanced releases occur when cloning refs.
+        let _comp2 = comp.clone();
+        let id = Ref::map(comp, |c| &c.id);
+        assert_eq!(*id, 21);
+    }
+
+    {
+        let comp = e_ref.get::<&'_ mut TestComponent>().unwrap();
+        let mut id = RefMut::map(comp, |c| &mut c.id);
+        *id = 31;
+    }
+
+    {
+        let comp = e_ref.get::<&'_ TestComponent>().unwrap();
+        let id = Ref::map(comp, |c| &c.id);
+        assert_eq!(*id, 31);
+    }
+}

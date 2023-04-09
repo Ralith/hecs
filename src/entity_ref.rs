@@ -1,6 +1,7 @@
 use core::any::TypeId;
 use core::fmt::{self, Debug, Formatter};
-use core::ops::{Deref, DerefMut};
+use core::marker::PhantomData;
+use core::ops::{Deref, DerefMut, FnOnce};
 use core::ptr::NonNull;
 
 use crate::archetype::Archetype;
@@ -109,12 +110,10 @@ unsafe impl<'a> Send for EntityRef<'a> {}
 unsafe impl<'a> Sync for EntityRef<'a> {}
 
 /// Shared borrow of an entity's component
-#[derive(Clone)]
-pub struct Ref<'a, T: Component> {
-    archetype: &'a Archetype,
-    /// State index for `T` in `archetype`
-    state: usize,
+pub struct Ref<'a, T: ?Sized> {
+    borrow: ComponentBorrow<'a>,
     target: NonNull<T>,
+    _phantom: PhantomData<&'a T>,
 }
 
 impl<'a, T: Component> Ref<'a, T> {
@@ -122,48 +121,80 @@ impl<'a, T: Component> Ref<'a, T> {
         archetype: &'a Archetype,
         index: u32,
     ) -> Result<Self, MissingComponent> {
-        let state = archetype
-            .get_state::<T>()
-            .ok_or_else(MissingComponent::new::<T>)?;
-        let target =
-            NonNull::new_unchecked(archetype.get_base::<T>(state).as_ptr().add(index as usize));
-        archetype.borrow::<T>(state);
+        let (target, borrow) = ComponentBorrow::for_component::<T>(archetype, index)?;
         Ok(Self {
-            archetype,
-            state,
+            borrow,
             target,
+            _phantom: PhantomData,
         })
     }
 }
 
-unsafe impl<T: Component> Send for Ref<'_, T> {}
-unsafe impl<T: Component> Sync for Ref<'_, T> {}
+unsafe impl<T: ?Sized + Sync> Send for Ref<'_, T> {}
+unsafe impl<T: ?Sized + Sync> Sync for Ref<'_, T> {}
 
-impl<'a, T: Component> Drop for Ref<'a, T> {
-    fn drop(&mut self) {
-        self.archetype.release::<T>(self.state);
+impl<'a, T: ?Sized> Ref<'a, T> {
+    /// Transform the `Ref<'_, T>` to point to a part of the borrowed data, e.g.
+    /// a struct field.
+    ///
+    /// The `Ref<'_, T>` is already borrowed, so this cannot fail.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use hecs::{EntityRef, Ref};
+    /// struct Component {
+    ///     member: i32,
+    /// }
+    ///
+    /// # fn example(entity_ref: EntityRef<'_>) {
+    /// let component_ref = entity_ref.get::<&Component>()
+    ///     .expect("Entity does not contain an instance of \"Component\"");
+    /// let member_ref = Ref::map(component_ref, |component| &component.member);
+    /// println!("member = {:?}", *member_ref);
+    /// # }
+    /// ```
+    pub fn map<U: ?Sized, F>(orig: Ref<'a, T>, f: F) -> Ref<'a, U>
+    where
+        F: FnOnce(&T) -> &U,
+    {
+        let target = NonNull::from(f(&*orig));
+        Ref {
+            borrow: orig.borrow,
+            target,
+            _phantom: PhantomData,
+        }
     }
 }
 
-impl<'a, T: Component> Deref for Ref<'a, T> {
+impl<'a, T: ?Sized> Deref for Ref<'a, T> {
     type Target = T;
     fn deref(&self) -> &T {
         unsafe { self.target.as_ref() }
     }
 }
 
-impl<'a, T: Component + Debug> Debug for Ref<'a, T> {
+impl<'a, T: ?Sized + Debug> Debug for Ref<'a, T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         Debug::fmt(self.deref(), f)
     }
 }
 
+impl<'a, T: ?Sized> Clone for Ref<'a, T> {
+    fn clone(&self) -> Self {
+        Self {
+            borrow: self.borrow.clone(),
+            target: self.target,
+            _phantom: self._phantom,
+        }
+    }
+}
+
 /// Unique borrow of an entity's component
-pub struct RefMut<'a, T: Component> {
-    archetype: &'a Archetype,
-    /// State index for `T` in `archetype`
-    state: usize,
+pub struct RefMut<'a, T: ?Sized> {
+    borrow: ComponentBorrowMut<'a>,
     target: NonNull<T>,
+    _phantom: PhantomData<&'a mut T>,
 }
 
 impl<'a, T: Component> RefMut<'a, T> {
@@ -171,43 +202,67 @@ impl<'a, T: Component> RefMut<'a, T> {
         archetype: &'a Archetype,
         index: u32,
     ) -> Result<Self, MissingComponent> {
-        let state = archetype
-            .get_state::<T>()
-            .ok_or_else(MissingComponent::new::<T>)?;
-        let target =
-            NonNull::new_unchecked(archetype.get_base::<T>(state).as_ptr().add(index as usize));
-        archetype.borrow_mut::<T>(state);
+        let (target, borrow) = ComponentBorrowMut::for_component::<T>(archetype, index)?;
         Ok(Self {
-            archetype,
-            state,
+            borrow,
             target,
+            _phantom: PhantomData,
         })
     }
 }
 
-unsafe impl<T: Component> Send for RefMut<'_, T> {}
-unsafe impl<T: Component> Sync for RefMut<'_, T> {}
+unsafe impl<T: ?Sized + Send> Send for RefMut<'_, T> {}
+unsafe impl<T: ?Sized + Sync> Sync for RefMut<'_, T> {}
 
-impl<'a, T: Component> Drop for RefMut<'a, T> {
-    fn drop(&mut self) {
-        self.archetype.release_mut::<T>(self.state);
+impl<'a, T: ?Sized> RefMut<'a, T> {
+    /// Transform the `RefMut<'_, T>` to point to a part of the borrowed data, e.g.
+    /// a struct field.
+    ///
+    /// The `RefMut<'_, T>` is already mutably borrowed, so this cannot fail.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use hecs::{EntityRef, RefMut};
+    /// struct Component {
+    ///     member: i32,
+    /// }
+    ///
+    /// # fn example(entity_ref: EntityRef<'_>) {
+    /// let component_ref = entity_ref.get::<&mut Component>()
+    ///     .expect("Entity does not contain an instance of \"Component\"");
+    /// let mut member_ref = RefMut::map(component_ref, |component| &mut component.member);
+    /// *member_ref = 21;
+    /// println!("member = {:?}", *member_ref);
+    /// # }
+    /// ```
+    pub fn map<U: ?Sized, F>(mut orig: RefMut<'a, T>, f: F) -> RefMut<'a, U>
+    where
+        F: FnOnce(&mut T) -> &mut U,
+    {
+        let target = NonNull::from(f(&mut *orig));
+        RefMut {
+            borrow: orig.borrow,
+            target,
+            _phantom: PhantomData,
+        }
     }
 }
 
-impl<'a, T: Component> Deref for RefMut<'a, T> {
+impl<'a, T: ?Sized> Deref for RefMut<'a, T> {
     type Target = T;
     fn deref(&self) -> &T {
         unsafe { self.target.as_ref() }
     }
 }
 
-impl<'a, T: Component> DerefMut for RefMut<'a, T> {
+impl<'a, T: ?Sized> DerefMut for RefMut<'a, T> {
     fn deref_mut(&mut self) -> &mut T {
         unsafe { self.target.as_mut() }
     }
 }
 
-impl<'a, T: Component + Debug> Debug for RefMut<'a, T> {
+impl<'a, T: ?Sized + Debug> Debug for RefMut<'a, T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         Debug::fmt(self.deref(), f)
     }
@@ -294,3 +349,85 @@ impl<'a, T: Component> ComponentRef<'a> for &'a mut T {
 pub trait ComponentRefShared<'a>: ComponentRef<'a> {}
 
 impl<'a, T: Component> ComponentRefShared<'a> for &'a T {}
+
+struct ComponentBorrow<'a> {
+    archetype: &'a Archetype,
+    /// State index for the borrowed component in the `archetype`.
+    state: usize,
+}
+
+impl<'a> ComponentBorrow<'a> {
+    // This method is unsafe as if the `index` is out of bounds,
+    // then this will cause undefined behavior as the returned
+    // `target` will point to undefined memory.
+    unsafe fn for_component<T: Component>(
+        archetype: &'a Archetype,
+        index: u32,
+    ) -> Result<(NonNull<T>, Self), MissingComponent> {
+        let state = archetype
+            .get_state::<T>()
+            .ok_or_else(MissingComponent::new::<T>)?;
+
+        let target =
+            NonNull::new_unchecked(archetype.get_base::<T>(state).as_ptr().add(index as usize));
+
+        archetype.borrow::<T>(state);
+
+        Ok((target, Self { archetype, state }))
+    }
+}
+
+impl<'a> Clone for ComponentBorrow<'a> {
+    fn clone(&self) -> Self {
+        unsafe {
+            self.archetype.borrow_raw(self.state);
+        }
+        Self {
+            archetype: self.archetype,
+            state: self.state,
+        }
+    }
+}
+
+impl<'a> Drop for ComponentBorrow<'a> {
+    fn drop(&mut self) {
+        unsafe {
+            self.archetype.release_raw(self.state);
+        }
+    }
+}
+
+struct ComponentBorrowMut<'a> {
+    archetype: &'a Archetype,
+    /// State index for the borrowed component in the `archetype`.
+    state: usize,
+}
+
+impl<'a> ComponentBorrowMut<'a> {
+    // This method is unsafe as if the `index` is out of bounds,
+    // then this will cause undefined behavior as the returned
+    // `target` will point to undefined memory.
+    unsafe fn for_component<T: Component>(
+        archetype: &'a Archetype,
+        index: u32,
+    ) -> Result<(NonNull<T>, Self), MissingComponent> {
+        let state = archetype
+            .get_state::<T>()
+            .ok_or_else(MissingComponent::new::<T>)?;
+
+        let target =
+            NonNull::new_unchecked(archetype.get_base::<T>(state).as_ptr().add(index as usize));
+
+        archetype.borrow_mut::<T>(state);
+
+        Ok((target, Self { archetype, state }))
+    }
+}
+
+impl<'a> Drop for ComponentBorrowMut<'a> {
+    fn drop(&mut self) {
+        unsafe {
+            self.archetype.release_raw_mut(self.state);
+        }
+    }
+}
