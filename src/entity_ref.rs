@@ -134,10 +134,10 @@ unsafe impl<T: ?Sized + Sync> Send for Ref<'_, T> {}
 unsafe impl<T: ?Sized + Sync> Sync for Ref<'_, T> {}
 
 impl<'a, T: ?Sized> Ref<'a, T> {
-    /// Transform the `Ref<'_>` to point to a part of the borrowed data, e.g.
+    /// Transform the `Ref<'_, T>` to point to a part of the borrowed data, e.g.
     /// a struct field.
     ///
-    /// The `Ref<'_>` is already borrowed, so this cannot fail.
+    /// The `Ref<'_, T>` is already borrowed, so this cannot fail.
     ///
     /// # Examples
     ///
@@ -215,10 +215,10 @@ unsafe impl<T: ?Sized + Send> Send for RefMut<'_, T> {}
 unsafe impl<T: ?Sized + Sync> Sync for RefMut<'_, T> {}
 
 impl<'a, T: ?Sized> RefMut<'a, T> {
-    /// Transform the `RefMut<'_>` to point to a part of the borrowed data, e.g.
+    /// Transform the `RefMut<'_, T>` to point to a part of the borrowed data, e.g.
     /// a struct field.
     ///
-    /// The `RefMut<'_>` is already mutably borrowed, so this cannot fail.
+    /// The `RefMut<'_, T>` is already mutably borrowed, so this cannot fail.
     ///
     /// # Examples
     ///
