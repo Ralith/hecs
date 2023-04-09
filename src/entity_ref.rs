@@ -357,8 +357,9 @@ struct ComponentBorrow<'a> {
 }
 
 impl<'a> ComponentBorrow<'a> {
-    // This method is unsafe as the `index` parameter is not validated
-    // to actually point to the correct component in the `archetype`.
+    // This method is unsafe as if the `index` is out of bounds,
+    // then this will cause undefined behavior as the returned
+    // `target` will point to undefined memory.
     unsafe fn for_component<T: Component>(
         archetype: &'a Archetype,
         index: u32,
@@ -403,8 +404,9 @@ struct ComponentBorrowMut<'a> {
 }
 
 impl<'a> ComponentBorrowMut<'a> {
-    // This method is unsafe as the `index` parameter is not validated
-    // to actually point to the correct component in the `archetype`.
+    // This method is unsafe as if the `index` is out of bounds,
+    // then this will cause undefined behavior as the returned
+    // `target` will point to undefined memory.
     unsafe fn for_component<T: Component>(
         archetype: &'a Archetype,
         index: u32,
