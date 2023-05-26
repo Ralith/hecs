@@ -75,10 +75,10 @@ fn evaluate_relative_transforms(world: &mut World) {
     let mut roots = world.query::<&Transform>().without::<&Parent>();
     let roots = roots.view();
 
-    // This query can coexist with can coexist with the `roots` view without illegal aliasing of
-    // `Transform` references because the inclusion of `&Parent` in the query, and its exclusion
-    // from the view, guarantees that they will never overlap. Similarly, it can coexist with
-    // `parents` because that view does not reference `Transform`s at all.
+    // This query can coexist with the `roots` view without illegal aliasing of `Transform`
+    // references because the inclusion of `&Parent` in the query, and its exclusion from the view,
+    // guarantees that they will never overlap. Similarly, it can coexist with `parents` because
+    // that view does not reference `Transform`s at all.
     for (_entity, (parent, absolute)) in world.query::<(&Parent, &mut Transform)>().iter() {
         // Walk the hierarchy from this entity to the root, accumulating the entity's absolute
         // transform. This does a small amount of redundant work for intermediate levels of deeper
@@ -88,7 +88,7 @@ fn evaluate_relative_transforms(world: &mut World) {
         let mut ancestor = parent.entity;
         while let Some(next) = parents.get(ancestor) {
             relative = next.from_child * relative;
-            ancestor = next.entity
+            ancestor = next.entity;
         }
         // The `while` loop terminates when `ancestor` cannot be found in `parents`, i.e. when it
         // does not have a `Parent` component, and is therefore necessarily a root.
