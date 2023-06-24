@@ -67,7 +67,7 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream2> {
         .iter()
         .map(|ty| quote! { <#ty as ::hecs::Query>::Fetch })
         .collect::<Vec<_>>();
-    let fetch_ident = Ident::new(&format!("__HecsInternal{}Fetch", ident), Span::call_site());
+    let fetch_ident = Ident::new(&format!("{}Fetch", ident), Span::call_site());
     let fetch = match data.fields {
         syn::Fields::Named(_) => quote! {
             #vis struct #fetch_ident {
@@ -83,7 +83,7 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream2> {
             #vis struct #fetch_ident;
         },
     };
-    let state_ident = Ident::new(&format!("__HecsInternal{}State", ident), Span::call_site());
+    let state_ident = Ident::new(&format!("{}State", ident), Span::call_site());
     let state = match data.fields {
         syn::Fields::Named(_) => quote! {
             #[derive(Clone, Copy)]
@@ -114,81 +114,81 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream2> {
         .collect::<Vec<_>>();
 
     Ok(quote! {
-        impl<'a> ::hecs::Query for #ident<'a> {
-            type Item<'q> = #ident<'q>;
+        const _: () = {
+            #fetch
 
-            type Fetch = #fetch_ident;
+            impl<'a> ::hecs::Query for #ident<'a> {
+                type Item<'q> = #ident<'q>;
 
-            #[allow(unused_variables)]
-            unsafe fn get<'q>(fetch: &Self::Fetch, n: usize) -> Self::Item<'q> {
-                #(
-                    let #intermediates: <#queries as ::hecs::Query>::Item<'q> = <#queries as ::hecs::Query>::get(&fetch.#fields, n);
-                )*
-                #ident {#(#fields: #intermediates,)*}
-            }
-        }
+                type Fetch = #fetch_ident;
 
-        #[doc(hidden)]
-        #fetch
-
-        #[doc(hidden)]
-        #state
-
-        unsafe impl ::hecs::Fetch for #fetch_ident {
-            type State = #state_ident;
-
-            fn dangling() -> Self {
-                Self {
+                #[allow(unused_variables)]
+                unsafe fn get<'q>(fetch: &Self::Fetch, n: usize) -> Self::Item<'q> {
                     #(
-                        #fields: #fetches::dangling(),
+                        let #intermediates: <#queries as ::hecs::Query>::Item<'q> = <#queries as ::hecs::Query>::get(&fetch.#fields, n);
                     )*
+                    #ident {#(#fields: #intermediates,)*}
                 }
             }
 
-            #[allow(unused_variables, unused_mut)]
-            fn access(archetype: &::hecs::Archetype) -> ::std::option::Option<::hecs::Access> {
-                let mut access = ::hecs::Access::Iterate;
-                #(
-                    access = ::core::cmp::max(access, #fetches::access(archetype)?);
-                )*
-                ::std::option::Option::Some(access)
-            }
+            #state
 
-            #[allow(unused_variables)]
-            fn borrow(archetype: &::hecs::Archetype, state: Self::State) {
-                #(#fetches::borrow(archetype, state.#fields);)*
-            }
+            unsafe impl ::hecs::Fetch for #fetch_ident {
+                type State = #state_ident;
 
-            #[allow(unused_variables)]
-            fn prepare(archetype: &::hecs::Archetype) -> ::std::option::Option<Self::State> {
-                ::std::option::Option::Some(#state_ident {
+                fn dangling() -> Self {
+                    Self {
+                        #(
+                            #fields: #fetches::dangling(),
+                        )*
+                    }
+                }
+
+                #[allow(unused_variables, unused_mut)]
+                fn access(archetype: &::hecs::Archetype) -> ::std::option::Option<::hecs::Access> {
+                    let mut access = ::hecs::Access::Iterate;
                     #(
-                        #fields: #fetches::prepare(archetype)?,
+                        access = ::core::cmp::max(access, #fetches::access(archetype)?);
                     )*
-                })
-            }
+                    ::std::option::Option::Some(access)
+                }
 
-            #[allow(unused_variables)]
-            fn execute(archetype: &::hecs::Archetype, state: Self::State) -> Self {
-                Self {
+                #[allow(unused_variables)]
+                fn borrow(archetype: &::hecs::Archetype, state: Self::State) {
+                    #(#fetches::borrow(archetype, state.#fields);)*
+                }
+
+                #[allow(unused_variables)]
+                fn prepare(archetype: &::hecs::Archetype) -> ::std::option::Option<Self::State> {
+                    ::std::option::Option::Some(#state_ident {
+                        #(
+                            #fields: #fetches::prepare(archetype)?,
+                        )*
+                    })
+                }
+
+                #[allow(unused_variables)]
+                fn execute(archetype: &::hecs::Archetype, state: Self::State) -> Self {
+                    Self {
+                        #(
+                            #fields: #fetches::execute(archetype, state.#fields),
+                        )*
+                    }
+                }
+
+                #[allow(unused_variables)]
+                fn release(archetype: &::hecs::Archetype, state: Self::State) {
+                    #(#fetches::release(archetype, state.#fields);)*
+                }
+
+                #[allow(unused_variables, unused_mut)]
+                fn for_each_borrow(mut f: impl ::core::ops::FnMut(::core::any::TypeId, bool)) {
                     #(
-                        #fields: #fetches::execute(archetype, state.#fields),
+                        <#fetches as ::hecs::Fetch>::for_each_borrow(&mut f);
                     )*
                 }
             }
-
-            #[allow(unused_variables)]
-            fn release(archetype: &::hecs::Archetype, state: Self::State) {
-                #(#fetches::release(archetype, state.#fields);)*
-            }
-
-            #[allow(unused_variables, unused_mut)]
-            fn for_each_borrow(mut f: impl ::core::ops::FnMut(::core::any::TypeId, bool)) {
-                #(
-                    <#fetches as ::hecs::Fetch>::for_each_borrow(&mut f);
-                )*
-            }
-        }
+        };
     })
 }
 
