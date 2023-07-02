@@ -1,3 +1,8 @@
+# Unreleased
+
+### Fixed
+- `CommandBuffer` now executes operations in the order they are recorded
+
 # 0.10.3
 
 ### Added
