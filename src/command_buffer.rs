@@ -31,9 +31,7 @@ use crate::{Component, World};
 /// assert_eq!(*world.get::<&i32>(entity).unwrap(), 42);
 /// ```
 pub struct CommandBuffer {
-    entities: Vec<EntityIndex>,
-    remove_comps: Vec<RemovedComps>,
-    despawn_ent: Vec<Entity>,
+    cmds: Vec<Cmd>,
     storage: NonNull<u8>,
     layout: Layout,
     cursor: usize,
@@ -90,10 +88,10 @@ impl CommandBuffer {
             components.put(|ptr, ty| self.add_inner(ptr, ty));
         }
         self.components[first_component..].sort_unstable_by_key(|c| c.ty);
-        self.entities.push(EntityIndex {
+        self.cmds.push(Cmd::SpawnOrInsert(EntityIndex {
             entity: Some(entity),
             components: first_component..self.components.len(),
-        });
+        }));
     }
 
     /// Add `component` to `entity`, if the entity exists
@@ -110,10 +108,10 @@ impl CommandBuffer {
         fn remove_bundle_and_ignore_result<T: Bundle + 'static>(world: &mut World, ents: Entity) {
             let _ = world.remove::<T>(ents);
         }
-        self.remove_comps.push(RemovedComps {
+        self.cmds.push(Cmd::Remove(RemovedComps {
             remove: remove_bundle_and_ignore_result::<T>,
             entity: ent,
-        });
+        }));
     }
 
     /// Remove a component from `entity` if it exists
@@ -125,7 +123,7 @@ impl CommandBuffer {
 
     /// Despawn `entity` from World
     pub fn despawn(&mut self, entity: Entity) {
-        self.despawn_ent.push(entity);
+        self.cmds.push(Cmd::Despawn(entity));
     }
 
     /// Spawn a new entity with `components`
@@ -138,61 +136,65 @@ impl CommandBuffer {
             components.put(|ptr, ty| self.add_inner(ptr, ty));
         }
         self.components[first_component..].sort_unstable_by_key(|c| c.ty);
-        self.entities.push(EntityIndex {
+        self.cmds.push(Cmd::SpawnOrInsert(EntityIndex {
             entity: None,
             components: first_component..self.components.len(),
-        });
+        }));
     }
 
     /// Run recorded commands on `world`, clearing the command buffer
     pub fn run_on(&mut self, world: &mut World) {
-        for index in (0..self.entities.len()).rev() {
-            let (entity, components) = self.build(index);
-            match entity {
-                Some(entity) => {
-                    // If `entity` no longer exists, quietly drop the components.
-                    let _ = world.insert(entity, components);
+        for i in 0..self.cmds.len() {
+            match mem::replace(&mut self.cmds[i], Cmd::Despawn(Entity::DANGLING)) {
+                Cmd::SpawnOrInsert(entity) => {
+                    let components = self.build(entity.components);
+                    match entity.entity {
+                        Some(entity) => {
+                            // If `entity` no longer exists, quietly drop the components.
+                            let _ = world.insert(entity, components);
+                        }
+                        None => {
+                            world.spawn(components);
+                        }
+                    }
                 }
-                None => {
-                    world.spawn(components);
+                Cmd::Remove(remove) => {
+                    (remove.remove)(world, remove.entity);
+                }
+                Cmd::Despawn(entity) => {
+                    let _ = world.despawn(entity);
                 }
             }
         }
-
-        for comp in self.remove_comps.iter() {
-            (comp.remove)(world, comp.entity);
-        }
-
-        for entity in self.despawn_ent.iter() {
-            let _ = world.despawn(*entity);
-        }
+        // Wipe out component references so `clear` doesn't try to double-free
+        self.components.clear();
 
         self.clear();
     }
 
-    fn build(&mut self, index: usize) -> (Option<Entity>, RecordedEntity<'_>) {
+    fn build(&mut self, components: Range<usize>) -> RecordedEntity<'_> {
         self.ids.clear();
         self.ids.extend(
-            self.components[self.entities[index].components.clone()]
+            self.components[components.clone()]
                 .iter()
                 .map(|x| x.ty.id()),
         );
-        let entity = self.entities[index].entity;
-        (entity, RecordedEntity { cmd: self, index })
+        RecordedEntity {
+            cmd: self,
+            components,
+        }
     }
 
     /// Drop all recorded commands
     pub fn clear(&mut self) {
         self.ids.clear();
-        self.entities.clear();
         self.cursor = 0;
-        unsafe {
-            for info in self.components.drain(..) {
+        for info in self.components.drain(..) {
+            unsafe {
                 info.ty.drop(self.storage.as_ptr().add(info.offset));
             }
         }
-        self.remove_comps.clear();
-        self.despawn_ent.clear();
+        self.cmds.clear();
     }
 }
 
@@ -214,14 +216,12 @@ impl Default for CommandBuffer {
     /// Create an empty buffer
     fn default() -> Self {
         Self {
-            entities: Vec::new(),
+            cmds: Vec::new(),
             storage: NonNull::dangling(),
             layout: Layout::from_size_align(0, 8).unwrap(),
             cursor: 0,
             components: Vec::new(),
             ids: Vec::new(),
-            despawn_ent: Vec::new(),
-            remove_comps: Vec::new(),
         }
     }
 }
@@ -230,7 +230,7 @@ impl Default for CommandBuffer {
 /// [`World::spawn_into`](crate::World::spawn_into)
 struct RecordedEntity<'a> {
     cmd: &'a mut CommandBuffer,
-    index: usize,
+    components: Range<usize>,
 }
 
 unsafe impl DynamicBundle for RecordedEntity<'_> {
@@ -239,14 +239,15 @@ unsafe impl DynamicBundle for RecordedEntity<'_> {
     }
 
     fn type_info(&self) -> Vec<TypeInfo> {
-        self.cmd.components[self.cmd.entities[self.index].components.clone()]
+        self.cmd.components[self.components.clone()]
             .iter()
             .map(|x| x.ty)
             .collect()
     }
 
-    unsafe fn put(self, mut f: impl FnMut(*mut u8, TypeInfo)) {
-        let components = mem::replace(&mut self.cmd.entities[self.index].components, 0..0);
+    unsafe fn put(mut self, mut f: impl FnMut(*mut u8, TypeInfo)) {
+        // Zero out the components slice so `drop` won't double-free
+        let components = mem::replace(&mut self.components, 0..0);
         for info in &self.cmd.components[components] {
             let ptr = self.cmd.storage.as_ptr().add(info.offset);
             f(ptr, info.ty);
@@ -256,11 +257,10 @@ unsafe impl DynamicBundle for RecordedEntity<'_> {
 
 impl Drop for RecordedEntity<'_> {
     fn drop(&mut self) {
-        let components = mem::replace(&mut self.cmd.entities[self.index].components, 0..0);
         // If `put` was never called, we still need to drop this entity's components and discard
         // their info.
         unsafe {
-            for info in &self.cmd.components[components] {
+            for info in &self.cmd.components[self.components.clone()] {
                 info.ty.drop(self.cmd.storage.as_ptr().add(info.offset));
             }
         }
@@ -288,6 +288,13 @@ struct EntityIndex {
 struct RemovedComps {
     remove: fn(&mut World, Entity),
     entity: Entity,
+}
+
+/// A buffered command
+enum Cmd {
+    SpawnOrInsert(EntityIndex),
+    Remove(RemovedComps),
+    Despawn(Entity),
 }
 
 #[cfg(test)]
@@ -337,5 +344,27 @@ mod tests {
         cmd.run_on(&mut world);
 
         assert!(world.satisfies::<&A>(a).unwrap());
+    }
+
+    #[test]
+    fn insert_then_remove() {
+        let mut world = World::new();
+        let a = world.spawn(());
+        let mut cmd = CommandBuffer::new();
+        cmd.insert_one(a, 42i32);
+        cmd.remove_one::<i32>(a);
+        cmd.run_on(&mut world);
+        assert!(!world.satisfies::<&i32>(a).unwrap());
+    }
+
+    #[test]
+    fn remove_then_insert() {
+        let mut world = World::new();
+        let a = world.spawn((17i32,));
+        let mut cmd = CommandBuffer::new();
+        cmd.remove_one::<i32>(a);
+        cmd.insert_one(a, 42i32);
+        cmd.run_on(&mut world);
+        assert_eq!(*world.get::<&i32>(a).unwrap(), 42);
     }
 }
