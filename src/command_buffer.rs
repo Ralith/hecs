@@ -87,6 +87,7 @@ impl CommandBuffer {
         unsafe {
             components.put(|ptr, ty| self.add_inner(ptr, ty));
         }
+        self.components[first_component..].sort_unstable_by_key(|c| c.ty);
         self.entities.push(EntityIndex {
             entity: Some(entity),
             first_component,
@@ -134,6 +135,7 @@ impl CommandBuffer {
         unsafe {
             components.put(|ptr, ty| self.add_inner(ptr, ty));
         }
+        self.components[first_component..].sort_unstable_by_key(|c| c.ty);
         self.entities.push(EntityIndex {
             entity: None,
             first_component,
@@ -142,12 +144,6 @@ impl CommandBuffer {
 
     /// Run recorded commands on `world`, clearing the command buffer
     pub fn run_on(&mut self, world: &mut World) {
-        let mut end = self.components.len();
-        for entity in self.entities.iter().rev() {
-            self.components[entity.first_component..end].sort_unstable_by_key(|z| z.ty);
-            end = entity.first_component;
-        }
-
         for index in (0..self.entities.len()).rev() {
             let (entity, components) = self.build(index);
             match entity {
