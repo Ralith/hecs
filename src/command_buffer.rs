@@ -6,6 +6,8 @@
 // copied, modified, or distributed except according to those terms.
 
 use core::any::TypeId;
+use core::mem;
+use core::ops::Range;
 use core::ptr::{self, NonNull};
 
 use crate::alloc::alloc::{alloc, dealloc, Layout};
@@ -90,7 +92,7 @@ impl CommandBuffer {
         self.components[first_component..].sort_unstable_by_key(|c| c.ty);
         self.entities.push(EntityIndex {
             entity: Some(entity),
-            first_component,
+            components: first_component..self.components.len(),
         });
     }
 
@@ -138,7 +140,7 @@ impl CommandBuffer {
         self.components[first_component..].sort_unstable_by_key(|c| c.ty);
         self.entities.push(EntityIndex {
             entity: None,
-            first_component,
+            components: first_component..self.components.len(),
         });
     }
 
@@ -171,7 +173,7 @@ impl CommandBuffer {
     fn build(&mut self, index: usize) -> (Option<Entity>, RecordedEntity<'_>) {
         self.ids.clear();
         self.ids.extend(
-            self.components[self.entities[index].first_component..]
+            self.components[self.entities[index].components.clone()]
                 .iter()
                 .map(|x| x.ty.id()),
         );
@@ -237,18 +239,15 @@ unsafe impl DynamicBundle for RecordedEntity<'_> {
     }
 
     fn type_info(&self) -> Vec<TypeInfo> {
-        self.cmd.components[self.cmd.entities[self.index].first_component..]
+        self.cmd.components[self.cmd.entities[self.index].components.clone()]
             .iter()
             .map(|x| x.ty)
             .collect()
     }
 
     unsafe fn put(self, mut f: impl FnMut(*mut u8, TypeInfo)) {
-        for info in self
-            .cmd
-            .components
-            .drain(self.cmd.entities[self.index].first_component..)
-        {
+        let components = mem::replace(&mut self.cmd.entities[self.index].components, 0..0);
+        for info in &self.cmd.components[components] {
             let ptr = self.cmd.storage.as_ptr().add(info.offset);
             f(ptr, info.ty);
         }
@@ -257,14 +256,11 @@ unsafe impl DynamicBundle for RecordedEntity<'_> {
 
 impl Drop for RecordedEntity<'_> {
     fn drop(&mut self) {
+        let components = mem::replace(&mut self.cmd.entities[self.index].components, 0..0);
         // If `put` was never called, we still need to drop this entity's components and discard
         // their info.
         unsafe {
-            for info in self
-                .cmd
-                .components
-                .drain(self.cmd.entities[self.index].first_component..)
-            {
+            for info in &self.cmd.components[components] {
                 info.ty.drop(self.cmd.storage.as_ptr().add(info.offset));
             }
         }
@@ -281,8 +277,11 @@ struct ComponentInfo {
 /// Data of buffered 'entity' and its relative position in component data
 struct EntityIndex {
     entity: Option<Entity>,
-    // Position of this entity's first component in `CommandBuffer::info`
-    first_component: usize,
+    // Position of this entity's components in `CommandBuffer::info`
+    //
+    // We could store a single start point for the first initialized entity, rather than one for
+    // each, but this would be more error prone for marginal space savings.
+    components: Range<usize>,
 }
 
 /// Data required to remove components from 'entity'
