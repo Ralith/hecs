@@ -45,7 +45,7 @@ pub unsafe trait QueryShared {}
 
 /// Streaming iterators over contiguous homogeneous ranges of components
 #[allow(clippy::missing_safety_doc)]
-pub unsafe trait Fetch: Sized {
+pub unsafe trait Fetch: Clone + Sized {
     /// The type of the data which can be cached to speed up retrieving
     /// the relevant type states from a matching [`Archetype`]
     type State: Copy;
@@ -128,6 +128,13 @@ unsafe impl<T: Component> Fetch for FetchRead<T> {
     }
 }
 
+impl<T> Clone for FetchRead<T> {
+    #[inline]
+    fn clone(&self) -> Self {
+        Self(self.0)
+    }
+}
+
 impl<'a, T: Component> Query for &'a mut T {
     type Item<'q> = &'q mut T;
 
@@ -175,6 +182,13 @@ unsafe impl<T: Component> Fetch for FetchWrite<T> {
     }
 }
 
+impl<T> Clone for FetchWrite<T> {
+    #[inline]
+    fn clone(&self) -> Self {
+        Self(self.0)
+    }
+}
+
 impl<T: Query> Query for Option<T> {
     type Item<'q> = Option<T::Item<'q>>;
 
@@ -188,6 +202,7 @@ impl<T: Query> Query for Option<T> {
 unsafe impl<T: QueryShared> QueryShared for Option<T> {}
 
 #[doc(hidden)]
+#[derive(Clone)]
 pub struct TryFetch<T>(Option<T>);
 
 unsafe impl<T: Fetch> Fetch for TryFetch<T> {
@@ -328,6 +343,7 @@ impl<L: Query, R: Query> Query for Or<L, R> {
 unsafe impl<L: QueryShared, R: QueryShared> QueryShared for Or<L, R> {}
 
 #[doc(hidden)]
+#[derive(Clone)]
 pub struct FetchOr<L, R>(Or<L, R>);
 
 unsafe impl<L: Fetch, R: Fetch> Fetch for FetchOr<L, R> {
@@ -433,6 +449,13 @@ unsafe impl<F: Fetch, G: Fetch> Fetch for FetchWithout<F, G> {
     }
 }
 
+impl<F: Clone, G> Clone for FetchWithout<F, G> {
+    #[inline]
+    fn clone(&self) -> Self {
+        Self(self.0.clone(), PhantomData)
+    }
+}
+
 /// Transforms query `Q` by skipping entities not satisfying query `R`
 ///
 /// See also `QueryBorrow::with`.
@@ -503,6 +526,13 @@ unsafe impl<F: Fetch, G: Fetch> Fetch for FetchWith<F, G> {
     }
 }
 
+impl<F: Clone, G> Clone for FetchWith<F, G> {
+    #[inline]
+    fn clone(&self) -> Self {
+        Self(self.0.clone(), PhantomData)
+    }
+}
+
 /// A query that matches all entities, yielding `bool`s indicating whether each satisfies query `Q`
 ///
 /// Does not borrow any components, making it faster and more concurrency-friendly than `Option<Q>`.
@@ -561,6 +591,13 @@ unsafe impl<F: Fetch> Fetch for FetchSatisfies<F> {
     fn release(_archetype: &Archetype, _state: Self::State) {}
 
     fn for_each_borrow(_: impl FnMut(TypeId, bool)) {}
+}
+
+impl<T> Clone for FetchSatisfies<T> {
+    #[inline]
+    fn clone(&self) -> Self {
+        Self(self.0, PhantomData)
+    }
 }
 
 /// A borrow of a [`World`](crate::World) sufficient to execute the query `Q`
