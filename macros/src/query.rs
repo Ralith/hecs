@@ -115,6 +115,7 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream2> {
 
     Ok(quote! {
         const _: () = {
+            #[derive(Clone)]
             #fetch
 
             impl<'a> ::hecs::Query for #ident<'a> {
