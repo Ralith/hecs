@@ -1,5 +1,8 @@
 # Unreleased
 
+### Added
+- `View` and `PreparedView` may now be iterated over, just like queries
+
 ### Fixed
 - `CommandBuffer` now executes operations in the order they are recorded
 
