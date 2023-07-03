@@ -1318,6 +1318,7 @@ impl<Q: Query> ExactSizeIterator for PreparedQueryIter<'_, Q> {
 /// Provides random access to the results of a query
 pub struct View<'q, Q: Query> {
     meta: &'q [EntityMeta],
+    archetypes: &'q [Archetype],
     fetch: Vec<Option<Q::Fetch>>,
 }
 
@@ -1337,7 +1338,11 @@ impl<'q, Q: Query> View<'q, Q> {
             })
             .collect();
 
-        Self { meta, fetch }
+        Self {
+            meta,
+            archetypes,
+            fetch,
+        }
     }
 
     /// Retrieve the query results corresponding to `entity`
@@ -1417,11 +1422,73 @@ impl<'q, Q: Query> View<'q, Q> {
 
         items
     }
+
+    /// Iterate over all entities satisfying `Q`
+    ///
+    /// Equivalent to [`QueryBorrow::iter`].
+    pub fn iter_mut(&mut self) -> ViewIter<'_, Q> {
+        ViewIter {
+            meta: self.meta,
+            archetypes: self.archetypes.iter(),
+            fetches: self.fetch.iter(),
+            iter: ChunkIter::empty(),
+        }
+    }
+}
+
+impl<'a, 'q, Q: Query> IntoIterator for &'a mut View<'q, Q> {
+    type IntoIter = ViewIter<'a, Q>;
+    type Item = (Entity, Q::Item<'a>);
+
+    #[inline]
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter_mut()
+    }
+}
+
+pub struct ViewIter<'a, Q: Query> {
+    meta: &'a [EntityMeta],
+    archetypes: SliceIter<'a, Archetype>,
+    fetches: SliceIter<'a, Option<Q::Fetch>>,
+    iter: ChunkIter<Q>,
+}
+
+impl<'a, Q: Query> Iterator for ViewIter<'a, Q> {
+    type Item = (Entity, Q::Item<'a>);
+
+    #[inline(always)]
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            match unsafe { self.iter.next() } {
+                None => {
+                    let archetype = self.archetypes.next()?;
+                    let fetch = self.fetches.next()?;
+                    self.iter = fetch.clone().map_or(ChunkIter::empty(), |fetch| ChunkIter {
+                        entities: archetype.entities(),
+                        fetch,
+                        position: 0,
+                        len: archetype.len() as usize,
+                    });
+                    continue;
+                }
+                Some((id, components)) => {
+                    return Some((
+                        Entity {
+                            id,
+                            generation: unsafe { self.meta.get_unchecked(id as usize).generation },
+                        },
+                        components,
+                    ));
+                }
+            }
+        }
+    }
 }
 
 /// Provides random access to the results of a prepared query
 pub struct PreparedView<'q, Q: Query> {
     meta: &'q [EntityMeta],
+    archetypes: &'q [Archetype],
     fetch: &'q mut [Option<Q::Fetch>],
 }
 
@@ -1446,7 +1513,11 @@ impl<'q, Q: Query> PreparedView<'q, Q> {
             fetch[*idx] = Some(Q::Fetch::execute(archetype, *state));
         }
 
-        Self { meta, fetch }
+        Self {
+            meta,
+            archetypes,
+            fetch,
+        }
     }
 
     /// Retrieve the query results corresponding to `entity`
@@ -1506,6 +1577,28 @@ impl<'q, Q: Query> PreparedView<'q, Q> {
         }
 
         items
+    }
+
+    /// Iterate over all entities satisfying `Q`
+    ///
+    /// Equivalent to [`PreparedQueryBorrow::iter`].
+    pub fn iter_mut(&mut self) -> ViewIter<'_, Q> {
+        ViewIter {
+            meta: self.meta,
+            archetypes: self.archetypes.iter(),
+            fetches: self.fetch.iter(),
+            iter: ChunkIter::empty(),
+        }
+    }
+}
+
+impl<'a, 'q, Q: Query> IntoIterator for &'a mut PreparedView<'q, Q> {
+    type IntoIter = ViewIter<'a, Q>;
+    type Item = (Entity, Q::Item<'a>);
+
+    #[inline]
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter_mut()
     }
 }
 
