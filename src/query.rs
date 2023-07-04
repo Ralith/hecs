@@ -1118,11 +1118,12 @@ impl<Q: Query> PreparedQuery<Q> {
 
         let state = world
             .archetypes()
+            .iter()
             .enumerate()
             .filter_map(|(idx, x)| Q::Fetch::prepare(x).map(|state| (idx, state)))
             .collect();
 
-        let fetch = world.archetypes().map(|_| None).collect();
+        let fetch = world.archetypes().iter().map(|_| None).collect();
 
         Self { memo, state, fetch }
     }
@@ -1137,7 +1138,7 @@ impl<Q: Query> PreparedQuery<Q> {
         }
 
         let meta = world.entities_meta();
-        let archetypes = world.archetypes_inner();
+        let archetypes = world.archetypes();
 
         PreparedQueryBorrow::new(meta, archetypes, &self.state, &mut self.fetch)
     }
@@ -1153,7 +1154,7 @@ impl<Q: Query> PreparedQuery<Q> {
         }
 
         let meta = world.entities_meta();
-        let archetypes = world.archetypes_inner();
+        let archetypes = world.archetypes();
 
         let state: &'q [(usize, <Q::Fetch as Fetch>::State)] =
             unsafe { mem::transmute(&*self.state) };
@@ -1170,7 +1171,7 @@ impl<Q: Query> PreparedQuery<Q> {
         }
 
         let meta = world.entities_meta();
-        let archetypes = world.archetypes_inner();
+        let archetypes = world.archetypes();
 
         let state: &'q [(usize, <Q::Fetch as Fetch>::State)] =
             unsafe { mem::transmute(&*self.state) };

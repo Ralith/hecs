@@ -416,7 +416,11 @@ impl World {
         &self.entities.meta
     }
 
-    pub(crate) fn archetypes_inner(&self) -> &[Archetype] {
+    /// Inspect the archetypes that entities are organized into
+    ///
+    /// Useful for dynamically scheduling concurrent queries by checking borrows in advance, and for
+    /// efficient serialization.
+    pub fn archetypes(&self) -> &[Archetype] {
         &self.archetypes.archetypes
     }
 
@@ -498,6 +502,15 @@ impl World {
                 loc.index,
             ))
         }
+    }
+
+    /// Storage location of `entity`
+    ///
+    /// Useful in combination with [`archetypes`](Self::archetypes). May be invalidated when
+    /// [`archetypes_generation`](Self::archetypes_generation) changes.
+    #[inline]
+    pub fn location_of(&self, entity: Entity) -> Result<Location, NoSuchEntity> {
+        self.entities.get(entity)
     }
 
     /// Given an id obtained from [`Entity::id`], reconstruct the still-live [`Entity`].
@@ -816,14 +829,6 @@ impl World {
         let arch = &mut self.archetypes.archetypes[0];
         self.entities
             .flush(|id, location| location.index = unsafe { arch.allocate(id) });
-    }
-
-    /// Inspect the archetypes that entities are organized into
-    ///
-    /// Useful for dynamically scheduling concurrent queries by checking borrows in advance, and for
-    /// efficient serialization.
-    pub fn archetypes(&self) -> impl ExactSizeIterator<Item = &'_ Archetype> + '_ {
-        self.archetypes_inner().iter()
     }
 
     /// Despawn `entity`, yielding a [`DynamicBundle`] of its components

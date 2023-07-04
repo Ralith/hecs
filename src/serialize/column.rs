@@ -291,8 +291,9 @@ where
     }
 
     let predicate = |x: &&Archetype| -> bool { !x.is_empty() && x.satisfies::<Q>() };
-    let mut seq = serializer.serialize_seq(Some(world.archetypes().filter(predicate).count()))?;
-    for archetype in world.archetypes().filter(predicate) {
+    let mut seq =
+        serializer.serialize_seq(Some(world.archetypes().iter().filter(predicate).count()))?;
+    for archetype in world.archetypes().iter().filter(predicate) {
         seq.serialize_element(&SerializeArchetype {
             world,
             archetype,

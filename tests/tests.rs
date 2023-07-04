@@ -858,7 +858,7 @@ fn columnar_access() {
     let e = world.spawn(("abc", 123));
     let f = world.spawn(("def", 456, true));
     let g = world.spawn(("ghi", 789, false));
-    let mut archetypes = world.archetypes();
+    let mut archetypes = world.archetypes().iter();
     let _empty = archetypes.next().unwrap();
     let a = archetypes.next().unwrap();
     assert_eq!(a.ids(), &[e.id()]);
