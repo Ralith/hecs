@@ -904,6 +904,15 @@ struct ChunkIter<Q: Query> {
 }
 
 impl<Q: Query> ChunkIter<Q> {
+    fn new(archetype: &Archetype, fetch: Q::Fetch) -> Self {
+        Self {
+            entities: archetype.entities(),
+            fetch,
+            position: 0,
+            len: archetype.len() as usize,
+        }
+    }
+
     fn empty() -> Self {
         Self {
             entities: NonNull::dangling(),
@@ -978,14 +987,12 @@ impl<'q, Q: Query> Iterator for BatchedIter<'q, Q> {
             let fetch = state.map(|state| Q::Fetch::execute(archetype, state));
             if let Some(fetch) = fetch {
                 self.batch += 1;
+                let mut state = ChunkIter::new(archetype, fetch);
+                state.position = offset as usize;
+                state.len = (offset + self.batch_size.min(archetype.len() - offset)) as usize;
                 return Some(Batch {
                     meta: self.meta,
-                    state: ChunkIter {
-                        entities: archetype.entities(),
-                        fetch,
-                        len: (offset + self.batch_size.min(archetype.len() - offset)) as usize,
-                        position: offset as usize,
-                    },
+                    state,
                 });
             } else {
                 self.archetypes = archetypes;
@@ -1278,12 +1285,7 @@ impl<'q, Q: Query> Iterator for PreparedQueryIter<'q, Q> {
                 None => {
                     let (idx, state) = self.state.next()?;
                     let archetype = &self.archetypes[*idx];
-                    self.iter = ChunkIter {
-                        entities: archetype.entities(),
-                        fetch: Q::Fetch::execute(archetype, *state),
-                        position: 0,
-                        len: archetype.len() as usize,
-                    };
+                    self.iter = ChunkIter::new(archetype, Q::Fetch::execute(archetype, *state));
                     continue;
                 }
                 Some((id, components)) => {
@@ -1463,12 +1465,9 @@ impl<'a, Q: Query> Iterator for ViewIter<'a, Q> {
                 None => {
                     let archetype = self.archetypes.next()?;
                     let fetch = self.fetches.next()?;
-                    self.iter = fetch.clone().map_or(ChunkIter::empty(), |fetch| ChunkIter {
-                        entities: archetype.entities(),
-                        fetch,
-                        position: 0,
-                        len: archetype.len() as usize,
-                    });
+                    self.iter = fetch
+                        .clone()
+                        .map_or(ChunkIter::empty(), |fetch| ChunkIter::new(archetype, fetch));
                     continue;
                 }
                 Some((id, components)) => {
