@@ -1189,10 +1189,7 @@ impl<Q: Query> PreparedQuery<Q> {
         let meta = world.entities_meta();
         let archetypes = world.archetypes_inner();
 
-        let state: &'q [(usize, <Q::Fetch as Fetch>::State)] =
-            unsafe { mem::transmute(&*self.state) };
-
-        unsafe { PreparedQueryIter::new(meta, archetypes, state.iter()) }
+        unsafe { PreparedQueryIter::new(meta, archetypes, self.state.iter()) }
     }
 
     /// Provide random access to query results for a uniquely borrow world
@@ -1206,10 +1203,7 @@ impl<Q: Query> PreparedQuery<Q> {
         let meta = world.entities_meta();
         let archetypes = world.archetypes_inner();
 
-        let state: &'q [(usize, <Q::Fetch as Fetch>::State)] =
-            unsafe { mem::transmute(&*self.state) };
-
-        unsafe { PreparedView::new(meta, archetypes, state.iter(), &mut self.fetch) }
+        unsafe { PreparedView::new(meta, archetypes, self.state.iter(), &mut self.fetch) }
     }
 }
 
