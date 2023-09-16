@@ -104,9 +104,7 @@ impl Archetype {
         assert_eq!(self.types[state].id, TypeId::of::<T>());
 
         unsafe {
-            NonNull::new_unchecked(
-                self.data.get_unchecked(state).storage.as_ptr().cast::<T>() as *mut T
-            )
+            NonNull::new_unchecked(self.data.get_unchecked(state).storage.as_ptr().cast::<T>())
         }
     }
 
