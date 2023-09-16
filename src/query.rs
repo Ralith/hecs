@@ -1055,6 +1055,7 @@ macro_rules! tuple_impl {
                 $($name::borrow(archetype, $name);)*
             }
             #[allow(unused_variables)]
+            #[cold]
             fn prepare(archetype: &Archetype) -> Option<Self::State> {
                 Some(($($name::prepare(archetype)?,)*))
             }
