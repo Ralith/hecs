@@ -766,6 +766,22 @@ impl<'q, Q: Query> QueryIter<'q, Q> {
             iter: ChunkIter::empty(),
         }
     }
+
+    /// Advance query to the next archetype
+    ///
+    /// Outlined from `Iterator::next` for improved iteration performance.
+    fn next_archetype(&mut self) -> Option<()> {
+        let archetype = self.archetypes.next()?;
+        let state = Q::Fetch::prepare(archetype);
+        let fetch = state.map(|state| Q::Fetch::execute(archetype, state));
+        self.iter = fetch.map_or(ChunkIter::empty(), |fetch| ChunkIter {
+            entities: archetype.entities(),
+            fetch,
+            position: 0,
+            len: archetype.len() as usize,
+        });
+        Some(())
+    }
 }
 
 unsafe impl<'q, Q: Query> Send for QueryIter<'q, Q> where for<'a> Q::Item<'a>: Send {}
@@ -779,15 +795,7 @@ impl<'q, Q: Query> Iterator for QueryIter<'q, Q> {
         loop {
             match unsafe { self.iter.next() } {
                 None => {
-                    let archetype = self.archetypes.next()?;
-                    let state = Q::Fetch::prepare(archetype);
-                    let fetch = state.map(|state| Q::Fetch::execute(archetype, state));
-                    self.iter = fetch.map_or(ChunkIter::empty(), |fetch| ChunkIter {
-                        entities: archetype.entities(),
-                        fetch,
-                        position: 0,
-                        len: archetype.len() as usize,
-                    });
+                    self.next_archetype()?;
                     continue;
                 }
                 Some((id, components)) => {
