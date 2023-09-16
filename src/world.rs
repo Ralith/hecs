@@ -412,10 +412,12 @@ impl World {
         (self.id, self.archetypes.generation())
     }
 
+    #[inline(always)]
     pub(crate) fn entities_meta(&self) -> &[EntityMeta] {
         &self.entities.meta
     }
 
+    #[inline(always)]
     pub(crate) fn archetypes_inner(&self) -> &[Archetype] {
         &self.archetypes.archetypes
     }
@@ -822,6 +824,7 @@ impl World {
     ///
     /// Useful for dynamically scheduling concurrent queries by checking borrows in advance, and for
     /// efficient serialization.
+    #[inline(always)]
     pub fn archetypes(&self) -> impl ExactSizeIterator<Item = &'_ Archetype> + '_ {
         self.archetypes_inner().iter()
     }

@@ -1059,6 +1059,7 @@ macro_rules! tuple_impl {
                 Some(($($name::prepare(archetype)?,)*))
             }
             #[allow(unused_variables, non_snake_case, clippy::unused_unit)]
+            #[inline(always)]
             fn execute(archetype: &Archetype, state: Self::State) -> Self {
                 let ($($name,)*) = state;
                 ($($name::execute(archetype, $name),)*)
