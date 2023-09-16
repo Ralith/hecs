@@ -6,6 +6,7 @@
 // copied, modified, or distributed except according to those terms.
 
 use core::any::TypeId;
+use core::cell::UnsafeCell;
 use core::marker::PhantomData;
 use core::mem;
 use core::ptr::NonNull;
@@ -13,8 +14,8 @@ use core::slice::Iter as SliceIter;
 
 use crate::alloc::{boxed::Box, vec::Vec};
 use crate::archetype::Archetype;
-use crate::entities::EntityMeta;
-use crate::{Component, Entity, World};
+use crate::entities::{EntityMeta, Location};
+use crate::{Bundle, Component, Entity, World};
 
 /// A collection of component types to fetch from a [`World`](crate::World)
 ///
@@ -28,6 +29,10 @@ pub trait Query {
     #[doc(hidden)]
     type Fetch: Fetch;
 
+    /// Information about added/removed components
+    #[doc(hidden)]
+    type Effect: Effect;
+
     #[doc(hidden)]
     /// Access the `n`th item in this archetype without bounds checking
     ///
@@ -36,6 +41,37 @@ pub trait Query {
     /// - [`Fetch::release`] must not be called while `'a` is still live
     /// - Bounds-checking must be performed externally
     /// - Any resulting borrows must be legal (e.g. no &mut to something another iterator might access)
+    unsafe fn get_with_effect<'a>(
+        fetch: &Self::Fetch,
+        n: usize,
+        effect: &'a mut Self::Effect,
+    ) -> Self::Item<'a>;
+
+    // TODO: Can we split this into incremental "traverse archetype graph" and "populate final archetype" steps?
+    /// Execute world updates after an entity is visited
+    #[doc(hidden)]
+    fn apply(_effect: Self::Effect, _world: &mut World, _location: Location) {}
+}
+
+#[doc(hidden)]
+pub trait Effect: 'static {
+    fn new() -> Self;
+}
+
+impl<T: 'static> Effect for Option<T> {
+    fn new() -> Self {
+        None
+    }
+}
+
+/// Queries that can run with a shared [`World`] borrow
+///
+/// Concurrent queries are guaranteed not to add or remove components. They rely on dynamic borrow
+/// checking, and may panic if two such simultaneous queries might yield results that alias
+/// illegally.
+pub unsafe trait QueryInPlace: Query {
+    /// As [`Query::get`], but with no component add/remove effect
+    #[doc(hidden)]
     unsafe fn get<'a>(fetch: &Self::Fetch, n: usize) -> Self::Item<'a>;
 }
 
@@ -85,6 +121,14 @@ impl<'a, T: Component> Query for &'a T {
 
     type Fetch = FetchRead<T>;
 
+    type Effect = ();
+
+    unsafe fn get_with_effect<'q>(fetch: &FetchRead<T>, n: usize, &mut (): &'q mut ()) -> &'q T {
+        Self::get(fetch, n)
+    }
+}
+
+unsafe impl<'a, T: Component> QueryInPlace for &'a T {
     unsafe fn get<'q>(fetch: &FetchRead<T>, n: usize) -> &'q T {
         &*fetch.0.as_ptr().add(n)
     }
@@ -140,6 +184,18 @@ impl<'a, T: Component> Query for &'a mut T {
 
     type Fetch = FetchWrite<T>;
 
+    type Effect = ();
+
+    unsafe fn get_with_effect<'q>(
+        fetch: &FetchWrite<T>,
+        n: usize,
+        &mut (): &'q mut (),
+    ) -> &'q mut T {
+        Self::get(fetch, n)
+    }
+}
+
+unsafe impl<'a, T: Component> QueryInPlace for &'a mut T {
     unsafe fn get<'q>(fetch: &FetchWrite<T>, n: usize) -> &'q mut T {
         &mut *fetch.0.as_ptr().add(n)
     }
@@ -194,7 +250,24 @@ impl<T: Query> Query for Option<T> {
 
     type Fetch = TryFetch<T::Fetch>;
 
-    unsafe fn get<'q>(fetch: &TryFetch<T::Fetch>, n: usize) -> Option<T::Item<'q>> {
+    type Effect = T::Effect;
+
+    unsafe fn get_with_effect<'q>(
+        fetch: &TryFetch<T::Fetch>,
+        n: usize,
+        effect: &'q mut Self::Effect,
+    ) -> Option<T::Item<'q>> {
+        let fetch = fetch.0.as_ref()?;
+        Some(T::get_with_effect(fetch, n, effect))
+    }
+
+    fn apply(effect: Self::Effect, world: &mut World, location: Location) {
+        T::apply(effect, world, location)
+    }
+}
+
+unsafe impl<T: QueryInPlace> QueryInPlace for Option<T> {
+    unsafe fn get<'a>(fetch: &Self::Fetch, n: usize) -> Self::Item<'a> {
         Some(T::get(fetch.0.as_ref()?, n))
     }
 }
@@ -335,7 +408,46 @@ impl<L: Query, R: Query> Query for Or<L, R> {
 
     type Fetch = FetchOr<L::Fetch, R::Fetch>;
 
-    unsafe fn get<'q>(fetch: &Self::Fetch, n: usize) -> Self::Item<'q> {
+    type Effect = OrEffect<L::Effect, R::Effect>;
+
+    unsafe fn get_with_effect<'q>(
+        fetch: &Self::Fetch,
+        n: usize,
+        effect: &'q mut Self::Effect,
+    ) -> Self::Item<'q> {
+        fetch.0.as_ref().map(
+            |l| L::get_with_effect(l, n, effect.left.insert(L::Effect::new())),
+            |r| R::get_with_effect(r, n, effect.right.insert(R::Effect::new())),
+        )
+    }
+
+    fn apply(effect: Self::Effect, world: &mut World, location: Location) {
+        if let Some(x) = effect.left {
+            L::apply(x, world, location);
+        }
+        if let Some(x) = effect.right {
+            R::apply(x, world, location);
+        }
+    }
+}
+
+#[doc(hidden)]
+pub struct OrEffect<T, U> {
+    left: Option<T>,
+    right: Option<U>,
+}
+
+impl<T: 'static, U: 'static> Effect for OrEffect<T, U> {
+    fn new() -> Self {
+        Self {
+            left: None,
+            right: None,
+        }
+    }
+}
+
+unsafe impl<L: QueryInPlace, R: QueryInPlace> QueryInPlace for Or<L, R> {
+    unsafe fn get<'a>(fetch: &Self::Fetch, n: usize) -> Self::Item<'a> {
         fetch.0.as_ref().map(|l| L::get(l, n), |r| R::get(r, n))
     }
 }
@@ -403,7 +515,23 @@ impl<Q: Query, R: Query> Query for Without<Q, R> {
 
     type Fetch = FetchWithout<Q::Fetch, R::Fetch>;
 
-    unsafe fn get<'q>(fetch: &Self::Fetch, n: usize) -> Self::Item<'q> {
+    type Effect = Q::Effect;
+
+    unsafe fn get_with_effect<'q>(
+        fetch: &Self::Fetch,
+        n: usize,
+        effect: &'q mut Q::Effect,
+    ) -> Self::Item<'q> {
+        Q::get_with_effect(&fetch.0, n, effect)
+    }
+
+    fn apply(effect: Self::Effect, world: &mut World, location: Location) {
+        Q::apply(effect, world, location)
+    }
+}
+
+unsafe impl<Q: QueryInPlace, R: Query> QueryInPlace for Without<Q, R> {
+    unsafe fn get<'a>(fetch: &Self::Fetch, n: usize) -> Self::Item<'a> {
         Q::get(&fetch.0, n)
     }
 }
@@ -482,7 +610,23 @@ impl<Q: Query, R: Query> Query for With<Q, R> {
 
     type Fetch = FetchWith<Q::Fetch, R::Fetch>;
 
-    unsafe fn get<'q>(fetch: &Self::Fetch, n: usize) -> Self::Item<'q> {
+    type Effect = Q::Effect;
+
+    unsafe fn get_with_effect<'q>(
+        fetch: &Self::Fetch,
+        n: usize,
+        effect: &'q mut Q::Effect,
+    ) -> Self::Item<'q> {
+        Q::get_with_effect(&fetch.0, n, effect)
+    }
+
+    fn apply(effect: Self::Effect, world: &mut World, location: Location) {
+        Q::apply(effect, world, location)
+    }
+}
+
+unsafe impl<Q: QueryInPlace, R: Query> QueryInPlace for With<Q, R> {
+    unsafe fn get<'a>(fetch: &Self::Fetch, n: usize) -> Self::Item<'a> {
         Q::get(&fetch.0, n)
     }
 }
@@ -560,7 +704,19 @@ impl<Q: Query> Query for Satisfies<Q> {
 
     type Fetch = FetchSatisfies<Q::Fetch>;
 
-    unsafe fn get<'q>(fetch: &Self::Fetch, _: usize) -> Self::Item<'q> {
+    type Effect = ();
+
+    unsafe fn get_with_effect<'q>(
+        fetch: &Self::Fetch,
+        _: usize,
+        &mut (): &'q mut (),
+    ) -> Self::Item<'q> {
+        fetch.0
+    }
+}
+
+unsafe impl<Q: QueryInPlace> QueryInPlace for Satisfies<Q> {
+    unsafe fn get<'a>(fetch: &Self::Fetch, _: usize) -> Self::Item<'a> {
         fetch.0
     }
 }
@@ -603,13 +759,13 @@ impl<T> Clone for FetchSatisfies<T> {
 /// A borrow of a [`World`](crate::World) sufficient to execute the query `Q`
 ///
 /// Note that borrows are not released until this object is dropped.
-pub struct QueryBorrow<'w, Q: Query> {
+pub struct QueryBorrow<'w, Q: QueryInPlace> {
     world: &'w World,
     borrowed: bool,
     _marker: PhantomData<Q>,
 }
 
-impl<'w, Q: Query> QueryBorrow<'w, Q> {
+impl<'w, Q: QueryInPlace> QueryBorrow<'w, Q> {
     pub(crate) fn new(world: &'w World) -> Self {
         Self {
             world,
@@ -622,7 +778,10 @@ impl<'w, Q: Query> QueryBorrow<'w, Q> {
     // The lifetime narrowing here is required for soundness.
     pub fn iter(&mut self) -> QueryIter<'_, Q> {
         self.borrow();
-        unsafe { QueryIter::new(self.world) }
+        QueryIter {
+            shared: unsafe { QueryIterShared::new(self.world) },
+            world: self.world,
+        }
     }
 
     /// Provide random access to the query results
@@ -711,7 +870,7 @@ impl<'w, Q: Query> QueryBorrow<'w, Q> {
     }
 
     /// Helper to change the type of the query
-    fn transform<R: Query>(mut self) -> QueryBorrow<'w, R> {
+    fn transform<R: QueryInPlace>(mut self) -> QueryBorrow<'w, R> {
         let x = QueryBorrow {
             world: self.world,
             borrowed: self.borrowed,
@@ -723,10 +882,10 @@ impl<'w, Q: Query> QueryBorrow<'w, Q> {
     }
 }
 
-unsafe impl<'w, Q: Query> Send for QueryBorrow<'w, Q> where for<'a> Q::Item<'a>: Send {}
-unsafe impl<'w, Q: Query> Sync for QueryBorrow<'w, Q> where for<'a> Q::Item<'a>: Send {}
+unsafe impl<'w, Q: QueryInPlace> Send for QueryBorrow<'w, Q> where for<'a> Q::Item<'a>: Send {}
+unsafe impl<'w, Q: QueryInPlace> Sync for QueryBorrow<'w, Q> where for<'a> Q::Item<'a>: Send {}
 
-impl<'w, Q: Query> Drop for QueryBorrow<'w, Q> {
+impl<'w, Q: QueryInPlace> Drop for QueryBorrow<'w, Q> {
     fn drop(&mut self) {
         if self.borrowed {
             for x in self.world.archetypes() {
@@ -741,7 +900,7 @@ impl<'w, Q: Query> Drop for QueryBorrow<'w, Q> {
     }
 }
 
-impl<'q, 'w, Q: Query> IntoIterator for &'q mut QueryBorrow<'w, Q> {
+impl<'q, 'w, Q: QueryInPlace> IntoIterator for &'q mut QueryBorrow<'w, Q> {
     type Item = (Entity, Q::Item<'q>);
     type IntoIter = QueryIter<'q, Q>;
 
@@ -750,23 +909,19 @@ impl<'q, 'w, Q: Query> IntoIterator for &'q mut QueryBorrow<'w, Q> {
     }
 }
 
-/// Iterator over the set of entities with the components in `Q`
-pub struct QueryIter<'q, Q: Query> {
-    world: &'q World,
+struct QueryIterShared<Q: Query> {
     archetypes: core::ops::Range<usize>,
     iter: ChunkIter<Q>,
 }
 
-impl<'q, Q: Query> QueryIter<'q, Q> {
+impl<Q: Query> QueryIterShared<Q> {
     /// # Safety
     ///
-    /// `'q` must be sufficient to guarantee that `Q` cannot violate borrow safety, either with
-    /// dynamic borrow checks or by representing exclusive access to the `World`.
-    unsafe fn new(world: &'q World) -> Self {
-        let n = world.archetypes().len();
+    /// World must be borrowed by the enclosing type, either uniquely or in conjunction with dynamic
+    /// borrow checks for `Q`.
+    unsafe fn new(world: &World) -> Self {
         Self {
-            world,
-            archetypes: 0..n,
+            archetypes: 0..world.archetypes().len(),
             iter: ChunkIter::empty(),
         }
     }
@@ -774,26 +929,107 @@ impl<'q, Q: Query> QueryIter<'q, Q> {
     /// Advance query to the next archetype
     ///
     /// Outlined from `Iterator::next` for improved iteration performance.
-    fn next_archetype(&mut self) -> Option<()> {
+    fn next_archetype(&mut self, world: &World) -> Option<()> {
         let archetype = self.archetypes.next()?;
-        let archetype = unsafe { self.world.archetypes_inner().get_unchecked(archetype) };
+        let archetype = unsafe { world.archetypes_inner().get_unchecked(archetype) };
         let state = Q::Fetch::prepare(archetype);
         let fetch = state.map(|state| Q::Fetch::execute(archetype, state));
         self.iter = fetch.map_or(ChunkIter::empty(), |fetch| ChunkIter::new(archetype, fetch));
         Some(())
     }
+
+    fn len(&self, world: &World) -> usize {
+        self.archetypes
+            .clone()
+            .map(|x| unsafe { world.archetypes_inner().get_unchecked(x) })
+            .filter(|&x| Q::Fetch::access(x).is_some())
+            .map(|x| x.len() as usize)
+            .sum::<usize>()
+            + self.iter.remaining()
+    }
 }
 
-unsafe impl<'q, Q: Query> Send for QueryIter<'q, Q> where for<'a> Q::Item<'a>: Send {}
-unsafe impl<'q, Q: Query> Sync for QueryIter<'q, Q> where for<'a> Q::Item<'a>: Send {}
+unsafe impl<Q: Query> Send for QueryIterShared<Q> where for<'a> Q::Item<'a>: Send {}
+unsafe impl<Q: Query> Sync for QueryIterShared<Q> where for<'a> Q::Item<'a>: Send {}
 
-impl<'q, Q: Query> Iterator for QueryIter<'q, Q> {
+/// Iterator over the set of entities with the components in `Q`
+pub struct QueryIter<'q, Q: Query> {
+    world: &'q World,
+    shared: QueryIterShared<Q>,
+}
+
+impl<'q, Q: QueryInPlace> Iterator for QueryIter<'q, Q> {
     type Item = (Entity, Q::Item<'q>);
 
     #[inline(always)]
     fn next(&mut self) -> Option<Self::Item> {
         loop {
-            match unsafe { self.iter.next() } {
+            match unsafe { self.shared.iter.next() } {
+                None => {
+                    self.shared.next_archetype(self.world)?;
+                    continue;
+                }
+                Some((id, components)) => {
+                    return Some((
+                        Entity {
+                            id,
+                            generation: unsafe {
+                                self.world
+                                    .entities_meta()
+                                    .get_unchecked(id as usize)
+                                    .generation
+                            },
+                        },
+                        components,
+                    ));
+                }
+            }
+        }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let n = self.shared.len(&self.world);
+        (n, Some(n))
+    }
+}
+
+impl<'q, Q: QueryInPlace> ExactSizeIterator for QueryIter<'q, Q> {
+    fn len(&self) -> usize {
+        self.shared.len(&self.world)
+    }
+}
+
+/// Iterator over the set of entities with the components in `Q`
+pub struct QueryIterMut<'q, Q: Query> {
+    world: &'q mut World,
+    shared: QueryIterShared<Q>,
+    effects: Vec<Box<[UnsafeCell<Q::Effect>]>>,
+    current_effects: &'q [UnsafeCell<Q::Effect>],
+}
+
+impl<'q, Q: Query> QueryIterMut<'q, Q> {
+    // Outlined from `Iterator::next` for performance
+    fn next_archetype(&mut self) -> Option<()> {
+        self.shared.next_archetype(self.world)?;
+        let effect_table = (0..self.shared.iter.len)
+            .map(|_| UnsafeCell::new(Q::Effect::new()))
+            .collect::<Box<[_]>>();
+        // UNSOUND: Items might outlive the iterator, causing use-after-free.
+        self.current_effects = unsafe {
+            mem::transmute::<&[UnsafeCell<Q::Effect>], &'q [UnsafeCell<Q::Effect>]>(&*effect_table)
+        };
+        self.effects.push(effect_table);
+        Some(())
+    }
+}
+
+impl<'q, Q: Query> Iterator for QueryIterMut<'q, Q> {
+    type Item = (Entity, Q::Item<'q>);
+
+    #[inline(always)]
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            match unsafe { self.shared.iter.next_effect(self.current_effects) } {
                 None => {
                     self.next_archetype()?;
                     continue;
@@ -817,26 +1053,39 @@ impl<'q, Q: Query> Iterator for QueryIter<'q, Q> {
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        let n = self.len();
+        let n = self.shared.len(self.world);
         (n, Some(n))
     }
 }
 
-impl<'q, Q: Query> ExactSizeIterator for QueryIter<'q, Q> {
+impl<'q, Q: Query> ExactSizeIterator for QueryIterMut<'q, Q> {
     fn len(&self) -> usize {
-        self.archetypes
-            .clone()
-            .map(|x| unsafe { self.world.archetypes_inner().get_unchecked(x) })
-            .filter(|&x| Q::Fetch::access(x).is_some())
-            .map(|x| x.len() as usize)
-            .sum::<usize>()
-            + self.iter.remaining()
+        self.shared.len(self.world)
+    }
+}
+
+impl<'q, Q: Query> Drop for QueryIterMut<'q, Q> {
+    fn drop(&mut self) {
+        let archetypes = self.world.archetypes().len() as u32;
+        for (archetype, effects) in (0..archetypes).zip(mem::take(&mut self.effects)) {
+            for (index, effect) in Vec::from(effects).into_iter().enumerate() {
+                Q::apply(
+                    effect.into_inner(),
+                    self.world,
+                    Location {
+                        archetype,
+                        index: index as u32,
+                    },
+                );
+            }
+        }
     }
 }
 
 /// A query builder that's convertible directly into an iterator
 pub struct QueryMut<'q, Q: Query> {
-    iter: QueryIter<'q, Q>,
+    world: &'q mut World,
+    _marker: PhantomData<Q>,
 }
 
 impl<'q, Q: Query> QueryMut<'q, Q> {
@@ -844,18 +1093,17 @@ impl<'q, Q: Query> QueryMut<'q, Q> {
         assert_borrow::<Q>();
 
         Self {
-            iter: unsafe { QueryIter::new(world) },
+            world,
+            _marker: PhantomData,
         }
     }
 
     /// Provide random access to the query results
-    pub fn view(&mut self) -> View<'_, Q> {
-        unsafe {
-            View::new(
-                self.iter.world.entities_meta(),
-                self.iter.world.archetypes_inner(),
-            )
-        }
+    pub fn view(&mut self) -> View<'_, Q>
+    where
+        Q: QueryInPlace,
+    {
+        unsafe { View::new(self.world.entities_meta(), self.world.archetypes_inner()) }
     }
 
     /// Transform the query into one that requires another query be satisfied
@@ -874,9 +1122,7 @@ impl<'q, Q: Query> QueryMut<'q, Q> {
 
     /// Helper to change the type of the query
     fn transform<R: Query>(self) -> QueryMut<'q, R> {
-        QueryMut {
-            iter: unsafe { QueryIter::new(self.iter.world) },
-        }
+        QueryMut::new(self.world)
     }
 
     /// Like `into_iter`, but returns child iterators of at most `batch_size` elements
@@ -885,8 +1131,8 @@ impl<'q, Q: Query> QueryMut<'q, Q> {
     pub fn into_iter_batched(self, batch_size: u32) -> BatchedIter<'q, Q> {
         unsafe {
             BatchedIter::new(
-                self.iter.world.entities_meta(),
-                self.iter.world.archetypes_inner().iter(),
+                self.world.entities_meta(),
+                self.world.archetypes_inner().iter(),
                 batch_size,
             )
         }
@@ -894,12 +1140,19 @@ impl<'q, Q: Query> QueryMut<'q, Q> {
 }
 
 impl<'q, Q: Query> IntoIterator for QueryMut<'q, Q> {
-    type Item = <QueryIter<'q, Q> as Iterator>::Item;
-    type IntoIter = QueryIter<'q, Q>;
+    type Item = <QueryIterMut<'q, Q> as Iterator>::Item;
+    type IntoIter = QueryIterMut<'q, Q>;
 
     #[inline]
     fn into_iter(self) -> Self::IntoIter {
-        self.iter
+        let shared = unsafe { QueryIterShared::new(self.world) };
+        let effects = Vec::with_capacity(self.world.archetypes().len());
+        QueryIterMut {
+            world: self.world,
+            shared,
+            effects,
+            current_effects: &[],
+        }
     }
 }
 
@@ -948,12 +1201,33 @@ impl<Q: Query> ChunkIter<Q> {
     }
 
     #[inline]
-    unsafe fn next<'a>(&mut self) -> Option<(u32, Q::Item<'a>)> {
+    unsafe fn next<'a>(&mut self) -> Option<(u32, Q::Item<'a>)>
+    where
+        Q: QueryInPlace,
+    {
         if self.position == self.len {
             return None;
         }
         let entity = self.entities.as_ptr().add(self.position);
         let item = Q::get(&self.fetch, self.position);
+        self.position += 1;
+        Some((*entity, item))
+    }
+
+    #[inline]
+    unsafe fn next_effect<'a>(
+        &mut self,
+        effects: &'a [UnsafeCell<Q::Effect>],
+    ) -> Option<(u32, Q::Item<'a>)> {
+        if self.position == self.len {
+            return None;
+        }
+        let entity = self.entities.as_ptr().add(self.position);
+        let item = Q::get_with_effect(
+            &self.fetch,
+            self.position,
+            &mut *effects.get_unchecked(self.position).get(),
+        );
         self.position += 1;
         Some((*entity, item))
     }
@@ -1037,7 +1311,7 @@ pub struct Batch<'q, Q: Query> {
     state: ChunkIter<Q>,
 }
 
-impl<'q, Q: Query> Iterator for Batch<'q, Q> {
+impl<'q, Q: QueryInPlace> Iterator for Batch<'q, Q> {
     type Item = (Entity, Q::Item<'q>);
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -1056,11 +1330,12 @@ unsafe impl<'q, Q: Query> Send for Batch<'q, Q> where for<'a> Q::Item<'a>: Send 
 unsafe impl<'q, Q: Query> Sync for Batch<'q, Q> where for<'a> Q::Item<'a>: Send {}
 
 macro_rules! tuple_impl {
-    ($($name: ident),*) => {
+    ($(($name: ident, $n:tt)),*) => {
         unsafe impl<$($name: Fetch),*> Fetch for ($($name,)*) {
             type State = ($($name::State,)*);
 
             #[allow(clippy::unused_unit)]
+            #[inline(always)]
             fn dangling() -> Self {
                 ($($name::dangling(),)*)
             }
@@ -1107,20 +1382,55 @@ macro_rules! tuple_impl {
 
             type Fetch = ($($name::Fetch,)*);
 
+            type Effect = ($($name::Effect,)*);
+
+            #[allow(unused_variables, clippy::unused_unit)]
+            unsafe fn get_with_effect<'q>(fetch: &Self::Fetch, n: usize, effect: &'q mut Self::Effect) -> Self::Item<'q> {
+                ($($name::get_with_effect(&fetch.$n, n, &mut effect.$n),)*)
+            }
+
+            #[allow(unused_variables, clippy::unused_unit)]
+            fn apply(effect: Self::Effect, world: &mut World, location: Location) {
+                $($name::apply(effect.$n, world, location);)*
+            }
+        }
+
+        unsafe impl<$($name: QueryInPlace),*> QueryInPlace for ($($name,)*) {
             #[allow(unused_variables, clippy::unused_unit)]
             unsafe fn get<'q>(fetch: &Self::Fetch, n: usize) -> Self::Item<'q> {
-                #[allow(non_snake_case)]
-                let ($(ref $name,)*) = *fetch;
-                ($($name::get($name, n),)*)
+                ($($name::get(&fetch.$n, n),)*)
             }
         }
 
         unsafe impl<$($name: QueryShared),*> QueryShared for ($($name,)*) {}
+
+        impl<$($name: Effect),*> Effect for ($($name,)*) {
+            fn new() -> Self {
+                ($($name::new(),)*)
+            }
+        }
     };
 }
 
-//smaller_tuples_too!(tuple_impl, B, A);
-smaller_tuples_too!(tuple_impl, O, N, M, L, K, J, I, H, G, F, E, D, C, B, A);
+//smaller_tuples_too!(tuple_impl, (B, 1), (A, 0));
+smaller_tuples_too!(
+    tuple_impl,
+    (O, 14),
+    (N, 13),
+    (M, 12),
+    (L, 11),
+    (K, 10),
+    (J, 9),
+    (I, 8),
+    (H, 7),
+    (G, 6),
+    (F, 5),
+    (E, 4),
+    (D, 3),
+    (C, 2),
+    (B, 1),
+    (A, 0)
+);
 
 /// A prepared query can be stored independently of the [`World`] to amortize query set-up costs.
 pub struct PreparedQuery<Q: Query> {
@@ -1165,7 +1475,10 @@ impl<Q: Query> PreparedQuery<Q> {
     ///
     /// This will panic if it would violate an existing unique reference
     /// or construct an invalid unique reference.
-    pub fn query<'q>(&'q mut self, world: &'q World) -> PreparedQueryBorrow<'q, Q> {
+    pub fn query<'q>(&'q mut self, world: &'q World) -> PreparedQueryBorrow<'q, Q>
+    where
+        Q: QueryInPlace,
+    {
         if self.memo != world.memo() {
             *self = Self::prepare(world);
         }
@@ -1193,7 +1506,10 @@ impl<Q: Query> PreparedQuery<Q> {
     }
 
     /// Provide random access to query results for a uniquely borrow world
-    pub fn view_mut<'q>(&'q mut self, world: &'q mut World) -> PreparedView<'q, Q> {
+    pub fn view_mut<'q>(&'q mut self, world: &'q mut World) -> PreparedView<'q, Q>
+    where
+        Q: QueryInPlace,
+    {
         assert_borrow::<Q>();
 
         if self.memo != world.memo() {
@@ -1208,14 +1524,14 @@ impl<Q: Query> PreparedQuery<Q> {
 }
 
 /// Combined borrow of a [`PreparedQuery`] and a [`World`]
-pub struct PreparedQueryBorrow<'q, Q: Query> {
+pub struct PreparedQueryBorrow<'q, Q: QueryInPlace> {
     meta: &'q [EntityMeta],
     archetypes: &'q [Archetype],
     state: &'q [(usize, <Q::Fetch as Fetch>::State)],
     fetch: &'q mut [Option<Q::Fetch>],
 }
 
-impl<'q, Q: Query> PreparedQueryBorrow<'q, Q> {
+impl<'q, Q: QueryInPlace> PreparedQueryBorrow<'q, Q> {
     fn new(
         meta: &'q [EntityMeta],
         archetypes: &'q [Archetype],
@@ -1255,7 +1571,7 @@ impl<'q, Q: Query> PreparedQueryBorrow<'q, Q> {
     }
 }
 
-impl<Q: Query> Drop for PreparedQueryBorrow<'_, Q> {
+impl<Q: QueryInPlace> Drop for PreparedQueryBorrow<'_, Q> {
     fn drop(&mut self) {
         for (idx, state) in self.state {
             if self.archetypes[*idx].is_empty() {
@@ -1296,7 +1612,7 @@ impl<'q, Q: Query> PreparedQueryIter<'q, Q> {
 unsafe impl<'q, Q: Query> Send for PreparedQueryIter<'q, Q> where for<'a> Q::Item<'a>: Send {}
 unsafe impl<'q, Q: Query> Sync for PreparedQueryIter<'q, Q> where for<'a> Q::Item<'a>: Send {}
 
-impl<'q, Q: Query> Iterator for PreparedQueryIter<'q, Q> {
+impl<'q, Q: QueryInPlace> Iterator for PreparedQueryIter<'q, Q> {
     type Item = (Entity, Q::Item<'q>);
 
     #[inline(always)]
@@ -1328,7 +1644,7 @@ impl<'q, Q: Query> Iterator for PreparedQueryIter<'q, Q> {
     }
 }
 
-impl<Q: Query> ExactSizeIterator for PreparedQueryIter<'_, Q> {
+impl<Q: QueryInPlace> ExactSizeIterator for PreparedQueryIter<'_, Q> {
     fn len(&self) -> usize {
         self.state
             .clone()
@@ -1339,16 +1655,16 @@ impl<Q: Query> ExactSizeIterator for PreparedQueryIter<'_, Q> {
 }
 
 /// Provides random access to the results of a query
-pub struct View<'q, Q: Query> {
+pub struct View<'q, Q: QueryInPlace> {
     meta: &'q [EntityMeta],
     archetypes: &'q [Archetype],
     fetch: Vec<Option<Q::Fetch>>,
 }
 
-unsafe impl<'q, Q: Query> Send for View<'q, Q> where for<'a> Q::Item<'a>: Send {}
-unsafe impl<'q, Q: Query> Sync for View<'q, Q> where for<'a> Q::Item<'a>: Send {}
+unsafe impl<'q, Q: QueryInPlace> Send for View<'q, Q> where for<'a> Q::Item<'a>: Send {}
+unsafe impl<'q, Q: QueryInPlace> Sync for View<'q, Q> where for<'a> Q::Item<'a>: Send {}
 
-impl<'q, Q: Query> View<'q, Q> {
+impl<'q, Q: QueryInPlace> View<'q, Q> {
     /// # Safety
     ///
     /// `'q` must be sufficient to guarantee that `Q` cannot violate borrow safety, either with
@@ -1459,7 +1775,7 @@ impl<'q, Q: Query> View<'q, Q> {
     }
 }
 
-impl<'a, 'q, Q: Query> IntoIterator for &'a mut View<'q, Q> {
+impl<'a, 'q, Q: QueryInPlace> IntoIterator for &'a mut View<'q, Q> {
     type IntoIter = ViewIter<'a, Q>;
     type Item = (Entity, Q::Item<'a>);
 
@@ -1469,14 +1785,14 @@ impl<'a, 'q, Q: Query> IntoIterator for &'a mut View<'q, Q> {
     }
 }
 
-pub struct ViewIter<'a, Q: Query> {
+pub struct ViewIter<'a, Q: QueryInPlace> {
     meta: &'a [EntityMeta],
     archetypes: SliceIter<'a, Archetype>,
     fetches: SliceIter<'a, Option<Q::Fetch>>,
     iter: ChunkIter<Q>,
 }
 
-impl<'a, Q: Query> Iterator for ViewIter<'a, Q> {
+impl<'a, Q: QueryInPlace> Iterator for ViewIter<'a, Q> {
     type Item = (Entity, Q::Item<'a>);
 
     #[inline(always)]
@@ -1506,16 +1822,16 @@ impl<'a, Q: Query> Iterator for ViewIter<'a, Q> {
 }
 
 /// Provides random access to the results of a prepared query
-pub struct PreparedView<'q, Q: Query> {
+pub struct PreparedView<'q, Q: QueryInPlace> {
     meta: &'q [EntityMeta],
     archetypes: &'q [Archetype],
     fetch: &'q mut [Option<Q::Fetch>],
 }
 
-unsafe impl<'q, Q: Query> Send for PreparedView<'q, Q> where for<'a> Q::Item<'a>: Send {}
-unsafe impl<'q, Q: Query> Sync for PreparedView<'q, Q> where for<'a> Q::Item<'a>: Send {}
+unsafe impl<'q, Q: QueryInPlace> Send for PreparedView<'q, Q> where for<'a> Q::Item<'a>: Send {}
+unsafe impl<'q, Q: QueryInPlace> Sync for PreparedView<'q, Q> where for<'a> Q::Item<'a>: Send {}
 
-impl<'q, Q: Query> PreparedView<'q, Q> {
+impl<'q, Q: QueryInPlace> PreparedView<'q, Q> {
     /// # Safety
     ///
     /// `'q` must be sufficient to guarantee that `Q` cannot violate borrow safety, either with
@@ -1612,7 +1928,7 @@ impl<'q, Q: Query> PreparedView<'q, Q> {
     }
 }
 
-impl<'a, 'q, Q: Query> IntoIterator for &'a mut PreparedView<'q, Q> {
+impl<'a, 'q, Q: QueryInPlace> IntoIterator for &'a mut PreparedView<'q, Q> {
     type IntoIter = ViewIter<'a, Q>;
     type Item = (Entity, Q::Item<'a>);
 
@@ -1640,6 +1956,98 @@ fn assert_distinct<const N: usize>(entities: &[Entity; N]) {
         }
     }
 }
+
+/// Selects entities that have none of the components in the [`Bundle`] `T`, and allows those
+/// components to be inserted
+// TODO: VacantEntry<T: Component> for convenience
+pub struct VacantBundle<'a, T> {
+    bundle: &'a mut Option<T>,
+}
+
+impl<T> VacantBundle<'_, T> {
+    /// Set the bundle to `bundle`, replacing any existing value
+    pub fn set(&mut self, bundle: Option<T>) {
+        *self.bundle = bundle;
+    }
+
+    /// Take the bundle back, if set
+    pub fn take(&mut self) -> Option<T> {
+        self.bundle.take()
+    }
+
+    /// Borrow the bundle, if set
+    pub fn get(&self) -> Option<&T> {
+        self.bundle.as_ref()
+    }
+
+    /// Uniquely borrow the bundle, if set
+    pub fn get_mut(&mut self) -> Option<&mut T> {
+        self.bundle.as_mut()
+    }
+}
+
+impl<'a, T: Bundle + 'static> Query for VacantBundle<'a, T> {
+    type Item<'q> = VacantBundle<'q, T>;
+
+    type Fetch = FetchVacantEntry<T>;
+
+    type Effect = Option<T>;
+
+    unsafe fn get_with_effect<'q>(
+        _: &Self::Fetch,
+        _: usize,
+        bundle: &'q mut Option<T>,
+    ) -> Self::Item<'q> {
+        VacantBundle { bundle }
+    }
+
+    fn apply(bundle: Option<T>, world: &mut World, location: Location) {
+        if let Some(bundle) = bundle {
+            let entity = unsafe { world.find_entity_from_location(&location) };
+            world.insert_inner(entity, bundle, location.archetype, location);
+        }
+    }
+}
+
+#[doc(hidden)]
+pub struct FetchVacantEntry<T>(PhantomData<fn(T)>);
+
+unsafe impl<T: Bundle> Fetch for FetchVacantEntry<T> {
+    type State = ();
+
+    fn dangling() -> Self {
+        Self(PhantomData)
+    }
+
+    fn access(archetype: &Archetype) -> Option<Access> {
+        // `Iterate` iff `archetype` has no components in `T`
+        T::with_static_ids(|ids| {
+            ids.iter()
+                .all(|id| !archetype.has_dynamic(*id))
+                .then_some(Access::Iterate)
+        })
+    }
+
+    fn borrow(_: &Archetype, _: Self::State) {}
+    fn prepare(archetype: &Archetype) -> Option<Self::State> {
+        // `Iterate` iff `archetype` has all components in `T`
+        Self::access(archetype).map(|_| ())
+    }
+    fn execute(_: &Archetype, _: Self::State) -> Self {
+        Self(PhantomData)
+    }
+    fn release(_: &Archetype, _: Self::State) {}
+
+    fn for_each_borrow(_: impl FnMut(TypeId, bool)) {}
+}
+
+impl<T> Clone for FetchVacantEntry<T> {
+    #[inline]
+    fn clone(&self) -> Self {
+        Self(PhantomData)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

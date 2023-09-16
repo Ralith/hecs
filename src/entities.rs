@@ -548,8 +548,10 @@ impl EntityMeta {
     };
 }
 
+/// Addresses storage for an entity's components within a world
 #[derive(Copy, Clone)]
-pub(crate) struct Location {
+#[doc(hidden)]
+pub struct Location {
     pub archetype: u32,
     pub index: u32,
 }
