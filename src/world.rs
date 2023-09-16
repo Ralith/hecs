@@ -396,7 +396,7 @@ impl World {
     /// assert!(entities.contains(&(b, 456, false)));
     /// ```
     pub fn query<Q: Query>(&self) -> QueryBorrow<'_, Q> {
-        QueryBorrow::new(&self.entities.meta, &self.archetypes.archetypes)
+        QueryBorrow::new(self)
     }
 
     /// Query a uniquely borrowed world
@@ -405,7 +405,7 @@ impl World {
     /// that, unlike [`query`](Self::query), this returns an `IntoIterator` which can be passed
     /// directly to a `for` loop.
     pub fn query_mut<Q: Query>(&mut self) -> QueryMut<'_, Q> {
-        QueryMut::new(&self.entities.meta, &mut self.archetypes.archetypes)
+        QueryMut::new(self)
     }
 
     pub(crate) fn memo(&self) -> (u64, u32) {

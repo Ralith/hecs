@@ -604,17 +604,15 @@ impl<T> Clone for FetchSatisfies<T> {
 ///
 /// Note that borrows are not released until this object is dropped.
 pub struct QueryBorrow<'w, Q: Query> {
-    meta: &'w [EntityMeta],
-    archetypes: &'w [Archetype],
+    world: &'w World,
     borrowed: bool,
     _marker: PhantomData<Q>,
 }
 
 impl<'w, Q: Query> QueryBorrow<'w, Q> {
-    pub(crate) fn new(meta: &'w [EntityMeta], archetypes: &'w [Archetype]) -> Self {
+    pub(crate) fn new(world: &'w World) -> Self {
         Self {
-            meta,
-            archetypes,
+            world,
             borrowed: false,
             _marker: PhantomData,
         }
@@ -624,13 +622,13 @@ impl<'w, Q: Query> QueryBorrow<'w, Q> {
     // The lifetime narrowing here is required for soundness.
     pub fn iter(&mut self) -> QueryIter<'_, Q> {
         self.borrow();
-        unsafe { QueryIter::new(self.meta, self.archetypes.iter()) }
+        unsafe { QueryIter::new(self.world) }
     }
 
     /// Provide random access to the query results
     pub fn view(&mut self) -> View<'_, Q> {
         self.borrow();
-        unsafe { View::new(self.meta, self.archetypes) }
+        unsafe { View::new(self.world.entities_meta(), self.world.archetypes_inner()) }
     }
 
     /// Like `iter`, but returns child iterators of at most `batch_size` elements
@@ -639,14 +637,20 @@ impl<'w, Q: Query> QueryBorrow<'w, Q> {
     // The lifetime narrowing here is required for soundness.
     pub fn iter_batched(&mut self, batch_size: u32) -> BatchedIter<'_, Q> {
         self.borrow();
-        unsafe { BatchedIter::new(self.meta, self.archetypes.iter(), batch_size) }
+        unsafe {
+            BatchedIter::new(
+                self.world.entities_meta(),
+                self.world.archetypes_inner().iter(),
+                batch_size,
+            )
+        }
     }
 
     fn borrow(&mut self) {
         if self.borrowed {
             return;
         }
-        for x in self.archetypes {
+        for x in self.world.archetypes() {
             if x.is_empty() {
                 continue;
             }
@@ -709,8 +713,7 @@ impl<'w, Q: Query> QueryBorrow<'w, Q> {
     /// Helper to change the type of the query
     fn transform<R: Query>(mut self) -> QueryBorrow<'w, R> {
         let x = QueryBorrow {
-            meta: self.meta,
-            archetypes: self.archetypes,
+            world: self.world,
             borrowed: self.borrowed,
             _marker: PhantomData,
         };
@@ -726,7 +729,7 @@ unsafe impl<'w, Q: Query> Sync for QueryBorrow<'w, Q> where for<'a> Q::Item<'a>:
 impl<'w, Q: Query> Drop for QueryBorrow<'w, Q> {
     fn drop(&mut self) {
         if self.borrowed {
-            for x in self.archetypes {
+            for x in self.world.archetypes() {
                 if x.is_empty() {
                     continue;
                 }
@@ -749,8 +752,8 @@ impl<'q, 'w, Q: Query> IntoIterator for &'q mut QueryBorrow<'w, Q> {
 
 /// Iterator over the set of entities with the components in `Q`
 pub struct QueryIter<'q, Q: Query> {
-    meta: &'q [EntityMeta],
-    archetypes: SliceIter<'q, Archetype>,
+    world: &'q World,
+    archetypes: core::ops::Range<usize>,
     iter: ChunkIter<Q>,
 }
 
@@ -759,10 +762,11 @@ impl<'q, Q: Query> QueryIter<'q, Q> {
     ///
     /// `'q` must be sufficient to guarantee that `Q` cannot violate borrow safety, either with
     /// dynamic borrow checks or by representing exclusive access to the `World`.
-    unsafe fn new(meta: &'q [EntityMeta], archetypes: SliceIter<'q, Archetype>) -> Self {
+    unsafe fn new(world: &'q World) -> Self {
+        let n = world.archetypes().len();
         Self {
-            meta,
-            archetypes,
+            world,
+            archetypes: 0..n,
             iter: ChunkIter::empty(),
         }
     }
@@ -772,14 +776,10 @@ impl<'q, Q: Query> QueryIter<'q, Q> {
     /// Outlined from `Iterator::next` for improved iteration performance.
     fn next_archetype(&mut self) -> Option<()> {
         let archetype = self.archetypes.next()?;
+        let archetype = unsafe { self.world.archetypes_inner().get_unchecked(archetype) };
         let state = Q::Fetch::prepare(archetype);
         let fetch = state.map(|state| Q::Fetch::execute(archetype, state));
-        self.iter = fetch.map_or(ChunkIter::empty(), |fetch| ChunkIter {
-            entities: archetype.entities(),
-            fetch,
-            position: 0,
-            len: archetype.len() as usize,
-        });
+        self.iter = fetch.map_or(ChunkIter::empty(), |fetch| ChunkIter::new(archetype, fetch));
         Some(())
     }
 }
@@ -802,7 +802,12 @@ impl<'q, Q: Query> Iterator for QueryIter<'q, Q> {
                     return Some((
                         Entity {
                             id,
-                            generation: unsafe { self.meta.get_unchecked(id as usize).generation },
+                            generation: unsafe {
+                                self.world
+                                    .entities_meta()
+                                    .get_unchecked(id as usize)
+                                    .generation
+                            },
                         },
                         components,
                     ));
@@ -821,6 +826,7 @@ impl<'q, Q: Query> ExactSizeIterator for QueryIter<'q, Q> {
     fn len(&self) -> usize {
         self.archetypes
             .clone()
+            .map(|x| unsafe { self.world.archetypes_inner().get_unchecked(x) })
             .filter(|&x| Q::Fetch::access(x).is_some())
             .map(|x| x.len() as usize)
             .sum::<usize>()
@@ -834,17 +840,22 @@ pub struct QueryMut<'q, Q: Query> {
 }
 
 impl<'q, Q: Query> QueryMut<'q, Q> {
-    pub(crate) fn new(meta: &'q [EntityMeta], archetypes: &'q mut [Archetype]) -> Self {
+    pub(crate) fn new(world: &'q mut World) -> Self {
         assert_borrow::<Q>();
 
         Self {
-            iter: unsafe { QueryIter::new(meta, archetypes.iter()) },
+            iter: unsafe { QueryIter::new(world) },
         }
     }
 
     /// Provide random access to the query results
     pub fn view(&mut self) -> View<'_, Q> {
-        unsafe { View::new(self.iter.meta, self.iter.archetypes.as_slice()) }
+        unsafe {
+            View::new(
+                self.iter.world.entities_meta(),
+                self.iter.world.archetypes_inner(),
+            )
+        }
     }
 
     /// Transform the query into one that requires another query be satisfied
@@ -864,7 +875,7 @@ impl<'q, Q: Query> QueryMut<'q, Q> {
     /// Helper to change the type of the query
     fn transform<R: Query>(self) -> QueryMut<'q, R> {
         QueryMut {
-            iter: unsafe { QueryIter::new(self.iter.meta, self.iter.archetypes) },
+            iter: unsafe { QueryIter::new(self.iter.world) },
         }
     }
 
@@ -872,7 +883,13 @@ impl<'q, Q: Query> QueryMut<'q, Q> {
     ///
     /// Useful for distributing work over a threadpool.
     pub fn into_iter_batched(self, batch_size: u32) -> BatchedIter<'q, Q> {
-        unsafe { BatchedIter::new(self.iter.meta, self.iter.archetypes, batch_size) }
+        unsafe {
+            BatchedIter::new(
+                self.iter.world.entities_meta(),
+                self.iter.world.archetypes_inner().iter(),
+                batch_size,
+            )
+        }
     }
 }
 
