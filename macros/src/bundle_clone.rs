@@ -32,14 +32,14 @@ fn gen_dynamic_bundle_impl(
     quote! {
         unsafe impl #impl_generics ::hecs::DynamicBundleClone for #ident #ty_generics #where_clause {
             #[allow(clippy::forget_copy)]
-            unsafe fn put_with_clone(mut self, mut f: impl ::std::ops::FnMut(*mut u8, ::hecs::TypeInfo, ::hecs::DynamicClone)) {
+            unsafe fn put_with_clone(mut self, mut f: impl ::core::ops::FnMut(*mut u8, ::hecs::TypeInfo, ::hecs::DynamicClone)) {
                 #(
                     f(
                         (&mut self.#field_members as *mut #tys).cast::<u8>(),
                         ::hecs::TypeInfo::of::<#tys>(),
                         ::hecs::DynamicClone::new::<#tys>()
                     );
-                    ::std::mem::forget(self.#field_members);
+                    ::core::mem::forget(self.#field_members);
                 )*
             }
         }
@@ -51,7 +51,7 @@ fn make_component_trait_bound() -> syn::TraitBound {
         paren_token: None,
         modifier: syn::TraitBoundModifier::None,
         lifetimes: None,
-        path: syn::parse_quote!(::std::clone::Clone),
+        path: syn::parse_quote!(::core::clone::Clone),
     }
 }
 

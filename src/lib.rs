@@ -39,7 +39,7 @@
 #[cfg(feature = "std")]
 extern crate std;
 
-extern crate alloc;
+pub extern crate alloc;
 
 macro_rules! reverse_apply {
     ($m: ident [] $($reversed:tt)*) => {
@@ -104,13 +104,13 @@ pub use world::{
 pub use archetype::TypeInfo;
 #[doc(hidden)]
 pub use bundle::DynamicClone;
-#[cfg(feature = "macros")]
+#[cfg(any(feature = "macros", feature = "macros_no_std"))]
 #[doc(hidden)]
 pub use lazy_static;
 #[doc(hidden)]
 pub use query::Fetch;
 
-#[cfg(feature = "macros")]
+#[cfg(any(feature = "macros", feature = "macros_no_std"))]
 pub use hecs_macros::{Bundle, DynamicBundleClone, Query};
 
 fn align(x: usize, alignment: usize) -> usize {
