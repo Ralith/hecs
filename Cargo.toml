@@ -21,7 +21,7 @@ maintenance = { status = "actively-developed" }
 [features]
 default = ["std"]
 std = []
-# Enables derive(Bundle)
+# Enables derive(Bundle) and derive(Query)
 macros = ["hecs-macros", "lazy_static"]
 # Enables the serialize::column module
 column-serialize = ["serde"]
