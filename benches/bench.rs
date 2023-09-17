@@ -182,6 +182,20 @@ fn iterate_uncached_100_by_50(b: &mut Bencher) {
     })
 }
 
+fn iterate_uncached_1_of_100_by_50(b: &mut Bencher) {
+    let mut world = World::new();
+    spawn_100_by_50(&mut world);
+    b.iter(|| {
+        for (_, (pos, vel)) in world
+            .query::<(&mut Position, &Velocity)>()
+            .with::<&[(); 0]>()
+            .iter()
+        {
+            pos.0 += vel.0;
+        }
+    })
+}
+
 fn iterate_cached_100_by_50(b: &mut Bencher) {
     let mut world = World::new();
     spawn_100_by_50(&mut world);
@@ -271,6 +285,7 @@ benchmark_group!(
     iterate_100k,
     iterate_mut_100k,
     iterate_uncached_100_by_50,
+    iterate_uncached_1_of_100_by_50,
     iterate_cached_100_by_50,
     iterate_mut_uncached_100_by_50,
     iterate_mut_cached_100_by_50,
