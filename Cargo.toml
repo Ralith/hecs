@@ -23,7 +23,7 @@ default = ["std"]
 std = []
 # Enables derive(Bundle)
 macros = ["hecs-macros", "hecs-macros/std", "lazy_static"]
-macros_no_std = ["hecs-macros", "lazy_static"]
+macros_no_std = ["hecs-macros", "lazy_static", "lazy_static/spin_no_std"]
 # Enables the serialize::column module
 column-serialize = ["serde"]
 # Enables the serialize::row module
