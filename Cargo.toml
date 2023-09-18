@@ -20,10 +20,9 @@ maintenance = { status = "actively-developed" }
 
 [features]
 default = ["std"]
-std = []
+std = ["hecs-macros?/std"]
 # Enables derive(Bundle) and derive(Query)
-macros = ["hecs-macros", "hecs-macros/std"]
-macros_no_std = ["hecs-macros"]
+macros = ["hecs-macros"]
 # Enables the serialize::column module
 column-serialize = ["serde"]
 # Enables the serialize::row module
