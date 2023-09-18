@@ -1,5 +1,3 @@
-use alloc::format;
-use alloc::vec::Vec;
 use proc_macro2::Span;
 use proc_macro2::TokenStream as TokenStream2;
 use quote::quote;

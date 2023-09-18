@@ -104,13 +104,13 @@ pub use world::{
 pub use archetype::TypeInfo;
 #[doc(hidden)]
 pub use bundle::DynamicClone;
-#[cfg(any(feature = "macros", feature = "macros_no_std"))]
+#[cfg(feature = "macros")]
 #[doc(hidden)]
 pub use lazy_static;
 #[doc(hidden)]
 pub use query::Fetch;
 
-#[cfg(any(feature = "macros", feature = "macros_no_std"))]
+#[cfg(feature = "macros")]
 pub use hecs_macros::{Bundle, DynamicBundleClone, Query};
 
 fn align(x: usize, alignment: usize) -> usize {

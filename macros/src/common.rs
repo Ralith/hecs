@@ -1,4 +1,4 @@
-use crate::alloc::{borrow::Cow, format, vec::Vec};
+use std::borrow::Cow;
 
 use proc_macro2::Span;
 

@@ -1,4 +1,5 @@
-use crate::alloc::borrow::Cow;
+use std::borrow::Cow;
+
 use proc_macro2::TokenStream as TokenStream2;
 use quote::quote;
 use syn::{DeriveInput, Error, Result};

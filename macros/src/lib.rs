@@ -5,13 +5,6 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
-#![no_std]
-
-#[cfg(feature = "std")]
-extern crate std;
-
-extern crate alloc;
-
 extern crate proc_macro;
 
 mod bundle;
