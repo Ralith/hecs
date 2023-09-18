@@ -94,12 +94,8 @@ fn gen_bundle_impl(
     };
     let with_static_ids_body = if generics.params.is_empty() {
         quote! {
-            ::hecs::lazy_static::lazy_static! {
-                static ref ELEMENTS: [::core::any::TypeId; #num_tys] = {
-                    #with_static_ids_inner
-                };
-            }
-            f(&*ELEMENTS)
+            static ELEMENTS: ::core::sync::OnceLock<[::core::any::TypeId; #num_tys]> = ::core::sync::OnceLock::new();
+            f(ELEMENTS.get_or_init(|| #with_static_ids_inner))
         }
     } else {
         quote! {

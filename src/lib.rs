@@ -104,9 +104,6 @@ pub use world::{
 pub use archetype::TypeInfo;
 #[doc(hidden)]
 pub use bundle::DynamicClone;
-#[cfg(feature = "macros")]
-#[doc(hidden)]
-pub use lazy_static;
 #[doc(hidden)]
 pub use query::Fetch;
 
