@@ -93,9 +93,16 @@ fn gen_bundle_impl(
         }
     };
     let with_static_ids_body = if generics.params.is_empty() {
-        quote! {
-            static ELEMENTS: ::core::sync::OnceLock<[::core::any::TypeId; #num_tys]> = ::core::sync::OnceLock::new();
-            f(ELEMENTS.get_or_init(|| #with_static_ids_inner))
+        if cfg!(feature = "std") {
+            quote! {
+                static ELEMENTS: ::core::sync::OnceLock<[::core::any::TypeId; #num_tys]> = ::core::sync::OnceLock::new();
+                f(ELEMENTS.get_or_init(|| #with_static_ids_inner))
+            }
+        } else {
+            quote! {
+                static ELEMENTS: ::hecs::spin::once::Once<[::core::any::TypeId; #num_tys]> = ::hecs::spin::once::Once::new();
+                f(ELEMENTS.call_once(|| #with_static_ids_inner))
+            }
         }
     } else {
         quote! {

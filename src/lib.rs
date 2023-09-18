@@ -40,6 +40,7 @@
 extern crate std;
 
 pub extern crate alloc;
+pub extern crate spin;
 
 macro_rules! reverse_apply {
     ($m: ident [] $($reversed:tt)*) => {
@@ -107,7 +108,7 @@ pub use bundle::DynamicClone;
 #[doc(hidden)]
 pub use query::Fetch;
 
-#[cfg(feature = "macros")]
+#[cfg(any(feature = "macros", feature = "macros_no_std"))]
 pub use hecs_macros::{Bundle, DynamicBundleClone, Query};
 
 fn align(x: usize, alignment: usize) -> usize {

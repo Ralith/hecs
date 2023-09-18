@@ -22,17 +22,18 @@ maintenance = { status = "actively-developed" }
 default = ["std"]
 std = []
 # Enables derive(Bundle) and derive(Query)
-macros = ["hecs-macros"]
+macros = ["hecs-macros", "hecs-macros/std"]
+macros_no_std = ["hecs-macros"]
 # Enables the serialize::column module
 column-serialize = ["serde"]
 # Enables the serialize::row module
 row-serialize = ["serde"]
 
 [dependencies]
-hecs-macros = { path = "macros", version = "0.9.1", optional = true }
+hecs-macros = { path = "macros", version = "0.9.1", default-features = false, optional = true }
 hashbrown = { version = "0.14", default-features = false, features = ["ahash", "inline-more"] }
 serde = { version = "1.0.117", default-features = false, optional = true }
-spin = { version = "0.9.8", default-features = false, features = ["mutex", "spin_mutex"] }
+spin = { version = "0.9.8", default-features = false, features = ["mutex", "spin_mutex", "once"] }
 
 [dev-dependencies]
 bencher = "0.1.5"
