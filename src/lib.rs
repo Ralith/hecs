@@ -39,7 +39,9 @@
 #[cfg(feature = "std")]
 extern crate std;
 
+#[doc(hidden)]
 pub extern crate alloc;
+#[doc(hidden)]
 pub extern crate spin;
 
 macro_rules! reverse_apply {
