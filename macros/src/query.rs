@@ -146,12 +146,12 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream2> {
                 }
 
                 #[allow(unused_variables, unused_mut)]
-                fn access(archetype: &::hecs::Archetype) -> ::std::option::Option<::hecs::Access> {
+                fn access(archetype: &::hecs::Archetype) -> ::core::option::Option<::hecs::Access> {
                     let mut access = ::hecs::Access::Iterate;
                     #(
                         access = ::core::cmp::max(access, #fetches::access(archetype)?);
                     )*
-                    ::std::option::Option::Some(access)
+                    ::core::option::Option::Some(access)
                 }
 
                 #[allow(unused_variables)]
@@ -160,8 +160,8 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream2> {
                 }
 
                 #[allow(unused_variables)]
-                fn prepare(archetype: &::hecs::Archetype) -> ::std::option::Option<Self::State> {
-                    ::std::option::Option::Some(#state_ident {
+                fn prepare(archetype: &::hecs::Archetype) -> ::core::option::Option<Self::State> {
+                    ::core::option::Option::Some(#state_ident {
                         #(
                             #fields: #fetches::prepare(archetype)?,
                         )*

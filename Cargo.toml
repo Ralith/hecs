@@ -32,7 +32,7 @@ row-serialize = ["serde"]
 hecs-macros = { path = "macros", version = "0.9.1", optional = true }
 hashbrown = { version = "0.14", default-features = false, features = ["ahash", "inline-more"] }
 serde = { version = "1.0.117", default-features = false, optional = true }
-spin = { version = "0.9.8", default-features = false, features = ["mutex", "spin_mutex"] }
+spin = { version = "0.9.8", default-features = false, features = ["mutex", "spin_mutex", "lazy"] }
 
 [dev-dependencies]
 bencher = "0.1.5"
@@ -50,4 +50,4 @@ required-features = ["macros"]
 debug = true
 
 [workspace]
-members = ["macros"]
+members = ["macros", "tests/no-std-test-crates/macros"]

@@ -42,26 +42,26 @@ fn gen_dynamic_bundle_impl(
     quote! {
         unsafe impl #impl_generics ::hecs::DynamicBundle for #ident #ty_generics #where_clause {
             fn has<__hecs__T: ::hecs::Component>(&self) -> bool {
-                false #(|| ::std::any::TypeId::of::<#tys>() == ::std::any::TypeId::of::<__hecs__T>())*
+                false #(|| ::core::any::TypeId::of::<#tys>() == ::core::any::TypeId::of::<__hecs__T>())*
             }
 
             fn key(&self) -> ::core::option::Option<::core::any::TypeId> {
                 ::core::option::Option::Some(::core::any::TypeId::of::<Self>())
             }
 
-            fn with_ids<__hecs__T>(&self, f: impl ::std::ops::FnOnce(&[::std::any::TypeId]) -> __hecs__T) -> __hecs__T {
+            fn with_ids<__hecs__T>(&self, f: impl ::core::ops::FnOnce(&[::core::any::TypeId]) -> __hecs__T) -> __hecs__T {
                 <Self as ::hecs::Bundle>::with_static_ids(f)
             }
 
-            fn type_info(&self) -> ::std::vec::Vec<::hecs::TypeInfo> {
+            fn type_info(&self) -> ::hecs::alloc::vec::Vec<::hecs::TypeInfo> {
                 <Self as ::hecs::Bundle>::with_static_type_info(|info| info.to_vec())
             }
 
             #[allow(clippy::forget_copy, clippy::forget_non_drop)]
-            unsafe fn put(mut self, mut f: impl ::std::ops::FnMut(*mut u8, ::hecs::TypeInfo)) {
+            unsafe fn put(mut self, mut f: impl ::core::ops::FnMut(*mut u8, ::hecs::TypeInfo)) {
                 #(
                     f((&mut self.#field_members as *mut #tys).cast::<u8>(), ::hecs::TypeInfo::of::<#tys>());
-                    ::std::mem::forget(self.#field_members);
+                    ::core::mem::forget(self.#field_members);
                 )*
             }
         }
@@ -79,14 +79,14 @@ fn gen_bundle_impl(
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
     let with_static_ids_inner = quote! {
         {
-            let mut tys = [#((::std::mem::align_of::<#tys>(), ::std::any::TypeId::of::<#tys>())),*];
+            let mut tys = [#((::core::mem::align_of::<#tys>(), ::core::any::TypeId::of::<#tys>())),*];
             tys.sort_unstable_by(|x, y| {
-                ::std::cmp::Ord::cmp(&x.0, &y.0)
+                ::core::cmp::Ord::cmp(&x.0, &y.0)
                     .reverse()
-                    .then(::std::cmp::Ord::cmp(&x.1, &y.1))
+                    .then(::core::cmp::Ord::cmp(&x.1, &y.1))
             });
-            let mut ids = [::std::any::TypeId::of::<()>(); #num_tys];
-            for (id, info) in ::std::iter::Iterator::zip(ids.iter_mut(), tys.iter()) {
+            let mut ids = [::core::any::TypeId::of::<()>(); #num_tys];
+            for (id, info) in ::core::iter::Iterator::zip(ids.iter_mut(), tys.iter()) {
                 *id = info.1;
             }
             ids
@@ -94,8 +94,10 @@ fn gen_bundle_impl(
     };
     let with_static_ids_body = if generics.params.is_empty() {
         quote! {
-            static ELEMENTS: ::std::sync::OnceLock<[::std::any::TypeId; #num_tys]> = ::std::sync::OnceLock::new();
-            f(ELEMENTS.get_or_init(|| #with_static_ids_inner))
+            static ELEMENTS: ::hecs::spin::lazy::Lazy<[::core::any::TypeId; #num_tys]> = ::hecs::spin::lazy::Lazy::new(|| {
+                #with_static_ids_inner
+            });
+            f(&*ELEMENTS)
         }
     } else {
         quote! {
@@ -105,27 +107,27 @@ fn gen_bundle_impl(
     quote! {
         unsafe impl #impl_generics ::hecs::Bundle for #ident #ty_generics #where_clause {
             #[allow(non_camel_case_types)]
-            fn with_static_ids<__hecs__T>(f: impl ::std::ops::FnOnce(&[::std::any::TypeId]) -> __hecs__T) -> __hecs__T {
+            fn with_static_ids<__hecs__T>(f: impl ::core::ops::FnOnce(&[::core::any::TypeId]) -> __hecs__T) -> __hecs__T {
                 #with_static_ids_body
             }
 
             #[allow(non_camel_case_types)]
-            fn with_static_type_info<__hecs__T>(f: impl ::std::ops::FnOnce(&[::hecs::TypeInfo]) -> __hecs__T) -> __hecs__T {
+            fn with_static_type_info<__hecs__T>(f: impl ::core::ops::FnOnce(&[::hecs::TypeInfo]) -> __hecs__T) -> __hecs__T {
                 let mut info: [::hecs::TypeInfo; #num_tys] = [#(::hecs::TypeInfo::of::<#tys>()),*];
                 info.sort_unstable();
                 f(&info)
             }
 
             unsafe fn get(
-                mut f: impl ::std::ops::FnMut(::hecs::TypeInfo) -> ::std::option::Option<::std::ptr::NonNull<u8>>,
-            ) -> ::std::result::Result<Self, ::hecs::MissingComponent> {
+                mut f: impl ::core::ops::FnMut(::hecs::TypeInfo) -> ::core::option::Option<::core::ptr::NonNull<u8>>,
+            ) -> ::core::result::Result<Self, ::hecs::MissingComponent> {
                 #(
                     let #field_idents = f(::hecs::TypeInfo::of::<#tys>())
                             .ok_or_else(::hecs::MissingComponent::new::<#tys>)?
                             .cast::<#tys>()
                             .as_ptr();
                 )*
-                ::std::result::Result::Ok(Self { #( #field_members: #field_idents.read(), )* })
+                ::core::result::Result::Ok(Self { #( #field_members: #field_idents.read(), )* })
             }
         }
     }
@@ -137,14 +139,14 @@ fn gen_unit_struct_bundle_impl(ident: syn::Ident, generics: &syn::Generics) -> T
     quote! {
         unsafe impl #impl_generics ::hecs::Bundle for #ident #ty_generics #where_clause {
             #[allow(non_camel_case_types)]
-            fn with_static_ids<__hecs__T>(f: impl ::std::ops::FnOnce(&[::std::any::TypeId]) -> __hecs__T) -> __hecs__T { f(&[]) }
+            fn with_static_ids<__hecs__T>(f: impl ::core::ops::FnOnce(&[::core::any::TypeId]) -> __hecs__T) -> __hecs__T { f(&[]) }
             #[allow(non_camel_case_types)]
-            fn with_static_type_info<__hecs__T>(f: impl ::std::ops::FnOnce(&[::hecs::TypeInfo]) -> __hecs__T) -> __hecs__T { f(&[]) }
+            fn with_static_type_info<__hecs__T>(f: impl ::core::ops::FnOnce(&[::hecs::TypeInfo]) -> __hecs__T) -> __hecs__T { f(&[]) }
 
             unsafe fn get(
-                mut f: impl ::std::ops::FnMut(::hecs::TypeInfo) -> ::std::option::Option<::std::ptr::NonNull<u8>>,
-            ) -> ::std::result::Result<Self, ::hecs::MissingComponent> {
-                ::std::result::Result::Ok(Self {/* for some reason this works for all unit struct variations */})
+                mut f: impl ::core::ops::FnMut(::hecs::TypeInfo) -> ::core::option::Option<::core::ptr::NonNull<u8>>,
+            ) -> ::core::result::Result<Self, ::hecs::MissingComponent> {
+                ::core::result::Result::Ok(Self {/* for some reason this works for all unit struct variations */})
             }
         }
     }

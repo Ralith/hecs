@@ -39,7 +39,10 @@
 #[cfg(feature = "std")]
 extern crate std;
 
-extern crate alloc;
+#[doc(hidden)]
+pub extern crate alloc;
+#[doc(hidden)]
+pub extern crate spin;
 
 macro_rules! reverse_apply {
     ($m: ident [] $($reversed:tt)*) => {
