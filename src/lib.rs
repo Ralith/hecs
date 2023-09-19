@@ -108,7 +108,7 @@ pub use bundle::DynamicClone;
 #[doc(hidden)]
 pub use query::Fetch;
 
-#[cfg(any(feature = "macros", feature = "macros_no_std"))]
+#[cfg(feature = "macros")]
 pub use hecs_macros::{Bundle, DynamicBundleClone, Query};
 
 fn align(x: usize, alignment: usize) -> usize {
