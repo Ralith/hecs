@@ -35,30 +35,6 @@ jobs:
           command: test
           args: -p hecs ${{ matrix.features }}
 
-  no-std-build-test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v1
-
-      - uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          target: x86_64-unknown-none
-          override: true
-
-      # Build the `no_std_macros` example with x86_64-unknown-none target (should not contain std)
-      - uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: --no-default-features --features macros --target x86_64-unknown-none --example no_std_macros
-
-      # Build the same `no_std_macros` example with the default target (which should contain std)
-      - uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: --no-default-features --features macros --example no_std_macros
-
   lint:
     runs-on: ubuntu-latest
     steps:

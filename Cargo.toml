@@ -34,20 +34,12 @@ hashbrown = { version = "0.14", default-features = false, features = ["ahash", "
 serde = { version = "1.0.117", default-features = false, optional = true }
 spin = { version = "0.9.8", default-features = false, features = ["mutex", "spin_mutex", "lazy"] }
 
-[target.'cfg(not(target_os = "none"))'.dev-dependencies]
+[dev-dependencies]
 bencher = "0.1.5"
 rand = "0.8.3"
 trybuild = "1.0.23"
 serde = { version = "1.0.117", features = ["derive"] }
 serde_test = "1.0.117"
-
-[target.'cfg(target_os = "none")'.dev-dependencies]
-
-# An example to demonstrate that the macros crate can be used without std.
-# This example is mainly used for testing.
-[[example]]
-name = "no_std_macros"
-crate-type = ["staticlib"]
 
 [[bench]]
 name = "bench"
@@ -58,4 +50,4 @@ required-features = ["macros"]
 debug = true
 
 [workspace]
-members = ["macros"]
+members = ["macros", "tests/no-std-test-crates/macros"]
