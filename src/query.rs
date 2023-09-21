@@ -773,6 +773,7 @@ impl<'q, Q: Query> QueryIter<'q, Q> {
     /// Advance query to the next archetype
     ///
     /// Outlined from `Iterator::next` for improved iteration performance.
+    #[cold]
     fn next_archetype(&mut self) -> Option<()> {
         let archetype = self.archetypes.next()?;
         let archetype = unsafe { self.world.archetypes_inner().get_unchecked(archetype) };
