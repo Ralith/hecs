@@ -7,6 +7,7 @@
 
 use bencher::{benchmark_group, benchmark_main, Bencher};
 use hecs::*;
+use std::hint::black_box;
 
 #[derive(Clone)]
 struct Position(f32);
@@ -120,7 +121,7 @@ fn iterate_100k(b: &mut Bencher) {
     }
     b.iter(|| {
         for (_, (pos, vel)) in &mut world.query::<(&mut Position, &Velocity)>() {
-            pos.0 += vel.0;
+            pos.0 += black_box(vel.0);
         }
     })
 }
@@ -132,7 +133,7 @@ fn iterate_mut_100k(b: &mut Bencher) {
     }
     b.iter(|| {
         for (_, (pos, vel)) in world.query_mut::<(&mut Position, &Velocity)>() {
-            pos.0 += vel.0;
+            pos.0 += black_box(vel.0);
         }
     })
 }
@@ -177,7 +178,7 @@ fn iterate_uncached_100_by_50(b: &mut Bencher) {
     spawn_100_by_50(&mut world);
     b.iter(|| {
         for (_, (pos, vel)) in world.query::<(&mut Position, &Velocity)>().iter() {
-            pos.0 += vel.0;
+            pos.0 += black_box(vel.0);
         }
     })
 }
@@ -191,7 +192,7 @@ fn iterate_uncached_1_of_100_by_50(b: &mut Bencher) {
             .with::<&[(); 0]>()
             .iter()
         {
-            pos.0 += vel.0;
+            pos.0 += black_box(vel.0);
         }
     })
 }
@@ -203,7 +204,7 @@ fn iterate_cached_100_by_50(b: &mut Bencher) {
     let _ = query.query(&world).iter();
     b.iter(|| {
         for (_, (pos, vel)) in query.query(&world).iter() {
-            pos.0 += vel.0;
+            pos.0 += black_box(vel.0);
         }
     })
 }
@@ -213,7 +214,7 @@ fn iterate_mut_uncached_100_by_50(b: &mut Bencher) {
     spawn_100_by_50(&mut world);
     b.iter(|| {
         for (_, (pos, vel)) in world.query_mut::<(&mut Position, &Velocity)>() {
-            pos.0 += vel.0;
+            pos.0 += black_box(vel.0);
         }
     })
 }
@@ -225,7 +226,7 @@ fn iterate_mut_cached_100_by_50(b: &mut Bencher) {
     let _ = query.query_mut(&mut world);
     b.iter(|| {
         for (_, (pos, vel)) in query.query_mut(&mut world) {
-            pos.0 += vel.0;
+            pos.0 += black_box(vel.0);
         }
     })
 }
