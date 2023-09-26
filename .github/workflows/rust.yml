@@ -23,8 +23,6 @@ jobs:
         with:
           toolchain: ${{ matrix.rust }}
 
-      - run: rustup install --profile minimal ${{ matrix.rust }} && rustup default ${{ matrix.rust }}
-
       - run: cargo build -p hecs --all-targets ${{ matrix.features }}
 
       - run: cargo test -p hecs ${{ matrix.features }}
