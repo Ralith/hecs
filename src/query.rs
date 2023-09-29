@@ -839,6 +839,7 @@ pub struct QueryMut<'q, Q: Query> {
 }
 
 impl<'q, Q: Query> QueryMut<'q, Q> {
+    #[allow(clippy::needless_pass_by_ref_mut)] // https://github.com/rust-lang/rust-clippy/issues/11586
     pub(crate) fn new(world: &'q mut World) -> Self {
         assert_borrow::<Q>();
 
@@ -1178,6 +1179,7 @@ impl<Q: Query> PreparedQuery<Q> {
     /// Query a uniquely borrowed world
     ///
     /// Avoids the cost of the dynamic borrow checking performed by [`query`][Self::query].
+    #[allow(clippy::needless_pass_by_ref_mut)] // https://github.com/rust-lang/rust-clippy/issues/11586
     pub fn query_mut<'q>(&'q mut self, world: &'q mut World) -> PreparedQueryIter<'q, Q> {
         assert_borrow::<Q>();
 
@@ -1192,6 +1194,7 @@ impl<Q: Query> PreparedQuery<Q> {
     }
 
     /// Provide random access to query results for a uniquely borrow world
+    #[allow(clippy::needless_pass_by_ref_mut)] // https://github.com/rust-lang/rust-clippy/issues/11586
     pub fn view_mut<'q>(&'q mut self, world: &'q mut World) -> PreparedView<'q, Q> {
         assert_borrow::<Q>();
 
@@ -1238,12 +1241,12 @@ impl<'q, Q: Query> PreparedQueryBorrow<'q, Q> {
 
     /// Execute the prepared query
     // The lifetime narrowing here is required for soundness.
-    pub fn iter<'i>(&'i mut self) -> PreparedQueryIter<'i, Q> {
+    pub fn iter(&mut self) -> PreparedQueryIter<'_, Q> {
         unsafe { PreparedQueryIter::new(self.meta, self.archetypes, self.state.iter()) }
     }
 
     /// Provides random access to the results of the prepared query
-    pub fn view<'i>(&'i mut self) -> PreparedView<'i, Q> {
+    pub fn view(&mut self) -> PreparedView<'_, Q> {
         unsafe { PreparedView::new(self.meta, self.archetypes, self.state.iter(), self.fetch) }
     }
 }
