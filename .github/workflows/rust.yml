@@ -17,88 +17,55 @@ jobs:
           - --no-default-features
 
     steps:
-      - uses: actions/checkout@v1
+      - uses: actions/checkout@v4
 
-      - uses: actions-rs/toolchain@v1
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          profile: minimal
           toolchain: ${{ matrix.rust }}
-          override: true
 
-      - uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: -p hecs --all-targets ${{ matrix.features }}
+      - run: cargo build -p hecs --all-targets ${{ matrix.features }}
 
-      - uses: actions-rs/cargo@v1
-        with:
-          command: test
-          args: -p hecs ${{ matrix.features }}
+      - run: cargo test -p hecs ${{ matrix.features }}
 
   no-std-build-test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v1
+      - uses: actions/checkout@v4
 
-      - uses: actions-rs/toolchain@v1
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          profile: minimal
-          toolchain: stable
-          target: x86_64-unknown-none
-          override: true
+          targets: x86_64-unknown-none
 
       # Build the `test-no-std-macros` target with x86_64-unknown-none target
-      - uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: -p test-no-std-macros --target x86_64-unknown-none
+      - run: cargo build -p test-no-std-macros --target x86_64-unknown-none
 
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v1
+      - uses: actions/checkout@v4
 
-      - uses: actions-rs/toolchain@v1
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          profile: minimal
-          toolchain: stable
-          override: true
           components: rustfmt, clippy
 
-      - uses: actions-rs/cargo@v1
-        with:
-          command: fmt
-          args: --all -- --check
+      - run: cargo fmt --all -- --check
 
       - name: doc
         run: cargo doc --no-deps --all-features
         env:
           RUSTDOCFLAGS: -Dwarnings
 
-      - uses: actions-rs/cargo@v1
-        if: always()
-        with:
-          command: clippy
-          args: --all-features -- -D warnings
+      - run: cargo clippy --all-features -- -D warnings
 
   miri:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v1
+      - uses: actions/checkout@v4
 
-      - uses: actions-rs/toolchain@v1
+      - uses: dtolnay/rust-toolchain@nightly
         with:
-          profile: minimal
-          toolchain: nightly
-          override: true
           components: miri, rust-src
 
-      - uses: actions-rs/cargo@v1
-        with:
-          command: miri
-          args: setup
+      - run: cargo miri setup
 
-      - uses: actions-rs/cargo@v1
-        with:
-          command: miri
-          args: test --all-features
+      - run: cargo miri test --all-features

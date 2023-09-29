@@ -1238,12 +1238,12 @@ impl<'q, Q: Query> PreparedQueryBorrow<'q, Q> {
 
     /// Execute the prepared query
     // The lifetime narrowing here is required for soundness.
-    pub fn iter<'i>(&'i mut self) -> PreparedQueryIter<'i, Q> {
+    pub fn iter(&mut self) -> PreparedQueryIter<'_, Q> {
         unsafe { PreparedQueryIter::new(self.meta, self.archetypes, self.state.iter()) }
     }
 
     /// Provides random access to the results of the prepared query
-    pub fn view<'i>(&'i mut self) -> PreparedView<'i, Q> {
+    pub fn view(&mut self) -> PreparedView<'_, Q> {
         unsafe { PreparedView::new(self.meta, self.archetypes, self.state.iter(), self.fetch) }
     }
 }
