@@ -33,7 +33,7 @@ impl<'a> EntityRef<'a> {
         self.entity
     }
 
-    /// Determine whether this entity would satisfy the query `Q`
+    /// Determine whether this entity would satisfy the query `Q` without borrowing any components
     pub fn satisfies<Q: Query>(&self) -> bool {
         Q::Fetch::access(self.archetype).is_some()
     }
