@@ -285,22 +285,13 @@ impl Archetype {
                             )
                             .unwrap(),
                         );
+                        let mem = NonNull::new(mem).unwrap();
                         ptr::copy_nonoverlapping(
                             old.storage.as_ptr(),
-                            mem,
+                            mem.as_ptr(),
                             info.layout.size() * old_count,
                         );
-                        if old_cap > 0 {
-                            dealloc(
-                                old.storage.as_ptr(),
-                                Layout::from_size_align(
-                                    info.layout.size() * old_cap,
-                                    info.layout.align(),
-                                )
-                                .unwrap(),
-                            );
-                        }
-                        NonNull::new(mem).unwrap()
+                        mem
                     }
                 };
                 Data {
@@ -309,6 +300,24 @@ impl Archetype {
                 }
             })
             .collect::<Box<[_]>>();
+
+        // Now that we've successfully constructed a replacement, we can
+        // deallocate the old column data without risking `self.data` being left
+        // partially deallocated on OOM.
+        if old_cap > 0 {
+            for (info, data) in self.types.iter().zip(&*self.data) {
+                if info.layout.size() == 0 {
+                    continue;
+                }
+                unsafe {
+                    dealloc(
+                        data.storage.as_ptr(),
+                        Layout::from_size_align(info.layout.size() * old_cap, info.layout.align())
+                            .unwrap(),
+                    );
+                }
+            }
+        }
 
         self.data = new_data;
     }
