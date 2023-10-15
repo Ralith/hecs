@@ -1,5 +1,5 @@
 use core::any::TypeId;
-use core::fmt::{self, Debug, Formatter};
+use core::fmt::{self, Debug, Display, Formatter};
 use core::marker::PhantomData;
 use core::ops::{Deref, DerefMut, FnOnce};
 use core::ptr::NonNull;
@@ -180,6 +180,12 @@ impl<'a, T: ?Sized + Debug> Debug for Ref<'a, T> {
     }
 }
 
+impl<'a, T: ?Sized + Display> Display for Ref<'a, T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        Display::fmt(self.deref(), f)
+    }
+}
+
 impl<'a, T: ?Sized> Clone for Ref<'a, T> {
     fn clone(&self) -> Self {
         Self {
@@ -265,6 +271,12 @@ impl<'a, T: ?Sized> DerefMut for RefMut<'a, T> {
 impl<'a, T: ?Sized + Debug> Debug for RefMut<'a, T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         Debug::fmt(self.deref(), f)
+    }
+}
+
+impl<'a, T: ?Sized + Display> Display for RefMut<'a, T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        Display::fmt(self.deref(), f)
     }
 }
 
