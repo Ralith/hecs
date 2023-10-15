@@ -277,15 +277,13 @@ impl Archetype {
                 let storage = if info.layout.size() == 0 {
                     NonNull::new(info.layout.align() as *mut u8).unwrap()
                 } else {
+                    let layout =
+                        Layout::from_size_align(info.layout.size() * new_cap, info.layout.align())
+                            .unwrap();
                     unsafe {
-                        let mem = alloc(
-                            Layout::from_size_align(
-                                info.layout.size() * new_cap,
-                                info.layout.align(),
-                            )
-                            .unwrap(),
-                        );
-                        let mem = NonNull::new(mem).unwrap();
+                        let mem = alloc(layout);
+                        let mem = NonNull::new(mem)
+                            .unwrap_or_else(|| alloc::alloc::handle_alloc_error(layout));
                         ptr::copy_nonoverlapping(
                             old.storage.as_ptr(),
                             mem.as_ptr(),
