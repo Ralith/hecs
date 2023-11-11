@@ -253,6 +253,9 @@ fn random_access_via_view_mut() {
     assert_eq!(*s, "abc");
 
     assert!(view.get_mut(f).is_none());
+
+    assert!(view.contains(e));
+    assert!(!view.contains(f));
 }
 
 #[test]
