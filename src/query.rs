@@ -1387,6 +1387,17 @@ impl<'q, Q: Query> View<'q, Q> {
         unsafe { self.get_unchecked(entity) }
     }
 
+    /// Equivalent to `get(entity).is_some()`, but does not require `Q: QueryShared`
+    pub fn contains(&self, entity: Entity) -> bool {
+        let Some(meta) = self.meta.get(entity.id as usize) else {
+            return false;
+        };
+        if meta.generation != entity.generation {
+            return false;
+        }
+        self.fetch[meta.location.archetype as usize].is_some()
+    }
+
     /// Like `get_mut`, but allows simultaneous access to multiple entities
     ///
     /// # Safety
@@ -1557,6 +1568,17 @@ impl<'q, Q: Query> PreparedView<'q, Q> {
     /// Will yield `None` if the entity does not exist or does not match the query.
     pub fn get_mut(&mut self, entity: Entity) -> Option<Q::Item<'_>> {
         unsafe { self.get_unchecked(entity) }
+    }
+
+    /// Equivalent to `get(entity).is_some()`, but does not require `Q: QueryShared`
+    pub fn contains(&self, entity: Entity) -> bool {
+        let Some(meta) = self.meta.get(entity.id as usize) else {
+            return false;
+        };
+        if meta.generation != entity.generation {
+            return false;
+        }
+        self.fetch[meta.location.archetype as usize].is_some()
     }
 
     /// Like `get_mut`, but allows simultaneous access to multiple entities

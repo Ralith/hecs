@@ -2,6 +2,7 @@
 
 ### Added
 - `View` and `PreparedView` may now be iterated over, just like queries
+- `View::contains` and `PreparedView::contains` convenience predicates
 
 ### Fixed
 - `CommandBuffer` now executes operations in the order they are recorded
