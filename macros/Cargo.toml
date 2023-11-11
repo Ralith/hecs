@@ -1,6 +1,6 @@
 [package]
 name = "hecs-macros"
-version = "0.9.1"
+version = "0.10.0"
 description = "Procedural macro definitions for hecs"
 authors = ["Benjamin Saunders <ben.e.saunders@gmail.com>"]
 edition = "2021"

@@ -1,4 +1,4 @@
-# Unreleased
+# 0.10.4
 
 ### Added
 - `View` and `PreparedView` may now be iterated over, just like queries
