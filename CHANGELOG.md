@@ -3,6 +3,7 @@
 ### Added
 - `View` and `PreparedView` may now be iterated over, just like queries
 - `View::contains` and `PreparedView::contains` convenience predicates
+- `no_std` support for `hecs-macros`
 
 ### Fixed
 - `CommandBuffer` now executes operations in the order they are recorded
