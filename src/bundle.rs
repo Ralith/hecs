@@ -13,6 +13,23 @@ use core::{fmt, mem};
 use crate::archetype::TypeInfo;
 use crate::Component;
 
+/// Checks if a query is satisfied by a bundle. This is primarily useful for unit tests.
+pub fn bundle_satisfies_query<B: Bundle, Q: crate::Query>() -> bool {
+    use crate::Fetch;
+
+    let arch = B::with_static_type_info(|info| crate::Archetype::new(info.into()));
+    Q::Fetch::access(&arch).is_some()
+}
+
+/// Checks if a query is satisfied by a dynamic bundle. For static bundles, see [bundle_satisfies_query].
+/// This is primarily useful for unit tests.
+pub fn dynamic_bundle_satisfies_query<B: DynamicBundle, Q: crate::Query>(b: &B) -> bool {
+    use crate::Fetch;
+
+    let arch = crate::Archetype::new(b.type_info());
+    Q::Fetch::access(&arch).is_some()
+}
+
 /// A dynamically typed collection of components
 ///
 /// Bundles composed of exactly the same types are semantically equivalent, regardless of order. The
