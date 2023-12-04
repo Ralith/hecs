@@ -14,30 +14,6 @@ use crate::archetype::TypeInfo;
 use crate::Component;
 
 /// Checks if a query is satisfied by a bundle. This is primarily useful for unit tests.
-///
-/// ```rs
-/// #[derive(hecs::Bundle)]
-/// struct MyBundle {
-///     health: i32,
-///     speed: f32,
-/// }
-///
-/// #[derive(hecs::Query)]
-/// struct MyQuery<'a> {
-///     health: &'a i32,
-///     speed: &'a f32,
-/// }
-///
-/// #[cfg(test)]
-/// mod tests {
-///     use super::{MyBundle, MyQuery};
-///     
-///     #[test]
-///     fn my_bundle_satisfies_my_query() {
-///         assert!(hecs::bundle_satisfies_query::<MyBundle, MyQuery<'_>>());
-///     }
-/// }
-/// ```
 pub fn bundle_satisfies_query<B: Bundle, Q: crate::Query>() -> bool {
     use crate::Fetch;
 
@@ -47,34 +23,6 @@ pub fn bundle_satisfies_query<B: Bundle, Q: crate::Query>() -> bool {
 
 /// Checks if a query is satisfied by a dynamic bundle. For static bundles, see [bundle_satisfies_query].
 /// This is primarily useful for unit tests.
-///
-/// ```rs
-/// #[derive(hecs::Bundle)]
-/// struct MyBundle {
-///     health: i32,
-///     speed: f32,
-/// }
-///
-/// #[derive(hecs::Query)]
-/// struct MyQuery<'a> {
-///     health: &'a i32,
-///     speed: &'a f32,
-/// }
-///
-/// #[cfg(test)]
-/// mod tests {
-///     use super::{MyBundle, MyQuery};
-///     
-///     #[test]
-///     fn my_bundle_satisfies_my_query() {
-///         let bundle = MyBundle {
-///             health: 10,
-///             speed: 3.0
-///         };
-///         assert!(hecs::dynamic_bundle_satisfies_query::<MyBundle, MyQuery<'_>>(&bundle));
-///     }
-/// }
-/// ```
 pub fn dynamic_bundle_satisfies_query<B: DynamicBundle, Q: crate::Query>(b: &B) -> bool {
     use crate::Fetch;
 
