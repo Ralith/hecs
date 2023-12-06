@@ -1,6 +1,7 @@
 //! This is a test crate to ensure that the macro crate and the macro-expanded code can work in a `no_std` environment.
 
 #![no_std]
+#![allow(clippy::disallowed_names)]
 
 use hecs::{Bundle, Query};
 
