@@ -969,3 +969,13 @@ fn component_ref_map() {
         assert_eq!(*id, 31);
     }
 }
+
+#[test]
+fn vacant_bundle() {
+    let mut world = World::new();
+    let e = world.spawn((42,));
+    for (_, mut entry) in world.query_mut::<VacantBundle<(bool,)>>() {
+        entry.set(Some((true,)));
+    }
+    assert!(*world.get::<&bool>(e).unwrap());
+}

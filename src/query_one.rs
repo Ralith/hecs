@@ -1,6 +1,6 @@
 use core::marker::PhantomData;
 
-use crate::query::{assert_borrow, Fetch, With, Without};
+use crate::query::{assert_borrow, Effect, Fetch, With, Without};
 use crate::{Archetype, Query};
 
 /// A borrow of a [`World`](crate::World) sufficient to execute the query `Q` on a single entity
@@ -8,6 +8,7 @@ pub struct QueryOne<'a, Q: Query> {
     archetype: &'a Archetype,
     index: u32,
     borrowed: bool,
+    effect: Q::Effect,
     _marker: PhantomData<Q>,
 }
 
@@ -24,6 +25,7 @@ impl<'a, Q: Query> QueryOne<'a, Q> {
             archetype,
             index,
             borrowed: false,
+            effect: Q::Effect::new(),
             _marker: PhantomData,
         }
     }
@@ -43,7 +45,13 @@ impl<'a, Q: Query> QueryOne<'a, Q> {
         Q::Fetch::borrow(self.archetype, state);
         let fetch = Q::Fetch::execute(self.archetype, state);
         self.borrowed = true;
-        unsafe { Some(Q::get(&fetch, self.index as usize)) }
+        unsafe {
+            Some(Q::get_with_effect(
+                &fetch,
+                self.index as usize,
+                &mut self.effect,
+            ))
+        }
     }
 
     /// Transform the query into one that requires another query be satisfied
@@ -66,6 +74,7 @@ impl<'a, Q: Query> QueryOne<'a, Q> {
             archetype: self.archetype,
             index: self.index,
             borrowed: self.borrowed,
+            effect: R::Effect::new(),
             _marker: PhantomData,
         };
         // Ensure `Drop` won't fire redundantly
@@ -79,6 +88,7 @@ impl<Q: Query> Drop for QueryOne<'_, Q> {
         if self.borrowed {
             let state = Q::Fetch::prepare(self.archetype).unwrap();
             Q::Fetch::release(self.archetype, state);
+            // TODO: Apply effect
         }
     }
 }

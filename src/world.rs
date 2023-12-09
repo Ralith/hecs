@@ -25,7 +25,7 @@ use crate::entities::{Entities, EntityMeta, Location, ReserveEntitiesIterator};
 use crate::query::assert_borrow;
 use crate::{
     Bundle, ColumnBatch, ComponentRef, DynamicBundle, Entity, EntityRef, Fetch, MissingComponent,
-    NoSuchEntity, Query, QueryBorrow, QueryMut, QueryOne, TakenEntity,
+    NoSuchEntity, Query, QueryBorrow, QueryInPlace, QueryMut, QueryOne, TakenEntity,
 };
 
 /// An unordered collection of entities, each having any number of distinctly typed components
@@ -47,7 +47,7 @@ use crate::{
 /// newly-allocated `Entity` handle. Very long-lived applications should therefore limit the period
 /// over which they may retain handles of despawned entities.
 pub struct World {
-    entities: Entities,
+    pub(crate) entities: Entities,
     archetypes: ArchetypeSet,
     /// Maps statically-typed bundle types to archetypes
     bundle_to_archetype: TypeIdMap<u32>,
@@ -395,7 +395,7 @@ impl World {
     /// assert!(entities.contains(&(a, 123, true)));
     /// assert!(entities.contains(&(b, 456, false)));
     /// ```
-    pub fn query<Q: Query>(&self) -> QueryBorrow<'_, Q> {
+    pub fn query<Q: QueryInPlace>(&self) -> QueryBorrow<'_, Q> {
         QueryBorrow::new(self)
     }
 
@@ -459,7 +459,7 @@ impl World {
     /// Like [`query_one`](Self::query_one), but faster because dynamic borrow checks can be
     /// skipped. Note that, unlike [`query_one`](Self::query_one), on success this returns the
     /// query's results directly.
-    pub fn query_one_mut<Q: Query>(
+    pub fn query_one_mut<Q: QueryInPlace>(
         &mut self,
         entity: Entity,
     ) -> Result<Q::Item<'_>, QueryOneError> {
@@ -510,6 +510,17 @@ impl World {
     /// will produce undefined behavior.
     pub unsafe fn find_entity_from_id(&self, id: u32) -> Entity {
         self.entities.resolve_unknown_gen(id)
+    }
+
+    /// Safety: `location` must be in-bounds
+    pub(crate) unsafe fn find_entity_from_location(&self, location: &Location) -> Entity {
+        let id = *self
+            .archetypes
+            .archetypes
+            .get_unchecked(location.archetype as usize)
+            .ids()
+            .get_unchecked(location.index as usize);
+        self.find_entity_from_id(id)
     }
 
     /// Iterate over all entities in the world
@@ -565,7 +576,7 @@ impl World {
     /// Note that `graph_origin` is always equal to `loc.archetype` during insertion. Only for exchange, `graph_origin` identifies
     /// the intermediate archetype which would be reached after removal and before insertion even though
     /// the actual component data still resides in `loc.archetype`.
-    fn insert_inner(
+    pub(crate) fn insert_inner(
         &mut self,
         entity: Entity,
         components: impl DynamicBundle,
