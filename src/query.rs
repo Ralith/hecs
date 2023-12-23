@@ -902,24 +902,6 @@ impl<'q, Q: Query> IntoIterator for QueryMut<'q, Q> {
     }
 }
 
-pub(crate) fn assert_borrow<Q: Query>() {
-    // This looks like an ugly O(n^2) loop, but everything's constant after inlining, so in
-    // practice LLVM optimizes it out entirely.
-    let mut i = 0;
-    Q::Fetch::for_each_borrow(|a, unique| {
-        if unique {
-            let mut j = 0;
-            Q::Fetch::for_each_borrow(|b, _| {
-                if i != j {
-                    core::assert!(a != b, "query violates a unique borrow");
-                }
-                j += 1;
-            })
-        }
-        i += 1;
-    });
-}
-
 struct ChunkIter<Q: Query> {
     entities: NonNull<u32>,
     fetch: Q::Fetch,
@@ -1414,9 +1396,13 @@ impl<'q, Q: Query> View<'q, Q> {
             .map(|fetch| Q::get(fetch, meta.location.index as usize))
     }
 
-    /// Like `get_mut`, but allows checked simultaneous access to multiple entities
+    /// Like `get_mut`, but allows checked simultaneous access to multiple entities.
+    /// Note: passing the same entity twice will result in a panic.
     ///
-    /// For N > 3, the check for distinct entities will clone the array and take O(N log N) time.
+    /// # Panics
+    ///
+    /// Passing two or more of the same entities will result in a panic. Additionally,
+    /// for `N > 3`, the check for distinct entities will copy the array and take O(N log N) time.
     ///
     /// # Examples
     ///
@@ -1439,15 +1425,7 @@ impl<'q, Q: Query> View<'q, Q> {
     pub fn get_mut_n<const N: usize>(&mut self, entities: [Entity; N]) -> [Option<Q::Item<'_>>; N] {
         assert_distinct(&entities);
 
-        let mut items = [(); N].map(|()| None);
-
-        for (item, entity) in items.iter_mut().zip(entities) {
-            unsafe {
-                *item = self.get_unchecked(entity);
-            }
-        }
-
-        items
+        core::array::from_fn(|idx| unsafe { self.get_unchecked(entities[idx]) })
     }
 
     /// Iterate over all entities satisfying `Q`
@@ -1637,7 +1615,7 @@ impl<'a, 'q, Q: Query> IntoIterator for &'a mut PreparedView<'q, Q> {
     }
 }
 
-fn assert_distinct<const N: usize>(entities: &[Entity; N]) {
+pub(crate) fn assert_distinct<const N: usize>(entities: &[Entity; N]) {
     match N {
         1 => (),
         2 => assert_ne!(entities[0], entities[1]),
@@ -1655,6 +1633,25 @@ fn assert_distinct<const N: usize>(entities: &[Entity; N]) {
         }
     }
 }
+
+pub(crate) fn assert_borrow<Q: Query>() {
+    // This looks like an ugly O(n^2) loop, but everything's constant after inlining, so in
+    // practice LLVM optimizes it out entirely.
+    let mut i = 0;
+    Q::Fetch::for_each_borrow(|a, unique| {
+        if unique {
+            let mut j = 0;
+            Q::Fetch::for_each_borrow(|b, _| {
+                if i != j {
+                    core::assert!(a != b, "query violates a unique borrow");
+                }
+                j += 1;
+            })
+        }
+        i += 1;
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
