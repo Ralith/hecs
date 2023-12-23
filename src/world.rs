@@ -454,7 +454,7 @@ impl World {
         })
     }
 
-    /// Query a single entity in a uniquely borrow world
+    /// Query a single entity in a uniquely borrowed world
     ///
     /// Like [`query_one`](Self::query_one), but faster because dynamic borrow checks can be
     /// skipped. Note that, unlike [`query_one`](Self::query_one), on success this returns the
