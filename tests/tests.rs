@@ -969,3 +969,19 @@ fn component_ref_map() {
         assert_eq!(*id, 31);
     }
 }
+
+#[test]
+fn query_many() {
+    let mut world = World::new();
+    let a = world.spawn((42, true));
+    let b = world.spawn((17,));
+    assert_eq!(world.query_many_mut::<&i32, 2>([a, b]), [Ok(&42), Ok(&17)]);
+}
+
+#[test]
+#[should_panic]
+fn query_many_duplicate() {
+    let mut world = World::new();
+    let e = world.spawn(());
+    _ = world.query_many_mut::<(), 2>([e, e]);
+}

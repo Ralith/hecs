@@ -1,6 +1,9 @@
 # Unreleased
 
-# Changed
+### Added
+- `World::get_many_mut` to conveniently query a few entities concurrently
+
+### Changed
 - Renamed `{View, PreparedView}::get_mut_n` to `get_many_mut` for consistency with the proposed std
   slice method
 

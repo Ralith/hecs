@@ -902,6 +902,7 @@ impl<'q, Q: Query> IntoIterator for QueryMut<'q, Q> {
     }
 }
 
+/// Check that Q doesn't alias a `&mut T` on its own. Currently over-conservative for `Or` queries.
 pub(crate) fn assert_borrow<Q: Query>() {
     // This looks like an ugly O(n^2) loop, but everything's constant after inlining, so in
     // practice LLVM optimizes it out entirely.
@@ -1655,7 +1656,7 @@ impl<'a, 'q, Q: Query> IntoIterator for &'a mut PreparedView<'q, Q> {
     }
 }
 
-fn assert_distinct<const N: usize>(entities: &[Entity; N]) {
+pub(crate) fn assert_distinct<const N: usize>(entities: &[Entity; N]) {
     match N {
         1 => (),
         2 => assert_ne!(entities[0], entities[1]),
