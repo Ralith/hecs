@@ -22,7 +22,7 @@ use hashbrown::hash_map::{Entry, HashMap};
 use crate::alloc::boxed::Box;
 use crate::archetype::{Archetype, TypeIdMap, TypeInfo};
 use crate::entities::{Entities, EntityMeta, Location, ReserveEntitiesIterator};
-use crate::query::assert_borrow;
+use crate::query::{assert_borrow, assert_distinct};
 use crate::{
     Bundle, ColumnBatch, ComponentRef, DynamicBundle, Entity, EntityRef, Fetch, MissingComponent,
     NoSuchEntity, Query, QueryBorrow, QueryMut, QueryOne, TakenEntity,
@@ -470,6 +470,27 @@ impl World {
         let state = Q::Fetch::prepare(archetype).ok_or(QueryOneError::Unsatisfied)?;
         let fetch = Q::Fetch::execute(archetype, state);
         unsafe { Ok(Q::get(&fetch, loc.index as usize)) }
+    }
+
+    /// Query a fixed number of distinct entities in a uniquely borrowed world
+    ///
+    /// Like [`query_one_mut`](Self::query_one_mut), but for multiple entities, which would
+    /// otherwise be forbidden by the unique borrow. Panics if the same entity occurs more than
+    /// once.
+    pub fn query_many_mut<Q: Query, const N: usize>(
+        &mut self,
+        entities: [Entity; N],
+    ) -> [Result<Q::Item<'_>, QueryOneError>; N] {
+        assert_borrow::<Q>();
+        assert_distinct(&entities);
+
+        entities.map(|entity| {
+            let loc = self.entities.get(entity)?;
+            let archetype = &self.archetypes.archetypes[loc.archetype as usize];
+            let state = Q::Fetch::prepare(archetype).ok_or(QueryOneError::Unsatisfied)?;
+            let fetch = Q::Fetch::execute(archetype, state);
+            unsafe { Ok(Q::get(&fetch, loc.index as usize)) }
+        })
     }
 
     /// Short-hand for [`entity`](Self::entity) followed by [`EntityRef::get`]
