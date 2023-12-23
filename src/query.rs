@@ -1436,7 +1436,10 @@ impl<'q, Q: Query> View<'q, Q> {
     /// assert_eq!(*b.unwrap(), 2);
     /// assert_eq!(*c.unwrap(), 3);
     /// ```
-    pub fn get_mut_n<const N: usize>(&mut self, entities: [Entity; N]) -> [Option<Q::Item<'_>>; N] {
+    pub fn get_many_mut<const N: usize>(
+        &mut self,
+        entities: [Entity; N],
+    ) -> [Option<Q::Item<'_>>; N] {
         assert_distinct(&entities);
 
         let mut items = [(); N].map(|()| None);
@@ -1448,6 +1451,12 @@ impl<'q, Q: Query> View<'q, Q> {
         }
 
         items
+    }
+
+    #[doc(hidden)]
+    #[deprecated(since = "0.10.5", note = "renamed to `get_many_mut`")]
+    pub fn get_mut_n<const N: usize>(&mut self, entities: [Entity; N]) -> [Option<Q::Item<'_>>; N] {
+        self.get_many_mut(entities)
     }
 
     /// Iterate over all entities satisfying `Q`
@@ -1599,8 +1608,11 @@ impl<'q, Q: Query> PreparedView<'q, Q> {
 
     /// Like `get_mut`, but allows checked simultaneous access to multiple entities
     ///
-    /// See [`View::get_mut_n`] for details.
-    pub fn get_mut_n<const N: usize>(&mut self, entities: [Entity; N]) -> [Option<Q::Item<'_>>; N] {
+    /// See [`View::get_many_mut`] for details.
+    pub fn get_many_mut<const N: usize>(
+        &mut self,
+        entities: [Entity; N],
+    ) -> [Option<Q::Item<'_>>; N] {
         assert_distinct(&entities);
 
         let mut items = [(); N].map(|()| None);
@@ -1612,6 +1624,12 @@ impl<'q, Q: Query> PreparedView<'q, Q> {
         }
 
         items
+    }
+
+    #[doc(hidden)]
+    #[deprecated(since = "0.10.5", note = "renamed to `get_many_mut`")]
+    pub fn get_mut_n<const N: usize>(&mut self, entities: [Entity; N]) -> [Option<Q::Item<'_>>; N] {
+        self.get_many_mut(entities)
     }
 
     /// Iterate over all entities satisfying `Q`

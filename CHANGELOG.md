@@ -1,3 +1,9 @@
+# Unreleased
+
+# Changed
+- Renamed `{View, PreparedView}::get_mut_n` to `get_many_mut` for consistency with the proposed std
+  slice method
+
 # 0.10.4
 
 ### Added
