@@ -97,8 +97,8 @@ pub use entity_builder::{BuiltEntity, BuiltEntityClone, EntityBuilder, EntityBui
 pub use entity_ref::{ComponentRef, ComponentRefShared, EntityRef, Ref, RefMut};
 pub use query::{
     Access, Batch, BatchedIter, Or, PreparedQuery, PreparedQueryBorrow, PreparedQueryIter,
-    PreparedView, Query, QueryBorrow, QueryIter, QueryMut, QueryShared, Satisfies, View, With,
-    Without,
+    PreparedView, Query, QueryBorrow, QueryIter, QueryMut, QueryShared, Satisfies, View,
+    ViewBorrowed, ViewMut, With, Without,
 };
 pub use query_one::QueryOne;
 pub use take::TakenEntity;

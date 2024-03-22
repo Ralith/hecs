@@ -1347,7 +1347,7 @@ impl<'q, Q: Query> View<'q, Q> {
     ///
     /// `'q` must be sufficient to guarantee that `Q` cannot violate borrow safety, either with
     /// dynamic borrow checks or by representing exclusive access to the `World`.
-    unsafe fn new(meta: &'q [EntityMeta], archetypes: &'q [Archetype]) -> Self {
+    pub(crate) unsafe fn new(meta: &'q [EntityMeta], archetypes: &'q [Archetype]) -> Self {
         let fetch = archetypes
             .iter()
             .map(|archetype| {
@@ -1674,6 +1674,76 @@ pub(crate) fn assert_distinct<const N: usize>(entities: &[Entity; N]) {
         }
     }
 }
+
+/// A borrow of a [`World`](crate::World) sufficient to execute the query `Q`, and immediately exposes a `View`
+/// of it.
+///
+/// Note that borrows are not released until this object is dropped.
+///
+/// This struct is a thin wrapper around [`View`](crate::View). See it for more documentation.
+pub struct ViewBorrowed<'w, Q: Query> {
+    _query: QueryBorrow<'w, Q>,
+    view: View<'w, Q>,
+}
+
+impl<'w, Q: Query> ViewBorrowed<'w, Q> {
+    pub(crate) fn new(world: &'w World) -> Self {
+        let mut query = world.query::<Q>();
+        query.borrow();
+        let view = unsafe { View::<Q>::new(world.entities_meta(), world.archetypes_inner()) };
+
+        Self {
+            _query: query,
+            view,
+        }
+    }
+}
+
+impl<'w, Q: Query> core::ops::Deref for ViewBorrowed<'w, Q> {
+    type Target = View<'w, Q>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.view
+    }
+}
+
+impl<'w, Q: Query> core::ops::DerefMut for ViewBorrowed<'w, Q> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.view
+    }
+}
+
+/// A borrow of a [`World`](crate::World) sufficient to execute the query `Q`, and immediately exposes a `View`
+/// of it.
+///
+/// This struct is a thin wrapper around [`View`](crate::View). See it for more documentation.
+pub struct ViewMut<'w, Q: Query> {
+    view: View<'w, Q>,
+}
+
+impl<'w, Q: Query> ViewMut<'w, Q> {
+    pub(crate) fn new(world: &'w mut World) -> Self {
+        assert_borrow::<Q>();
+        let view = unsafe { View::<Q>::new(world.entities_meta(), world.archetypes_inner()) };
+
+        Self { view }
+    }
+}
+
+impl<'w, Q: Query> core::ops::Deref for ViewMut<'w, Q> {
+    type Target = View<'w, Q>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.view
+    }
+}
+
+impl<'w, Q: Query> core::ops::DerefMut for ViewMut<'w, Q> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.view
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
