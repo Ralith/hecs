@@ -1713,37 +1713,6 @@ impl<'w, Q: Query> core::ops::DerefMut for ViewBorrowed<'w, Q> {
     }
 }
 
-/// A borrow of a [`World`](crate::World) sufficient to execute the query `Q`, and immediately exposes a `View`
-/// of it.
-///
-/// This struct is a thin wrapper around [`View`](crate::View). See it for more documentation.
-pub struct ViewMut<'w, Q: Query> {
-    view: View<'w, Q>,
-}
-
-impl<'w, Q: Query> ViewMut<'w, Q> {
-    pub(crate) fn new(world: &'w mut World) -> Self {
-        assert_borrow::<Q>();
-        let view = unsafe { View::<Q>::new(world.entities_meta(), world.archetypes_inner()) };
-
-        Self { view }
-    }
-}
-
-impl<'w, Q: Query> core::ops::Deref for ViewMut<'w, Q> {
-    type Target = View<'w, Q>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.view
-    }
-}
-
-impl<'w, Q: Query> core::ops::DerefMut for ViewMut<'w, Q> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.view
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
