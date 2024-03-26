@@ -1663,6 +1663,8 @@ impl<'w, Q: Query> ViewBorrow<'w, Q> {
     /// Will yield `None` if the entity does not exist or does not match the query.
     ///
     /// Does not require exclusive access to the map, but is defined only for queries yielding only shared references.
+    ///
+    /// See [View::get].
     pub fn get(&self, entity: Entity) -> Option<Q::Item<'_>>
     where
         Q: QueryShared,
@@ -1673,16 +1675,22 @@ impl<'w, Q: Query> ViewBorrow<'w, Q> {
     /// Retrieve the query results corresponding to `entity`
     ///
     /// Will yield `None` if the entity does not exist or does not match the query.
+    ///
+    /// See [View::get_mut].
     pub fn get_mut(&mut self, entity: Entity) -> Option<Q::Item<'_>> {
         self.view.get_mut(entity)
     }
 
     /// Equivalent to `get(entity).is_some()`, but does not require `Q: QueryShared`
+    ///
+    /// See [View::contains].
     pub fn contains(&self, entity: Entity) -> bool {
         self.view.contains(entity)
     }
 
     /// Like `get_mut`, but allows simultaneous access to multiple entities
+    ///
+    /// See [View::get_unchecked].
     ///
     /// # Safety
     ///
@@ -1695,6 +1703,8 @@ impl<'w, Q: Query> ViewBorrow<'w, Q> {
     ///
     /// For N > 3, the check for distinct entities will clone the array and take O(N log N) time.
     ///
+    /// See [View::get_many_mut].
+    ///
     /// # Examples
     ///
     /// ```
@@ -1705,9 +1715,8 @@ impl<'w, Q: Query> ViewBorrow<'w, Q> {
     /// let b = world.spawn((2, 4.0));
     /// let c = world.spawn((3, 9.0));
     ///
-    /// let mut query = world.query_mut::<&mut i32>();
-    /// let mut view = query.view();
-    /// let [a,b,c] = view.get_mut_n([a, b, c]);
+    /// let mut view = world.view_mut::<&mut i32>();
+    /// let [a, b, c] = view.get_mut_n([a, b, c]);
     ///
     /// assert_eq!(*a.unwrap(), 1);
     /// assert_eq!(*b.unwrap(), 2);
@@ -1722,7 +1731,7 @@ impl<'w, Q: Query> ViewBorrow<'w, Q> {
 
     /// Iterate over all entities satisfying `Q`
     ///
-    /// Equivalent to [`QueryBorrow::iter`].
+    /// See [View::iter_mut]
     pub fn iter_mut(&mut self) -> ViewIter<'_, Q> {
         self.view.iter_mut()
     }
