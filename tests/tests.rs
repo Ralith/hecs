@@ -321,6 +321,20 @@ fn view_mut_on_world() {
     assert_eq!(int_str_view.get_mut(e2), None);
 }
 
+#[should_panic]
+#[test]
+fn view_mut_panic() {
+    let mut world = World::new();
+    let e = world.spawn(('a',));
+
+    // we should panic since we have two overlapping views:
+    let mut first_view = world.view::<&mut char>();
+    let mut second_view = world.view::<&mut char>();
+
+    first_view.get_mut(e).unwrap();
+    second_view.get_mut(e).unwrap();
+}
+
 #[test]
 #[should_panic]
 fn simultaneous_access_must_be_non_overlapping() {
