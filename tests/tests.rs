@@ -985,3 +985,69 @@ fn query_many_duplicate() {
     let e = world.spawn(());
     _ = world.query_many_mut::<(), 2>([e, e]);
 }
+
+#[test]
+fn query_combination() {
+    let mut world = World::new();
+    let a = world.spawn((42, true));
+    let b = world.spawn((17,));
+    let c = world.spawn((21,));
+    let mut query = world.query::<&mut i32>();
+    let mut iter = query.iter_combinations::<2>();
+    assert_eq!(iter.next(), Some([(a, &mut 42), (b, &mut 17)]));
+    assert_eq!(iter.next(), Some([(a, &mut 42), (c, &mut 21)]));
+    assert_eq!(iter.next(), Some([(b, &mut 17), (c, &mut 21)]));
+    assert_eq!(iter.next(), None);
+}
+
+#[test]
+fn query_combination_exact() {
+    let mut world = World::new();
+    let a = world.spawn((42, true));
+    let b = world.spawn((17,));
+    let c = world.spawn((21,));
+    let mut query = world.query::<&mut i32>();
+    let mut iter = query.iter_combinations::<3>();
+    assert_eq!(iter.next(), Some([(a, &mut 42), (b, &mut 17), (c, &mut 21)]));
+    assert_eq!(iter.next(), None);
+}
+
+#[test]
+fn query_combination_zero() {
+    let mut world = World::new();
+    let _ = world.spawn((42, true));
+    let _ = world.spawn((17,));
+    let _ = world.spawn((21,));
+    let mut query = world.query::<&mut i32>();
+    let mut iter = query.iter_combinations::<0>();
+    assert_eq!(iter.next(), None);
+}
+
+#[test]
+fn query_combination_not_enough_entities() {
+    let mut world = World::new();
+    let _ = world.spawn((42, true));
+    let _ = world.spawn((17,));
+    let _ = world.spawn((21,));
+    let mut query = world.query::<&mut i32>();
+    
+    let mut iter = query.iter_combinations::<4>();
+    assert_eq!(iter.next(), None);
+
+    let mut iter = query.iter_combinations::<5>();
+    assert_eq!(iter.next(), None);
+
+    let mut iter = query.iter_combinations::<100>();
+    assert_eq!(iter.next(), None);
+}
+
+#[test]
+fn query_combination_no_match() {
+    let mut world = World::new();
+    let _ = world.spawn((42, true));
+    let _ = world.spawn((17,));
+    let _ = world.spawn((21,));
+    let mut query = world.query::<&String>();
+    let mut iter = query.iter_combinations::<2>();
+    assert_eq!(iter.next(), None);
+}

@@ -6,6 +6,7 @@
 // copied, modified, or distributed except according to those terms.
 
 use core::any::TypeId;
+use core::array;
 use core::marker::PhantomData;
 use core::ptr::NonNull;
 use core::slice::Iter as SliceIter;
@@ -624,6 +625,13 @@ impl<'w, Q: Query> QueryBorrow<'w, Q> {
         unsafe { QueryIter::new(self.world) }
     }
 
+    /// Execute the query for a combination of entities
+    // The lifetime narrowing here is required for soundness.
+    pub fn iter_combinations<const K: usize>(&mut self) -> QueryCombinationIter<'_, Q, K> {
+        self.borrow();
+        unsafe { QueryCombinationIter::new(self.world) }
+    }
+
     /// Provide random access to the query results
     pub fn view(&mut self) -> View<'_, Q> {
         self.borrow();
@@ -833,6 +841,164 @@ impl<'q, Q: Query> ExactSizeIterator for QueryIter<'q, Q> {
     }
 }
 
+/// Struct providing iteration over a combination of the set of entities with the components in `Q`
+pub struct QueryCombinationIter<'q, Q: Query, const K: usize> {
+    world: &'q World,
+    max_archetypes: usize,
+    archetypes: [usize; K],
+    entity_ids: [Entity; K],
+    chunks: [ChunkIter<Q>; K],
+}
+
+impl<'q, Q: Query, const K: usize> QueryCombinationIter<'q, Q, K> {
+    /// # Safety
+    ///
+    /// `'q` must be sufficient to guarantee that `Q` cannot violate borrow safety, either with
+    /// dynamic borrow checks or by representing exclusive access to the `World`.
+    unsafe fn new(world: &'q World) -> Self {
+        let max_archetypes = world.archetypes().len();
+
+        let mut iter = Self {
+            world,
+            max_archetypes,
+            archetypes: [0; K],
+            entity_ids: [Entity::DANGLING; K],
+            chunks: array::from_fn(|_| ChunkIter::empty()),
+        };
+
+        for i in 0..K {
+            if i > 0 {
+                let previous_chunk = &iter.chunks[i-1];
+                iter.chunks[i] = ChunkIter {
+                    entities: previous_chunk.entities,
+                    fetch: previous_chunk.fetch.clone(),
+                    position: previous_chunk.position,
+                    len: previous_chunk.len,
+                };
+                iter.archetypes[i] = iter.archetypes[i-1];
+            }
+            if i < K-1 {
+                loop {
+                    match unsafe { iter.chunks[i].next_entity() } {
+                        None => match iter.next_archetype(i) {
+                            true => continue, // Keep getting entities for i
+                            false => {
+                                // Not enough elements, return dummy
+                                return Self {
+                                    world,
+                                    max_archetypes,
+                                    archetypes: [max_archetypes; K],
+                                    entity_ids: [Entity::DANGLING; K],
+                                    chunks: array::from_fn(|_| ChunkIter::empty()),
+                                };
+                            }
+                        }
+                        Some(id) => {
+                            iter.entity_ids[i] = Entity {
+                                id,
+                                generation: unsafe {
+                                    iter.world
+                                        .entities_meta()
+                                        .get_unchecked(id as usize)
+                                        .generation
+                                },
+                            };
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        iter
+    }
+
+    /// Advance query to the next archetype
+    fn next_archetype(&mut self, index: usize) -> bool {
+        let archetype = self.archetypes[index];
+        if archetype >= self.max_archetypes {
+            return false;
+        }
+
+        self.archetypes[index] += 1;
+
+        let archetype = unsafe { self.world.archetypes_inner().get_unchecked(archetype) };
+        let state = Q::Fetch::prepare(archetype);
+        let fetch = state.map(|state| Q::Fetch::execute(archetype, state));
+        self.chunks[index] = fetch.map_or(ChunkIter::empty(), |fetch| ChunkIter::new(archetype, fetch));
+        true
+    }
+
+    /// Get next combination of queried components
+    // This method narrows the lifetime of the returned item to self
+    pub fn next(&mut self) -> Option<[(Entity, Q::Item<'_>); K]> {
+        if K == 0 {
+            return None;
+        }
+
+        'outer: for i in (0..K).rev() {
+            'entity_i: loop {
+                match unsafe { self.chunks[i].next_entity() } {
+                    None => match self.next_archetype(i) {
+                        true => continue, // Keep getting entities for i
+                        false if i > 0 => continue 'outer, // No more entities for i, move on to parent
+                        false => return None // No more entities at all, return None
+                    }
+                    Some(id) => {
+                        self.entity_ids[i] = Entity {
+                            id,
+                            generation: unsafe {
+                                self.world
+                                    .entities_meta()
+                                    .get_unchecked(id as usize)
+                                    .generation
+                            },
+                        };
+                        for j in (i + 1)..K {
+                            let previous_chunk = &self.chunks[j-1];
+                            self.chunks[j] = ChunkIter {
+                                entities: previous_chunk.entities,
+                                fetch: previous_chunk.fetch.clone(),
+                                position: previous_chunk.position,
+                                len: previous_chunk.len,
+                            };
+                            self.archetypes[j] = self.archetypes[j-1];
+                            loop {
+                                match unsafe { self.chunks[j].next_entity() } {
+                                    None => match self.next_archetype(j) {
+                                        true => continue, // Keep getting entities for j
+                                        false => continue 'entity_i // No more entities for j, keep getting entities for i
+                                    }
+                                    Some(id) => {
+                                        self.entity_ids[j] = Entity {
+                                            id,
+                                            generation: unsafe {
+                                                self.world
+                                                    .entities_meta()
+                                                    .get_unchecked(id as usize)
+                                                    .generation
+                                            },
+                                        };
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        break 'outer;
+                    },
+                }
+            }
+        }
+
+        Some(array::from_fn(|i| {
+            (
+                self.entity_ids[i],
+                unsafe { self.chunks[i].current_item() }
+            )
+        }))
+    }
+}
+
 /// A query builder that's convertible directly into an iterator
 pub struct QueryMut<'q, Q: Query> {
     iter: QueryIter<'q, Q>,
@@ -956,6 +1122,21 @@ impl<Q: Query> ChunkIter<Q> {
         let item = Q::get(&self.fetch, self.position);
         self.position += 1;
         Some((*entity, item))
+    }
+
+    #[inline]
+    unsafe fn next_entity(&mut self) -> Option<u32> {
+        if self.position == self.len {
+            return None;
+        }
+        let entity = self.entities.as_ptr().add(self.position);
+        self.position += 1;
+        Some(*entity)
+    }
+
+    #[inline]
+    unsafe fn current_item<'a>(&mut self) -> Q::Item<'a> {
+        Q::get(&self.fetch, self.position - 1)
     }
 
     fn remaining(&self) -> usize {
