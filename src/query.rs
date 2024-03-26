@@ -932,17 +932,12 @@ impl<'q, Q: Query, const K: usize> QueryCombinationIter<'q, Q, K> {
     /// Get next combination of queried components
     // This method narrows the lifetime of the returned item to self
     pub fn next(&mut self) -> Option<[(Entity, Q::Item<'_>); K]> {
-        if K == 0 {
-            return None;
-        }
-
         'outer: for i in (0..K).rev() {
             'entity_i: loop {
                 match unsafe { self.chunks[i].next_entity() } {
                     None => match self.next_archetype(i) {
-                        true => continue, // Keep getting entities for i
-                        false if i > 0 => continue 'outer, // No more entities for i, move on to parent
-                        false => return None // No more entities at all, return None
+                        true => continue 'entity_i, // Keep getting entities for i
+                        false => continue 'outer, // No more entities for i, move on to parent
                     }
                     Some(id) => {
                         self.entity_ids[i] = Entity {
@@ -954,6 +949,7 @@ impl<'q, Q: Query, const K: usize> QueryCombinationIter<'q, Q, K> {
                                     .generation
                             },
                         };
+                        // Update children to next entities after i
                         for j in (i + 1)..K {
                             let previous_chunk = &self.chunks[j-1];
                             self.chunks[j] = ChunkIter {
@@ -984,18 +980,19 @@ impl<'q, Q: Query, const K: usize> QueryCombinationIter<'q, Q, K> {
                                 }
                             }
                         }
-                        break 'outer;
+                        // Found combination
+                        return Some(array::from_fn(|i| {
+                            (
+                                self.entity_ids[i],
+                                unsafe { self.chunks[i].current_item() }
+                            )
+                        }));
                     },
                 }
             }
         }
 
-        Some(array::from_fn(|i| {
-            (
-                self.entity_ids[i],
-                unsafe { self.chunks[i].current_item() }
-            )
-        }))
+        None
     }
 }
 
