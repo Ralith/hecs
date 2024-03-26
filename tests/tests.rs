@@ -259,6 +259,69 @@ fn random_access_via_view_mut() {
 }
 
 #[test]
+fn view_borrow_on_world() {
+    let mut world = World::new();
+    let e0 = world.spawn((3, "hello"));
+    let e1 = world.spawn((6.0, "world"));
+    let e2 = world.spawn((12,));
+
+    {
+        let str_view = world.view::<&&str>();
+
+        assert_eq!(*str_view.get(e0).unwrap(), "hello");
+        assert_eq!(*str_view.get(e1).unwrap(), "world");
+        assert_eq!(str_view.get(e2), None);
+    }
+
+    {
+        let mut int_view = world.view::<&mut i32>();
+        assert_eq!(*int_view.get_mut(e0).unwrap(), 3);
+        assert_eq!(int_view.get_mut(e1), None);
+        assert_eq!(*int_view.get_mut(e2).unwrap(), 12);
+
+        // edit some value
+        *int_view.get_mut(e0).unwrap() = 100;
+    }
+
+    {
+        let mut int_str_view = world.view::<(&&str, &mut i32)>();
+        let (s, i) = int_str_view.get_mut(e0).unwrap();
+        assert_eq!(*s, "hello");
+        assert_eq!(*i, 100);
+        assert_eq!(int_str_view.get_mut(e1), None);
+        assert_eq!(int_str_view.get_mut(e2), None);
+    }
+}
+
+#[test]
+fn view_mut_on_world() {
+    let mut world = World::new();
+    let e0 = world.spawn((3, "hello"));
+    let e1 = world.spawn((6.0, "world"));
+    let e2 = world.spawn((12,));
+
+    let str_view = world.view_mut::<&&str>();
+    assert_eq!(*str_view.get(e0).unwrap(), "hello");
+    assert_eq!(*str_view.get(e1).unwrap(), "world");
+    assert_eq!(str_view.get(e2), None);
+
+    let mut int_view = world.view_mut::<&mut i32>();
+    assert_eq!(*int_view.get_mut(e0).unwrap(), 3);
+    assert_eq!(int_view.get_mut(e1), None);
+    assert_eq!(*int_view.get_mut(e2).unwrap(), 12);
+
+    // edit some value
+    *int_view.get_mut(e0).unwrap() = 100;
+
+    let mut int_str_view = world.view_mut::<(&&str, &mut i32)>();
+    let (s, i) = int_str_view.get_mut(e0).unwrap();
+    assert_eq!(*s, "hello");
+    assert_eq!(*i, 100);
+    assert_eq!(int_str_view.get_mut(e1), None);
+    assert_eq!(int_str_view.get_mut(e2), None);
+}
+
+#[test]
 #[should_panic]
 fn simultaneous_access_must_be_non_overlapping() {
     let mut world = World::new();

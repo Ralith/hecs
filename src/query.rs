@@ -649,15 +649,7 @@ impl<'w, Q: Query> QueryBorrow<'w, Q> {
         if self.borrowed {
             return;
         }
-        for x in self.world.archetypes() {
-            if x.is_empty() {
-                continue;
-            }
-            // TODO: Release prior borrows on failure?
-            if let Some(state) = Q::Fetch::prepare(x) {
-                Q::Fetch::borrow(x, state);
-            }
-        }
+        start_borrow::<Q>(self.world.archetypes_inner());
         self.borrowed = true;
     }
 
@@ -728,14 +720,7 @@ unsafe impl<'w, Q: Query> Sync for QueryBorrow<'w, Q> where for<'a> Q::Item<'a>:
 impl<'w, Q: Query> Drop for QueryBorrow<'w, Q> {
     fn drop(&mut self) {
         if self.borrowed {
-            for x in self.world.archetypes() {
-                if x.is_empty() {
-                    continue;
-                }
-                if let Some(state) = Q::Fetch::prepare(x) {
-                    Q::Fetch::release(x, state);
-                }
-            }
+            release_borrow::<Q>(self.world.archetypes_inner());
         }
     }
 }
@@ -1656,6 +1641,109 @@ impl<'a, 'q, Q: Query> IntoIterator for &'a mut PreparedView<'q, Q> {
     }
 }
 
+/// A borrow of a [`World`](crate::World) sufficient to random-access the results of the query `Q`.
+///
+/// Note that borrows are not released until this object is dropped.
+///
+/// This struct is a thin wrapper around [`View`](crate::View). See it for more documentation.
+pub struct ViewBorrow<'w, Q: Query> {
+    view: View<'w, Q>,
+}
+
+impl<'w, Q: Query> ViewBorrow<'w, Q> {
+    pub(crate) fn new(world: &'w World) -> Self {
+        start_borrow::<Q>(world.archetypes_inner());
+        let view = unsafe { View::<Q>::new(world.entities_meta(), world.archetypes_inner()) };
+
+        Self { view }
+    }
+
+    /// Retrieve the query results corresponding to `entity`
+    ///
+    /// Will yield `None` if the entity does not exist or does not match the query.
+    ///
+    /// Does not require exclusive access to the map, but is defined only for queries yielding only shared references.
+    pub fn get(&self, entity: Entity) -> Option<Q::Item<'_>>
+    where
+        Q: QueryShared,
+    {
+        self.view.get(entity)
+    }
+
+    /// Retrieve the query results corresponding to `entity`
+    ///
+    /// Will yield `None` if the entity does not exist or does not match the query.
+    pub fn get_mut(&mut self, entity: Entity) -> Option<Q::Item<'_>> {
+        self.view.get_mut(entity)
+    }
+
+    /// Equivalent to `get(entity).is_some()`, but does not require `Q: QueryShared`
+    pub fn contains(&self, entity: Entity) -> bool {
+        self.view.contains(entity)
+    }
+
+    /// Like `get_mut`, but allows simultaneous access to multiple entities
+    ///
+    /// # Safety
+    ///
+    /// Must not be invoked while any unique borrow of the fetched components of `entity` is live.
+    pub unsafe fn get_unchecked(&self, entity: Entity) -> Option<Q::Item<'_>> {
+        self.view.get_unchecked(entity)
+    }
+
+    /// Like `get_mut`, but allows checked simultaneous access to multiple entities
+    ///
+    /// For N > 3, the check for distinct entities will clone the array and take O(N log N) time.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use hecs::World;
+    /// let mut world = World::new();
+    ///
+    /// let a = world.spawn((1, 1.0));
+    /// let b = world.spawn((2, 4.0));
+    /// let c = world.spawn((3, 9.0));
+    ///
+    /// let mut query = world.query_mut::<&mut i32>();
+    /// let mut view = query.view();
+    /// let [a,b,c] = view.get_mut_n([a, b, c]);
+    ///
+    /// assert_eq!(*a.unwrap(), 1);
+    /// assert_eq!(*b.unwrap(), 2);
+    /// assert_eq!(*c.unwrap(), 3);
+    /// ```
+    pub fn get_many_mut<const N: usize>(
+        &mut self,
+        entities: [Entity; N],
+    ) -> [Option<Q::Item<'_>>; N] {
+        self.view.get_many_mut(entities)
+    }
+
+    /// Iterate over all entities satisfying `Q`
+    ///
+    /// Equivalent to [`QueryBorrow::iter`].
+    pub fn iter_mut(&mut self) -> ViewIter<'_, Q> {
+        self.view.iter_mut()
+    }
+}
+
+impl<'w, Q: Query> Drop for ViewBorrow<'w, Q> {
+    fn drop(&mut self) {
+        release_borrow::<Q>(self.view.archetypes)
+    }
+}
+
+impl<'a, 'q, Q: Query> IntoIterator for &'a mut ViewBorrow<'q, Q> {
+    type IntoIter = ViewIter<'a, Q>;
+    type Item = (Entity, Q::Item<'a>);
+
+    #[inline]
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter_mut()
+    }
+}
+
 pub(crate) fn assert_distinct<const N: usize>(entities: &[Entity; N]) {
     match N {
         1 => (),
@@ -1675,41 +1763,28 @@ pub(crate) fn assert_distinct<const N: usize>(entities: &[Entity; N]) {
     }
 }
 
-/// A borrow of a [`World`](crate::World) sufficient to execute the query `Q`, and immediately exposes a `View`
-/// of it.
-///
-/// Note that borrows are not released until this object is dropped.
-///
-/// This struct is a thin wrapper around [`View`](crate::View). See it for more documentation.
-pub struct ViewBorrowed<'w, Q: Query> {
-    _query: QueryBorrow<'w, Q>,
-    view: View<'w, Q>,
-}
-
-impl<'w, Q: Query> ViewBorrowed<'w, Q> {
-    pub(crate) fn new(world: &'w World) -> Self {
-        let mut query = world.query::<Q>();
-        query.borrow();
-        let view = unsafe { View::<Q>::new(world.entities_meta(), world.archetypes_inner()) };
-
-        Self {
-            _query: query,
-            view,
+/// Start the borrow
+fn start_borrow<Q: Query>(archetypes: &[Archetype]) {
+    for x in archetypes {
+        if x.is_empty() {
+            continue;
+        }
+        // TODO: Release prior borrows on failure?
+        if let Some(state) = Q::Fetch::prepare(x) {
+            Q::Fetch::borrow(x, state);
         }
     }
 }
 
-impl<'w, Q: Query> core::ops::Deref for ViewBorrowed<'w, Q> {
-    type Target = View<'w, Q>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.view
-    }
-}
-
-impl<'w, Q: Query> core::ops::DerefMut for ViewBorrowed<'w, Q> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.view
+/// Releases the borrow
+fn release_borrow<Q: Query>(archetypes: &[Archetype]) {
+    for x in archetypes {
+        if x.is_empty() {
+            continue;
+        }
+        if let Some(state) = Q::Fetch::prepare(x) {
+            Q::Fetch::release(x, state);
+        }
     }
 }
 

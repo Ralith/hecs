@@ -25,7 +25,7 @@ use crate::entities::{Entities, EntityMeta, Location, ReserveEntitiesIterator};
 use crate::query::{assert_borrow, assert_distinct};
 use crate::{
     Bundle, ColumnBatch, ComponentRef, DynamicBundle, Entity, EntityRef, Fetch, MissingComponent,
-    NoSuchEntity, Query, QueryBorrow, QueryMut, QueryOne, TakenEntity, View, ViewBorrowed,
+    NoSuchEntity, Query, QueryBorrow, QueryMut, QueryOne, TakenEntity, View, ViewBorrow,
 };
 
 /// An unordered collection of entities, each having any number of distinctly typed components
@@ -400,9 +400,10 @@ impl World {
     }
 
     /// Provide random access to any entity for a given Query.
-    pub fn view<Q: Query>(&self) -> ViewBorrowed<'_, Q> {
-        ViewBorrowed::new(self)
+    pub fn view<Q: Query>(&self) -> ViewBorrow<'_, Q> {
+        ViewBorrow::new(self)
     }
+
     /// Provide random access to any entity for a given Query on a uniquely
     /// borrowed world. Like [`view`](Self::view), but faster because dynamic borrow checks can be skipped.
     pub fn view_mut<Q: Query>(&mut self) -> View<'_, Q> {
@@ -1391,69 +1392,5 @@ mod tests {
     fn bad_insert() {
         let mut world = World::new();
         assert!(world.insert_one(Entity::DANGLING, ()).is_err());
-    }
-
-    #[test]
-    fn view_borrowed() {
-        let mut world = World::new();
-        let e0 = world.spawn((3, "hello"));
-        let e1 = world.spawn((6.0, "world"));
-        let e2 = world.spawn((12,));
-
-        {
-            let str_view = world.view::<&&str>();
-
-            assert_eq!(*str_view.get(e0).unwrap(), "hello");
-            assert_eq!(*str_view.get(e1).unwrap(), "world");
-            assert_eq!(str_view.get(e2), None);
-        }
-
-        {
-            let mut int_view = world.view::<&mut i32>();
-            assert_eq!(*int_view.get_mut(e0).unwrap(), 3);
-            assert_eq!(int_view.get_mut(e1), None);
-            assert_eq!(*int_view.get_mut(e2).unwrap(), 12);
-
-            // edit some value
-            *int_view.get_mut(e0).unwrap() = 100;
-        }
-
-        {
-            let mut int_str_view = world.view::<(&&str, &mut i32)>();
-            let (s, i) = int_str_view.get_mut(e0).unwrap();
-            assert_eq!(*s, "hello");
-            assert_eq!(*i, 100);
-            assert_eq!(int_str_view.get_mut(e1), None);
-            assert_eq!(int_str_view.get_mut(e2), None);
-        }
-    }
-
-    #[test]
-    fn view_mut() {
-        let mut world = World::new();
-        let e0 = world.spawn((3, "hello"));
-        let e1 = world.spawn((6.0, "world"));
-        let e2 = world.spawn((12,));
-
-        let str_view = world.view_mut::<&&str>();
-
-        assert_eq!(*str_view.get(e0).unwrap(), "hello");
-        assert_eq!(*str_view.get(e1).unwrap(), "world");
-        assert_eq!(str_view.get(e2), None);
-
-        let mut int_view = world.view_mut::<&mut i32>();
-        assert_eq!(*int_view.get_mut(e0).unwrap(), 3);
-        assert_eq!(int_view.get_mut(e1), None);
-        assert_eq!(*int_view.get_mut(e2).unwrap(), 12);
-
-        // edit some value
-        *int_view.get_mut(e0).unwrap() = 100;
-
-        let mut int_str_view = world.view_mut::<(&&str, &mut i32)>();
-        let (s, i) = int_str_view.get_mut(e0).unwrap();
-        assert_eq!(*s, "hello");
-        assert_eq!(*i, 100);
-        assert_eq!(int_str_view.get_mut(e1), None);
-        assert_eq!(int_str_view.get_mut(e2), None);
     }
 }
