@@ -1645,7 +1645,7 @@ impl<'a, 'q, Q: Query> IntoIterator for &'a mut PreparedView<'q, Q> {
 ///
 /// Note that borrows are not released until this object is dropped.
 ///
-/// This struct is a thin wrapper around [`View`](crate::View). See it for more documentation.
+/// This struct is a thin wrapper around [`View`]. See it for more documentation.
 pub struct ViewBorrow<'w, Q: Query> {
     view: View<'w, Q>,
 }
@@ -1664,7 +1664,7 @@ impl<'w, Q: Query> ViewBorrow<'w, Q> {
     ///
     /// Does not require exclusive access to the map, but is defined only for queries yielding only shared references.
     ///
-    /// See [View::get].
+    /// See [`View::get``].
     pub fn get(&self, entity: Entity) -> Option<Q::Item<'_>>
     where
         Q: QueryShared,
@@ -1676,21 +1676,21 @@ impl<'w, Q: Query> ViewBorrow<'w, Q> {
     ///
     /// Will yield `None` if the entity does not exist or does not match the query.
     ///
-    /// See [View::get_mut].
+    /// See [`View::get_mut``].
     pub fn get_mut(&mut self, entity: Entity) -> Option<Q::Item<'_>> {
         self.view.get_mut(entity)
     }
 
     /// Equivalent to `get(entity).is_some()`, but does not require `Q: QueryShared`
     ///
-    /// See [View::contains].
+    /// See [`View::contains``].
     pub fn contains(&self, entity: Entity) -> bool {
         self.view.contains(entity)
     }
 
     /// Like `get_mut`, but allows simultaneous access to multiple entities
     ///
-    /// See [View::get_unchecked].
+    /// See [`View::get_unchecked``].
     ///
     /// # Safety
     ///
@@ -1703,7 +1703,7 @@ impl<'w, Q: Query> ViewBorrow<'w, Q> {
     ///
     /// For N > 3, the check for distinct entities will clone the array and take O(N log N) time.
     ///
-    /// See [View::get_many_mut].
+    /// See [`View::get_many_mut``].
     ///
     /// # Examples
     ///
@@ -1731,7 +1731,7 @@ impl<'w, Q: Query> ViewBorrow<'w, Q> {
 
     /// Iterate over all entities satisfying `Q`
     ///
-    /// See [View::iter_mut]
+    /// See [`View::iter_mut``]
     pub fn iter_mut(&mut self) -> ViewIter<'_, Q> {
         self.view.iter_mut()
     }
