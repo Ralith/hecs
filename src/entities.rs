@@ -17,8 +17,8 @@ use std::error::Error;
 /// able to save space by only serializing the output of `Entity::id`.
 #[derive(Clone, Copy, Hash, Eq, Ord, PartialEq, PartialOrd)]
 pub struct Entity {
-    pub(crate) generation: NonZeroU32,
     pub(crate) id: u32,
+    pub(crate) generation: NonZeroU32,
 }
 
 impl Entity {
@@ -41,9 +41,9 @@ impl Entity {
     /// Useful for storing entity IDs externally, or in conjunction with `Entity::from_bits` and
     /// `World::spawn_at` for easy serialization. Alternatively, consider `id` for more compact
     /// representation.
-    pub fn to_bits(self) -> NonZeroU64 {
+    pub const fn to_bits(self) -> NonZeroU64 {
         unsafe {
-            NonZeroU64::new_unchecked(u64::from(self.generation.get()) << 32 | u64::from(self.id))
+            NonZeroU64::new_unchecked((self.generation.get() as u64) << 32 | (self.id as u64))
         }
     }
 
@@ -52,9 +52,13 @@ impl Entity {
     ///
     /// Useful for storing entity IDs externally, or in conjunction with `Entity::to_bits` and
     /// `World::spawn_at` for easy serialization.
-    pub fn from_bits(bits: u64) -> Option<Self> {
+    pub const fn from_bits(bits: u64) -> Option<Self> {
         Some(Self {
-            generation: NonZeroU32::new((bits >> 32) as u32)?,
+            // // `?` is not yet supported in const fns
+            generation: match NonZeroU32::new((bits >> 32) as u32) {
+                Some(g) => g,
+                None => return None,
+            },
             id: bits as u32,
         })
     }
@@ -66,7 +70,7 @@ impl Entity {
     /// specific snapshot of the world, such as when serializing.
     ///
     /// See also `World::find_entity_from_id`.
-    pub fn id(self) -> u32 {
+    pub const fn id(self) -> u32 {
         self.id
     }
 }
