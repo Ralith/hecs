@@ -42,7 +42,9 @@ impl Entity {
     /// `World::spawn_at` for easy serialization. Alternatively, consider `id` for more compact
     /// representation.
     pub const fn to_bits(self) -> NonZeroU64 {
-        unsafe { NonZeroU64::new_unchecked((self.id as u64) << 32 | self.generation.get() as u64) }
+        unsafe {
+            NonZeroU64::new_unchecked((self.generation.get() as u64) << 32 | (self.id as u64))
+        }
     }
 
     /// Reconstruct an `Entity` previously destructured with `to_bits` if the bitpattern is valid,
@@ -52,12 +54,12 @@ impl Entity {
     /// `World::spawn_at` for easy serialization.
     pub const fn from_bits(bits: u64) -> Option<Self> {
         Some(Self {
-            id: (bits >> 32) as u32,
-            // `?` is not yet supported in const fns
-            generation: match NonZeroU32::new(bits as u32) {
+            // // `?` is not yet supported in const fns
+            generation: match NonZeroU32::new((bits >> 32) as u32) {
                 Some(g) => g,
                 None => return None,
             },
+            id: bits as u32,
         })
     }
 
