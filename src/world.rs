@@ -25,7 +25,7 @@ use crate::entities::{Entities, EntityMeta, Location, ReserveEntitiesIterator};
 use crate::query::{assert_borrow, assert_distinct};
 use crate::{
     Bundle, ColumnBatch, ComponentRef, DynamicBundle, Entity, EntityRef, Fetch, MissingComponent,
-    NoSuchEntity, Query, QueryBorrow, QueryMut, QueryOne, TakenEntity,
+    NoSuchEntity, Query, QueryBorrow, QueryMut, QueryOne, TakenEntity, View, ViewBorrow,
 };
 
 /// An unordered collection of entities, each having any number of distinctly typed components
@@ -397,6 +397,18 @@ impl World {
     /// ```
     pub fn query<Q: Query>(&self) -> QueryBorrow<'_, Q> {
         QueryBorrow::new(self)
+    }
+
+    /// Provide random access to any entity for a given Query.
+    pub fn view<Q: Query>(&self) -> ViewBorrow<'_, Q> {
+        ViewBorrow::new(self)
+    }
+
+    /// Provide random access to any entity for a given Query on a uniquely
+    /// borrowed world. Like [`view`](Self::view), but faster because dynamic borrow checks can be skipped.
+    pub fn view_mut<Q: Query>(&mut self) -> View<'_, Q> {
+        assert_borrow::<Q>();
+        unsafe { View::<Q>::new(self.entities_meta(), self.archetypes_inner()) }
     }
 
     /// Query a uniquely borrowed world
