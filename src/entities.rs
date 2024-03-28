@@ -109,6 +109,12 @@ impl<'de> serde::Deserialize<'de> for Entity {
     }
 }
 
+#[derive(Debug)]
+pub enum PendingPushError {
+    MetaTooSmall,
+    EntityNotPending
+}
+
 /// An iterator returning a sequence of Entity values from `Entities::reserve_entities`.
 pub struct ReserveEntitiesIterator<'a> {
     // Metas, so we can recover the current generation for anything in the freelist.
@@ -186,7 +192,7 @@ pub(crate) struct Entities {
     // and then from the new IDs, using only a single atomic subtract.
     //
     // Once `flush()` is done, `free_cursor` will equal `pending.len()`.
-    pending: Vec<u32>,
+    pub pending: Vec<u32>,
     free_cursor: AtomicIsize,
     len: u32,
 }
@@ -343,10 +349,7 @@ impl Entities {
         self.verify_flushed();
 
         let loc = if entity.id as usize >= self.meta.len() {
-            self.pending.extend((self.meta.len() as u32)..entity.id);
-            let new_free_cursor = self.pending.len() as isize;
-            *self.free_cursor.get_mut() = new_free_cursor;
-            self.meta.resize(entity.id as usize + 1, EntityMeta::EMPTY);
+            self.extend_meta((entity.id + 1) as usize, false);
             self.len += 1;
             None
         } else if let Some(index) = self.pending.iter().position(|item| *item == entity.id) {
@@ -494,8 +497,8 @@ impl Entities {
         }
     }
 
-    fn needs_flush(&mut self) -> bool {
-        *self.free_cursor.get_mut() != self.pending.len() as isize
+    pub fn needs_flush(&self) -> bool {
+        self.free_cursor.load(Ordering::Relaxed) != self.pending.len() as isize
     }
 
     /// Allocates space for entities previously reserved with `reserve_entity` or
@@ -523,6 +526,49 @@ impl Entities {
         for id in self.pending.drain(new_free_cursor..) {
             init(id, &mut self.meta[id as usize].location);
         }
+    }
+
+    fn extend_meta(&mut self, new_len: usize, include_last: bool) {
+        let upper_limit = if include_last {
+            new_len as u32
+        } else {
+            new_len as u32 - 1
+        };
+
+        self.pending.extend((self.meta.len() as u32)..upper_limit);
+        let new_free_cursor = self.pending.len() as isize;
+        *self.free_cursor.get_mut() = new_free_cursor;
+        self.meta.resize(new_len, EntityMeta::EMPTY);
+    }
+
+    pub fn push_generations(&mut self, generations: &[u32]) {
+        if self.meta.len() < generations.len() {
+            self.extend_meta(generations.len(), true);
+        }
+
+        for (index, meta) in self.meta.iter_mut().enumerate() {
+            meta.generation = NonZeroU32::new(generations[index]).expect("Could not create non zero u32");
+        }
+    }
+
+    pub fn push_pending(&mut self, pendings: &[u32])-> Result<(), PendingPushError> {
+        self.pending.clear();
+
+        let meta_length = self.meta.len();
+
+        for pending in pendings {
+            if meta_length <= *pending as usize {
+                return Result::Err(PendingPushError::MetaTooSmall);
+            }
+
+            if self.meta[*pending as usize].location.index != u32::MAX  {
+                return Result::Err(PendingPushError::EntityNotPending);
+            }
+
+            self.pending.push(*pending);
+        }
+
+        return Result::Ok(());
     }
 
     #[inline]

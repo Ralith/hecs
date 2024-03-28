@@ -21,7 +21,7 @@ use hashbrown::hash_map::{Entry, HashMap};
 
 use crate::alloc::boxed::Box;
 use crate::archetype::{Archetype, TypeIdMap, TypeInfo};
-use crate::entities::{Entities, EntityMeta, Location, ReserveEntitiesIterator};
+use crate::entities::{Entities, EntityMeta, Location, ReserveEntitiesIterator, PendingPushError};
 use crate::query::{assert_borrow, assert_distinct};
 use crate::{
     Bundle, ColumnBatch, ComponentRef, DynamicBundle, Entity, EntityRef, Fetch, MissingComponent,
@@ -425,8 +425,23 @@ impl World {
     }
 
     #[inline(always)]
-    pub(crate) fn entities_meta(&self) -> &[EntityMeta] {
+    pub(crate) fn entities_meta(&self) -> &Vec<EntityMeta> {
         &self.entities.meta
+    }
+
+    /// Get the id's of all pending (free) entities
+    pub fn pending(&self) -> &Vec<u32> {
+        &self.entities.pending
+    }
+
+    /// Set a custom list of generations
+    pub fn push_generations(&mut self, generations: &[u32]) {
+        self.entities.push_generations(generations);
+    }
+
+    /// Manually set what entities are pending
+    pub fn push_pending(&mut self, pendings: &[u32]) -> Result<(), PendingPushError>{
+        self.entities.push_pending(pendings)
     }
 
     #[inline(always)]
@@ -911,6 +926,11 @@ impl World {
     #[inline]
     pub fn is_empty(&self) -> bool {
         self.len() == 0
+    }
+
+    /// Whether there are unallocated reserved entities 
+    pub fn is_flushed(&self) -> bool {
+        !self.entities.needs_flush()
     }
 }
 
