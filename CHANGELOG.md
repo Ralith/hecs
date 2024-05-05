@@ -1,7 +1,12 @@
 # Unreleased
 
 ### Added
-- `World::get_many_mut` to conveniently query a few entities concurrently
+- `World::query_many_mut` to conveniently query a few entities concurrently
+- `bundle_satisfies_query` and `dynamic_bundle_satisfies_query` to
+  easily check whether an entity containing certain components would
+  match a query
+- `World::{view, view_mut}` convenience short-hand for constructing a
+  view directly from a `World`
 
 ### Changed
 - Renamed `{View, PreparedView}::get_mut_n` to `get_many_mut` for consistency with the proposed std
