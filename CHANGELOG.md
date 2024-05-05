@@ -7,10 +7,12 @@
   match a query
 - `World::{view, view_mut}` convenience short-hand for constructing a
   view directly from a `World`
+- `ChangeTracker` helper to detect changes to components using `PartialEq`
 
 ### Changed
 - Renamed `{View, PreparedView}::get_mut_n` to `get_many_mut` for consistency with the proposed std
   slice method
+- Order `Entity` values by ID first, then generation
 
 # 0.10.4
 
