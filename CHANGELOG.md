@@ -1,4 +1,4 @@
-# Unreleased
+# 0.10.5
 
 ### Added
 - `World::query_many_mut` to conveniently query a few entities concurrently
