@@ -5,7 +5,6 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
-use crate::alloc::{vec, vec::Vec};
 use core::any::TypeId;
 use core::borrow::Borrow;
 use core::convert::TryFrom;
@@ -20,7 +19,9 @@ use std::error::Error;
 use hashbrown::hash_map::{Entry, HashMap};
 
 use crate::alloc::boxed::Box;
+use crate::alloc::{vec, vec::Vec};
 use crate::archetype::{Archetype, TypeIdMap, TypeInfo};
+use crate::cloning::{Cloner, TypeUnknownToCloner};
 use crate::entities::{Entities, EntityMeta, Location, ReserveEntitiesIterator};
 use crate::query::{assert_borrow, assert_distinct};
 use crate::{
@@ -901,6 +902,65 @@ impl World {
         ArchetypesGeneration(self.archetypes.generation())
     }
 
+    /// Attempts to clone self using the given [`Cloner`].
+    ///
+    /// This function borrows self mutably for performance so as to avoid runtime borrow checks.
+    ///
+    /// The returned [`World`] will be bit-for-bit identical to `self`:
+    /// * The entities created in each world will receive the same ids.
+    /// * All Copy components will be bit-for-bit identical.
+    /// * All Clone components will be bit-for-bit identical to the extent that their Clone implementations are.
+    ///
+    /// This differs from creating a new world via [`World::new()`] and manually copying over
+    /// entities to it: the cloned world will use the same entity handles as the originating world,
+    /// and so performing the same sequence of operations on the cloned world and the original world
+    /// will result in the worlds staying in step. This can be useful for rolling back to previous
+    /// states of the world for e.g. rollback networking.
+    ///
+    /// # Example
+    /// ```
+    /// # use hecs::*;
+    /// // create a world with some things in it
+    /// let mut world1 = World::new();
+    /// let entity_to_drop = world1.spawn((123, "abc".to_owned()));
+    /// let entity = world1.spawn((456, "def".to_owned()));
+    ///
+    /// // drop an entity (which marks its entity handle as available)
+    /// world1.despawn(entity_to_drop);
+    ///
+    /// // create a cloner and register all component types in the world
+    /// let mut cloner = Cloner::new();
+    /// cloner.add_copyable::<i32>();
+    /// cloner.add_cloneable::<String>();
+    ///
+    /// // actually clone the world
+    /// let mut world2 = world1.try_clone(&cloner).expect("all used component types are registered");
+    ///
+    /// // 1. entity handles are still valid with the cloned world
+    /// // 2. component data has been copied to the clone
+    /// assert_eq!(
+    ///     world1.entity(entity).unwrap().query::<(&i32, &String)>().get(),
+    ///     world2.entity(entity).unwrap().query::<(&i32, &String)>().get()
+    /// );
+    ///
+    /// // subsequently created entities will be allocated the same entity ids
+    /// let new1 = world1.spawn((789, "ghi".to_owned()));
+    /// let new2 = world2.spawn((012, "jkl".to_owned()));
+    /// assert_eq!(new1, new2);
+    /// ```
+    pub fn try_clone(&mut self, cloner: &Cloner) -> Result<Self, TypeUnknownToCloner> {
+        let cloned = Self {
+            entities: self.entities.clone(),
+            archetypes: self.archetypes.try_clone(cloner)?,
+            bundle_to_archetype: self.bundle_to_archetype.clone(),
+            insert_edges: self.insert_edges.clone(),
+            remove_edges: self.remove_edges.clone(),
+            id: self.id,
+        };
+
+        Ok(cloned)
+    }
+
     /// Number of currently live entities
     #[inline]
     pub fn len(&self) -> u32 {
@@ -1294,9 +1354,27 @@ impl ArchetypeSet {
             index,
         }
     }
+
+    pub fn try_clone(
+        &mut self,
+        cloner: &crate::cloning::Cloner,
+    ) -> Result<Self, TypeUnknownToCloner> {
+        Ok(Self {
+            index: self.index.clone(),
+            archetypes: {
+                let mut vec = Vec::with_capacity(self.archetypes.capacity());
+                for archetype in self.archetypes.iter_mut() {
+                    let cloned = archetype.try_clone(cloner)?;
+                    vec.push(cloned)
+                }
+                vec
+            },
+        })
+    }
 }
 
 /// Metadata cached for inserting components into entities from this archetype
+#[derive(Clone)]
 struct InsertTarget {
     /// Components from the current archetype that are replaced by the insert
     replaced: Vec<TypeInfo>,

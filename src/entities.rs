@@ -191,6 +191,17 @@ pub(crate) struct Entities {
     len: u32,
 }
 
+impl Clone for Entities {
+    fn clone(&self) -> Self {
+        Self {
+            meta: self.meta.clone(),
+            pending: self.pending.clone(),
+            free_cursor: AtomicIsize::new(self.free_cursor.load(Ordering::Relaxed)),
+            len: self.len.clone(),
+        }
+    }
+}
+
 impl Entities {
     /// Reserve entity IDs concurrently
     ///

@@ -8,7 +8,8 @@
 use crate::alloc::alloc::{alloc, dealloc, Layout};
 use crate::alloc::boxed::Box;
 use crate::alloc::{vec, vec::Vec};
-use core::any::{type_name, TypeId};
+use crate::cloning::TypeUnknownToCloner;
+use core::any::{type_name, Any, TypeId};
 use core::fmt;
 use core::hash::{BuildHasher, BuildHasherDefault, Hasher};
 use core::ops::{Deref, DerefMut};
@@ -420,6 +421,71 @@ impl Archetype {
     pub fn ids(&self) -> &[u32] {
         &self.entities[0..self.len as usize]
     }
+
+    pub(crate) fn try_clone(
+        &mut self,
+        cloner: &crate::cloning::Cloner,
+    ) -> Result<Self, TypeUnknownToCloner> {
+        // Allocate the new data block with the same number of entities & same component types
+        let new_data: Box<[Data]> =
+            self.types
+                .iter()
+                .zip(&*self.data)
+                .map(|(info, old)| {
+                    let storage: NonNull<u8> =
+                        if info.layout.size() == 0 {
+                            // This is a zero-sized type, so no need to allocate or copy any data
+                            NonNull::new(info.layout.align() as *mut u8).unwrap()
+                        } else {
+                            // Allocate memory for the cloned data
+                            let layout = Layout::from_size_align(
+                                info.layout.size() * self.capacity() as usize,
+                                info.layout.align(),
+                            )
+                            .unwrap();
+                            let new_storage = {
+                                let mem = unsafe { alloc(layout) };
+                                let mem = NonNull::new(mem)
+                                    .unwrap_or_else(|| alloc::alloc::handle_alloc_error(layout));
+                                mem
+                            };
+
+                            // Retrieve the clone function for the component type and use it to copy
+                            // or clone the data for all instances of this type
+                            let clone_fn = cloner.typeid_to_clone_fn.get(&info.id).ok_or(
+                                TypeUnknownToCloner {
+                                    #[cfg(debug_assertions)]
+                                    type_name: info.type_name,
+                                    type_id: info.type_id(),
+                                },
+                            )?;
+                            unsafe {
+                                clone_fn.call(
+                                    old.storage.as_ptr(),
+                                    new_storage.as_ptr(),
+                                    self.len as usize,
+                                )
+                            };
+
+                            new_storage
+                        };
+                    Ok(Data {
+                        state: AtomicBorrow::new(), // &mut self guarantees no outstanding borrows
+                        storage,
+                    })
+                })
+                .collect::<Result<Box<[Data]>, TypeUnknownToCloner>>()?;
+
+        // Clone the other fields of the archetype and return the new instance
+        Ok(Self {
+            types: self.types.clone(),
+            type_ids: self.type_ids.clone(),
+            index: self.index.clone(),
+            len: self.len,
+            entities: self.entities.clone(),
+            data: new_data,
+        })
+    }
 }
 
 impl Drop for Archetype {
@@ -493,6 +559,7 @@ impl Hasher for TypeIdHasher {
 /// faster no-op hash.
 pub(crate) type TypeIdMap<V> = HashMap<TypeId, V, BuildHasherDefault<TypeIdHasher>>;
 
+#[derive(Clone)]
 struct OrderedTypeIdMap<V>(Box<[(TypeId, V)]>);
 
 impl<V> OrderedTypeIdMap<V> {
