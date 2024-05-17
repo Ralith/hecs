@@ -949,9 +949,12 @@ impl World {
     /// assert_eq!(new1, new2);
     /// ```
     pub fn try_clone(&mut self, cloner: &Cloner) -> Result<Self, TypeUnknownToCloner> {
+        // clone archetypes first to avoid unnecessary allocations if cloning archetypes fails
+        let archetypes = self.archetypes.try_clone(cloner)?;
+
         let cloned = Self {
             entities: self.entities.clone(),
-            archetypes: self.archetypes.try_clone(cloner)?,
+            archetypes,
             bundle_to_archetype: self.bundle_to_archetype.clone(),
             insert_edges: self.insert_edges.clone(),
             remove_edges: self.remove_edges.clone(),
