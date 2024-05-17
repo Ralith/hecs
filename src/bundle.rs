@@ -113,7 +113,7 @@ pub struct DynamicClone {
 }
 
 impl DynamicClone {
-    /// Create a new type ereased cloner for the type T
+    /// Create a new type erased cloner for the type T
     pub fn new<T: Component + Clone>() -> Self {
         Self {
             func: |src, f| {
