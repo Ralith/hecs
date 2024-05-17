@@ -445,9 +445,8 @@ impl Archetype {
                             .unwrap();
                             let new_storage = {
                                 let mem = unsafe { alloc(layout) };
-                                let mem = NonNull::new(mem)
-                                    .unwrap_or_else(|| alloc::alloc::handle_alloc_error(layout));
-                                mem
+                                NonNull::new(mem)
+                                    .unwrap_or_else(|| alloc::alloc::handle_alloc_error(layout))
                             };
 
                             // Retrieve the clone function for the component type and use it to copy

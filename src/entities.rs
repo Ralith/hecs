@@ -197,7 +197,7 @@ impl Clone for Entities {
             meta: self.meta.clone(),
             pending: self.pending.clone(),
             free_cursor: AtomicIsize::new(self.free_cursor.load(Ordering::Relaxed)),
-            len: self.len.clone(),
+            len: self.len,
         }
     }
 }
