@@ -27,12 +27,11 @@ impl BulkCloneFunction {
 /// is required to
 /// use [`World::try_clone`][crate::World::try_clone].
 ///
-/// A Cloner instance is safe to reuse.
+/// A [Cloner] instance is safe to reuse.
 ///
 /// Registering types which are unused is allowed.
 #[derive(Default)]
 pub struct Cloner {
-    /// Type erased cloner: fn(src: *const u8, dst: *mut u8, len: usize)
     pub(crate) typeid_to_clone_fn: TypeIdMap<BulkCloneFunction>,
 }
 
