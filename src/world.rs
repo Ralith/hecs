@@ -1364,14 +1364,11 @@ impl ArchetypeSet {
     ) -> Result<Self, TypeUnknownToCloner> {
         Ok(Self {
             index: self.index.clone(),
-            archetypes: {
-                let mut vec = Vec::with_capacity(self.archetypes.capacity());
-                for archetype in self.archetypes.iter_mut() {
-                    let cloned = archetype.try_clone(cloner)?;
-                    vec.push(cloned)
-                }
-                vec
-            },
+            archetypes: self
+                .archetypes
+                .iter_mut()
+                .map(|archetype| archetype.try_clone(cloner))
+                .collect::<Result<_, _>>()?,
         })
     }
 }
