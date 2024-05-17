@@ -426,54 +426,62 @@ impl Archetype {
         &mut self,
         cloner: &crate::cloning::Cloner,
     ) -> Result<Self, TypeUnknownToCloner> {
+        // Make sure all sized component types are known, so we don't leak memory if we fail halfway
+        if let Some(unsupported_type) = self
+            .types
+            .iter()
+            .filter(|info| info.layout.size() != 0)
+            .find(|info| cloner.typeid_to_clone_fn.get(&info.id).is_none())
+        {
+            return Err(TypeUnknownToCloner {
+                #[cfg(debug_assertions)]
+                type_name: unsupported_type.type_name,
+                type_id: unsupported_type.type_id(),
+            });
+        }
+
         // Allocate the new data block with the same number of entities & same component types
-        let new_data: Box<[Data]> =
-            self.types
-                .iter()
-                .zip(&*self.data)
-                .map(|(info, old)| {
-                    let storage: NonNull<u8> =
-                        if info.layout.size() == 0 {
-                            // This is a zero-sized type, so no need to allocate or copy any data
-                            NonNull::new(info.layout.align() as *mut u8).unwrap()
-                        } else {
-                            // Allocate memory for the cloned data
-                            let layout = Layout::from_size_align(
-                                info.layout.size() * self.capacity() as usize,
-                                info.layout.align(),
-                            )
-                            .unwrap();
-                            let new_storage = {
-                                let mem = unsafe { alloc(layout) };
-                                NonNull::new(mem)
-                                    .unwrap_or_else(|| alloc::alloc::handle_alloc_error(layout))
-                            };
+        let new_data: Box<[Data]> = self
+            .types
+            .iter()
+            .zip(&*self.data)
+            .map(|(info, old)| {
+                let storage: NonNull<u8> = if info.layout.size() == 0 {
+                    // This is a zero-sized type, so no need to allocate or copy any data
+                    NonNull::new(info.layout.align() as *mut u8).unwrap()
+                } else {
+                    // Allocate memory for the cloned data
+                    let layout = Layout::from_size_align(
+                        info.layout.size() * self.capacity() as usize,
+                        info.layout.align(),
+                    )
+                    .unwrap();
+                    let new_storage = {
+                        let mem = unsafe { alloc(layout) };
+                        NonNull::new(mem)
+                            .unwrap_or_else(|| alloc::alloc::handle_alloc_error(layout))
+                    };
 
-                            // Retrieve the clone function for the component type and use it to copy
-                            // or clone the data for all instances of this type
-                            let clone_fn = cloner.typeid_to_clone_fn.get(&info.id).ok_or(
-                                TypeUnknownToCloner {
-                                    #[cfg(debug_assertions)]
-                                    type_name: info.type_name,
-                                    type_id: info.type_id(),
-                                },
-                            )?;
-                            unsafe {
-                                clone_fn.call(
-                                    old.storage.as_ptr(),
-                                    new_storage.as_ptr(),
-                                    self.len as usize,
-                                )
-                            };
+                    // Clone the data for all instances of the component
+                    let clone_fn = cloner.typeid_to_clone_fn.get(&info.id).expect(
+                        "all types should be supported by cloner (because we checked earlier)",
+                    );
+                    unsafe {
+                        clone_fn.call(
+                            old.storage.as_ptr(),
+                            new_storage.as_ptr(),
+                            self.len as usize,
+                        )
+                    };
 
-                            new_storage
-                        };
-                    Ok(Data {
-                        state: AtomicBorrow::new(), // &mut self guarantees no outstanding borrows
-                        storage,
-                    })
+                    new_storage
+                };
+                Ok(Data {
+                    state: AtomicBorrow::new(), // &mut self guarantees no outstanding borrows
+                    storage,
                 })
-                .collect::<Result<Box<[Data]>, TypeUnknownToCloner>>()?;
+            })
+            .collect::<Result<_, _>>()?;
 
         // Clone the other fields of the archetype and return the new instance
         Ok(Self {
