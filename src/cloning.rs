@@ -114,6 +114,7 @@ pub struct TypeUnknownToCloner {
     pub type_id: TypeId,
 }
 
+#[cfg(feature = "std")]
 impl std::fmt::Display for TypeUnknownToCloner {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         #[cfg(debug_assertions)]
@@ -128,6 +129,7 @@ impl std::fmt::Display for TypeUnknownToCloner {
     }
 }
 
+#[cfg(feature = "std")]
 impl std::error::Error for TypeUnknownToCloner {}
 
 #[cfg(test)]
