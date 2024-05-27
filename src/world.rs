@@ -439,7 +439,7 @@ impl World {
         self.entities_meta().iter().map(|m| m.generation.get()).collect()
     }
 
-    /// Set a custom list of generations
+    /// Set a custom generations and freelist 
     pub fn push_entity_states(&mut self, generations: &[u32], freelist: Freelist) -> Result<(), PendingPushError>{
         self.entities.push_generations(generations);
         self.entities.push_freelist(freelist)
