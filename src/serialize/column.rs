@@ -11,10 +11,14 @@
 //! archetype is a 4-tuple of an entity count `n`, component count `k`, a `k`-tuple of
 //! user-controlled component IDs, and a `k+1`-tuple of `n`-tuples of components, such that the
 //! first `n`-tuple contains `Entity` values and the remainder each contain components of the type
-//! identified by the corresponding component ID.
+//! identified by the corresponding component ID. In order to remain deterministic,
+//! we additionally store the generations of all entities and the freelist.
+//! The generations is a sequence of u32s where each one is the generation of the entity at that index 
+//! in the entity list. The freelist stores the free_cursor as an i64 and the list of pending/free entities.
 
 use crate::alloc::vec::Vec;
 use core::{any::type_name, cell::RefCell, fmt, marker::PhantomData};
+use serde::ser::Error;
 
 use serde::{
     de::{self, DeserializeSeed, SeqAccess, Unexpected, Visitor},
@@ -23,7 +27,7 @@ use serde::{
 };
 
 use crate::{
-    Archetype, ColumnBatch, ColumnBatchBuilder, ColumnBatchType, Component, Entity, Query, World,
+    Archetype, ColumnBatch, ColumnBatchBuilder, ColumnBatchType, Component, Entity, Query, World, entities::Freelist,
 };
 
 /// Implements serialization of archetypes
@@ -291,7 +295,14 @@ where
     }
 
     let predicate = |x: &&Archetype| -> bool { !x.is_empty() && x.satisfies::<Q>() };
-    let mut seq = serializer.serialize_seq(Some(world.archetypes().filter(predicate).count()))?;
+    let mut seq = serializer.serialize_seq(Some(world.archetypes().filter(predicate).count() + 3))?;
+    
+    let generations: Vec<u32> = world.generations();
+    seq.serialize_element(&generations)?;
+    let freelist = world.entity_freelist();
+    seq.serialize_element(&(freelist.free_cursor as i64))?;
+    seq.serialize_element(freelist.pending)?;
+    
     for archetype in world.archetypes().filter(predicate) {
         seq.serialize_element(&SerializeArchetype {
             world,
@@ -299,6 +310,7 @@ where
             ctx: RefCell::new(context),
         })?;
     }
+
     seq.end()
 }
 
@@ -522,12 +534,25 @@ where
     {
         let mut world = World::new();
         let mut entities = Vec::new();
+
+        let generations = seq.next_element::<Vec<u32>>()?.unwrap();
+        let free_cursor = seq.next_element::<i64>()?.unwrap();
+        let pending = seq.next_element::<Vec<u32>>()?.unwrap();
+
+        let free_list = Freelist {
+            pending: &pending,
+            free_cursor: free_cursor as isize
+        };
+
         while let Some(bundle) =
             seq.next_element_seed(DeserializeArchetype(self.0, &mut entities))?
         {
             world.spawn_column_batch_at(&entities, bundle);
             entities.clear();
         }
+
+        world.push_entity_states(&generations, free_list).unwrap();
+
         Ok(world)
     }
 }
@@ -743,6 +768,7 @@ mod tests {
     use crate::alloc::vec::Vec;
     use core::fmt;
 
+    use alloc::{vec, string::String};
     use serde::{Deserialize, Serialize};
 
     use super::*;
@@ -760,7 +786,7 @@ mod tests {
     #[derive(Serialize, Deserialize)]
     enum ComponentId {
         Position,
-        Velocity,
+        Velocity
     }
 
     /// Bodge into serde_test's very strict interface
@@ -859,7 +885,7 @@ mod tests {
                     }
                     ComponentId::Velocity => {
                         batch.add::<Velocity>();
-                    }
+                    },
                 }
                 self.components.push(id);
             }
@@ -882,7 +908,7 @@ mod tests {
                     }
                     ComponentId::Velocity => {
                         deserialize_column::<Velocity, _>(entity_count, &mut seq, batch)?;
-                    }
+                    },
                 }
             }
             Ok(())
@@ -916,6 +942,37 @@ mod tests {
     }
 
     #[test]
+    fn deterministic() {
+        let buffer = Vec::<u8>::new();
+
+        let mut world = World::new();
+        let mut context = Context {
+            components: vec![ComponentId::Position, ComponentId::Velocity]
+        };
+        let mut serializer = serde_json::Serializer::pretty(buffer);
+
+        let v0 = Velocity([1.0, 1.0, 1.0]);
+        let p0 = Position([2.0, 2.0, 2.0]);
+
+        let e = world.spawn((v0, p0));
+        let _ = world.spawn((v0, p0));
+        world.despawn(e).expect("");
+
+        serialize(&mut world, &mut context, &mut serializer).expect("Could not serialize");
+
+        let serialized = String::from_utf8(serializer.into_inner()).expect("Could not read string");
+
+        let mut deserializer = serde_json::Deserializer::from_str(&serialized);
+        
+        let mut second_world = deserialize(&mut context, &mut deserializer).expect("Could not deserialize");
+
+        let e1 = world.spawn((v0, p0));
+        let e2 = second_world.spawn((v0, p0));
+
+        assert_eq!(e1, e2);
+    }
+
+    #[test]
     #[rustfmt::skip]
     fn roundtrip() {
         use serde_test::{Token, assert_tokens};
@@ -930,7 +987,19 @@ mod tests {
 
         assert_tokens(&SerWorld(world, PhantomData::<()>), &[
             Token::TupleStruct { name: "SerWorld", len: 1 },
+            Token::Seq { len: Some(6) },
+
+            // Generaitons 
             Token::Seq { len: Some(3) },
+            Token::U32(1),
+            Token::U32(1),
+            Token::U32(1),
+            Token::SeqEnd,
+            // FreeCursor
+            Token::I64(0),
+            // Pending List
+            Token::Seq { len: Some(0) },
+            Token::SeqEnd,
 
             Token::Tuple { len: 4 },
             Token::U32(1),
@@ -1015,7 +1084,19 @@ mod tests {
 
         assert_ser_tokens(&SerWorld(world, PhantomData::<(&Velocity,)>), &[
             Token::TupleStruct { name: "SerWorld", len: 1 },
-            Token::Seq { len: Some(1) },
+            Token::Seq { len: Some(4) },
+
+            // Generaitons 
+            Token::Seq { len: Some(3) },
+            Token::U32(1),
+            Token::U32(1),
+            Token::U32(1),
+            Token::SeqEnd,
+            // FreeCursor
+            Token::I64(0),
+            // Pending List
+            Token::Seq { len: Some(0) },
+            Token::SeqEnd,
 
             Token::Tuple { len: 4 },
             Token::U32(1),
