@@ -67,10 +67,10 @@ impl World {
         // For compatibility, use Mutex<u64>
         static ID: Mutex<u64> = Mutex::new(1);
         let id = {
-        let mut id = ID.lock();
-        let next = id.checked_add(1).unwrap();
-        *id = next;
-        next
+            let mut id = ID.lock();
+            let next = id.checked_add(1).unwrap();
+            *id = next;
+            next
         };
         Self {
             entities: Entities::default(),
