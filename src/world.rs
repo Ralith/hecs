@@ -21,7 +21,7 @@ use hashbrown::hash_map::{Entry, HashMap};
 
 use crate::alloc::boxed::Box;
 use crate::archetype::{Archetype, TypeIdMap, TypeInfo};
-use crate::entities::{Entities, EntityMeta, Location, ReserveEntitiesIterator};
+use crate::entities::{Entities, EntityMeta, Freelist, Location, PendingPushError, ReserveEntitiesIterator};
 use crate::query::{assert_borrow, assert_distinct};
 use crate::{
     Bundle, ColumnBatch, ComponentRef, DynamicBundle, Entity, EntityRef, Fetch, MissingComponent,
@@ -67,10 +67,10 @@ impl World {
         // For compatibility, use Mutex<u64>
         static ID: Mutex<u64> = Mutex::new(1);
         let id = {
-            let mut id = ID.lock();
-            let next = id.checked_add(1).unwrap();
-            *id = next;
-            next
+        let mut id = ID.lock();
+        let next = id.checked_add(1).unwrap();
+        *id = next;
+        next
         };
         Self {
             entities: Entities::default(),
@@ -427,6 +427,22 @@ impl World {
     #[inline(always)]
     pub(crate) fn entities_meta(&self) -> &[EntityMeta] {
         &self.entities.meta
+    }
+
+    /// Get the id's of all pending (free) entities
+    pub fn entity_freelist(&self) -> Freelist {
+        self.entities.freelist()
+    }
+
+    /// Returns the generations of all entities (allocated & free)
+    pub fn generations(&self) -> Vec<u32> {
+        self.entities_meta().iter().map(|m| m.generation.get()).collect()
+    }
+
+    /// Set a custom list of generations
+    pub fn push_entity_states(&mut self, generations: &[u32], freelist: Freelist) -> Result<(), PendingPushError>{
+        self.entities.push_generations(generations);
+        self.entities.push_freelist(freelist)
     }
 
     #[inline(always)]
@@ -911,6 +927,11 @@ impl World {
     #[inline]
     pub fn is_empty(&self) -> bool {
         self.len() == 0
+    }
+
+    /// Whether there are unallocated reserved entities 
+    pub fn is_flushed(&mut self) -> bool {
+        !self.entities.needs_flush()
     }
 }
 
