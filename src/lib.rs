@@ -84,7 +84,7 @@ pub mod serialize;
 mod take;
 mod world;
 
-pub use archetype::{Archetype, ArchetypeColumn, ArchetypeColumnMut};
+pub use archetype::{Archetype, ArchetypeColumn, ArchetypeColumnMut, TypeIdMap, TypeInfo};
 pub use batch::{BatchIncomplete, BatchWriter, ColumnBatch, ColumnBatchBuilder, ColumnBatchType};
 pub use bundle::{
     bundle_satisfies_query, dynamic_bundle_satisfies_query, Bundle, DynamicBundle,
@@ -108,8 +108,6 @@ pub use world::{
 };
 
 // Unstable implementation details needed by the macros
-#[doc(hidden)]
-pub use archetype::TypeInfo;
 #[doc(hidden)]
 pub use bundle::DynamicClone;
 #[doc(hidden)]

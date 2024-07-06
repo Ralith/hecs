@@ -24,6 +24,12 @@ impl ColumnBatchType {
         self
     }
 
+    /// [Self::add()] but using type information determined at runtime via [TypeInfo::of()]
+    pub fn add_dynamic(&mut self, id: TypeInfo) -> &mut Self {
+        self.types.push(id);
+        self
+    }
+
     /// Construct a [`ColumnBatchBuilder`] for *exactly* `size` entities with these components
     pub fn into_batch(self, size: u32) -> ColumnBatchBuilder {
         let mut types = self.types.into_sorted_vec();

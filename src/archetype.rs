@@ -454,7 +454,7 @@ struct Data {
 /// TypeId is already thoroughly hashed, so there's no reason to hash it again.
 /// Just leave the bits unchanged.
 #[derive(Default)]
-pub(crate) struct TypeIdHasher {
+pub struct TypeIdHasher {
     hash: u64,
 }
 
@@ -491,7 +491,7 @@ impl Hasher for TypeIdHasher {
 /// Because TypeId is already a fully-hashed u64 (including data in the high seven bits,
 /// which hashbrown needs), there is no need to hash it again. Instead, this uses the much
 /// faster no-op hash.
-pub(crate) type TypeIdMap<V> = HashMap<TypeId, V, BuildHasherDefault<TypeIdHasher>>;
+pub type TypeIdMap<V> = HashMap<TypeId, V, BuildHasherDefault<TypeIdHasher>>;
 
 struct OrderedTypeIdMap<V>(Box<[(TypeId, V)]>);
 
