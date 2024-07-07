@@ -1,10 +1,18 @@
+//! This example demonstrates using the [ColumnBatch][hecs::ColumnBatch] API to efficiently clone
+//! the entities in a [World] along with some or all components.
+//!
+//! Note that the cloned world may have different iteration order and/or newly created entity ids
+//! may diverge between the original and newly created worlds. If that is a dealbreaker for you,
+//! see https://github.com/Ralith/hecs/issues/332 for some pointers on preserving entity allocator
+//! state; as of time of writing, you'll need to patch `hecs`.
+
 use std::any::TypeId;
 
 use hecs::{Archetype, ColumnBatchBuilder, ColumnBatchType, Component, TypeIdMap, TypeInfo, World};
 
 struct ComponentCloneMetadata {
     type_info: TypeInfo,
-    func: &'static dyn Fn(&Archetype, &mut ColumnBatchBuilder),
+    insert_into_batch_func: &'static dyn Fn(&Archetype, &mut ColumnBatchBuilder),
 }
 
 /// Clones world entities along with registered components when [Self::clone_world()] is called.
@@ -26,7 +34,7 @@ impl WorldCloner {
             TypeId::of::<T>(),
             ComponentCloneMetadata {
                 type_info: TypeInfo::of::<T>(),
-                func: &|src, dest| {
+                insert_into_batch_func: &|src, dest| {
                     let mut column = dest.writer::<T>().unwrap();
                     for component in &*src.get::<&T>().unwrap() {
                         _ = column.push(component.clone());
@@ -40,23 +48,21 @@ impl WorldCloner {
         let mut cloned = World::new();
 
         for archetype in world.archetypes() {
-            let mut batch = ColumnBatchType::new();
-
-            for (&k, v) in self.registry.iter() {
-                if archetype.has_dynamic(k) {
-                    batch.add_dynamic(v.type_info);
-                }
-            }
-            let mut batch = batch.into_batch(archetype.ids().len() as u32);
-
-            for (&k, v) in self.registry.iter() {
-                if archetype.has_dynamic(k) {
-                    (v.func)(archetype, &mut batch)
+            let mut batch_type = ColumnBatchType::new();
+            for (&type_id, clone_metadata) in self.registry.iter() {
+                if archetype.has_dynamic(type_id) {
+                    batch_type.add_dynamic(clone_metadata.type_info);
                 }
             }
 
-            let batch = batch.build().expect("batch should be complete");
+            let mut batch_builder = batch_type.into_batch(archetype.ids().len() as u32);
+            for (&type_id, clone_metadata) in self.registry.iter() {
+                if archetype.has_dynamic(type_id) {
+                    (clone_metadata.insert_into_batch_func)(archetype, &mut batch_builder)
+                }
+            }
 
+            let batch = batch_builder.build().expect("batch should be complete");
             let handles = &cloned
                 .reserve_entities(archetype.ids().len() as u32)
                 .collect::<Vec<_>>();
