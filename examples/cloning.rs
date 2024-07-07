@@ -22,14 +22,18 @@ struct WorldCloner {
 
 impl WorldCloner {
     pub fn register<T: Component + Clone>(&mut self) {
-        self.registry.insert(TypeId::of::<T>(), ComponentCloneMetadata {
-            type_info: TypeInfo::of::<T>(),
-         func : &|src, dest| {
-            let mut column = dest.writer::<T>().unwrap();
-            for component in &*src.get::<&T>().unwrap() {
-                _ = column.push(component.clone());
-            }
-        }});
+        self.registry.insert(
+            TypeId::of::<T>(),
+            ComponentCloneMetadata {
+                type_info: TypeInfo::of::<T>(),
+                func: &|src, dest| {
+                    let mut column = dest.writer::<T>().unwrap();
+                    for component in &*src.get::<&T>().unwrap() {
+                        _ = column.push(component.clone());
+                    }
+                },
+            },
+        );
     }
 
     fn clone_world(&self, world: &World) -> World {
@@ -47,7 +51,7 @@ impl WorldCloner {
 
             for (&k, v) in self.registry.iter() {
                 if archetype.has_dynamic(k) {
-                (v.func)(archetype, &mut batch)
+                    (v.func)(archetype, &mut batch)
                 }
             }
 
@@ -63,7 +67,6 @@ impl WorldCloner {
         cloned
     }
 }
-
 
 pub fn main() {
     let int0 = 0;
@@ -91,10 +94,20 @@ pub fn main() {
     );
 
     // NB: unregistered components don't get cloned
-    assert!(world0.entity(entity3).expect("w0 entity3 should exist").has::<u8>(),
-            "original world entity has u8 component");
-    assert!(!world1.entity(entity3).expect("w1 entity3 should exist").has::<u8>(),
-            "cloned world entity does not have u8 component because it was not registered");
+    assert!(
+        world0
+            .entity(entity3)
+            .expect("w0 entity3 should exist")
+            .has::<u8>(),
+        "original world entity has u8 component"
+    );
+    assert!(
+        !world1
+            .entity(entity3)
+            .expect("w1 entity3 should exist")
+            .has::<u8>(),
+        "cloned world entity does not have u8 component because it was not registered"
+    );
 
     type AllRegisteredComponentsQuery = (&'static i32, &'static String);
     for entity in [entity0, entity1] {
@@ -110,16 +123,13 @@ pub fn main() {
     }
 
     type SomeRegisteredComponentsQuery = (&'static String,);
-    for entity in [entity2] {
-        let w0_e = world0.entity(entity).expect("w0 entity should exist");
-        let w1_e = world1.entity(entity).expect("w1 entity should exist");
-        assert!(w0_e.satisfies::<SomeRegisteredComponentsQuery>());
-        assert!(w1_e.satisfies::<SomeRegisteredComponentsQuery>());
+    let w0_e = world0.entity(entity2).expect("w0 entity2 should exist");
+    let w1_e = world1.entity(entity2).expect("w1 entity2 should exist");
+    assert!(w0_e.satisfies::<SomeRegisteredComponentsQuery>());
+    assert!(w1_e.satisfies::<SomeRegisteredComponentsQuery>());
 
-        assert_eq!(
-            w0_e.query::<SomeRegisteredComponentsQuery>().get().unwrap(),
-            w1_e.query::<SomeRegisteredComponentsQuery>().get().unwrap()
-        );
-    }
-
+    assert_eq!(
+        w0_e.query::<SomeRegisteredComponentsQuery>().get().unwrap(),
+        w1_e.query::<SomeRegisteredComponentsQuery>().get().unwrap()
+    );
 }
