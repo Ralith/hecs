@@ -1,3 +1,15 @@
+# Unreleased
+
+### Added
+
+- `examples/cloning` is a new example showing how to clone `World` with some or all components
+- `ColumnBatchType::add_dynamic()` is added to allow the type-erased equivalent of
+  `ColumnBatchType::add`, to facilitate cloning of World with minimal repetition
+
+### Changed
+
+- `TypeIdMap` and `TypeInfo` are now public to facilitate easy cloning of `World`
+
 # 0.10.5
 
 ### Added
@@ -100,7 +112,7 @@
   themselves.
 
 # 0.7.7
-  
+
 ### Added
 - `Entity::DANGLING` convenience constant
 
