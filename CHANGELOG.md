@@ -1,3 +1,16 @@
+# Unreleased
+
+### Added
+
+- `examples/cloning` is a new example showing how to clone `World` with some or all components
+- Added `ColumnBatchType::add_dynamic()` to allow construction of batches for bulk insertion of
+  component data into archetypes. This is useful for inserting data into archetypes where type
+  information for each component is only available at runtime - e.g. the cloning World example.
+
+### Changed
+
+- `TypeIdMap` and `TypeInfo` are now public to facilitate easy cloning of `World`
+
 # 0.10.5
 
 ### Added
@@ -100,7 +113,7 @@
   themselves.
 
 # 0.7.7
-  
+
 ### Added
 - `Entity::DANGLING` convenience constant
 
