@@ -3,8 +3,9 @@
 ### Added
 
 - `examples/cloning` is a new example showing how to clone `World` with some or all components
-- `ColumnBatchType::add_dynamic()` is added to allow the type-erased equivalent of
-  `ColumnBatchType::add`, to facilitate cloning of World with minimal repetition
+- Added `ColumnBatchType::add_dynamic()` to allow construction of batches for bulk insertion of
+  component data into archetypes. This is useful for inserting data into archetypes where type
+  information for each component is only available at runtime - e.g. the cloning World example.
 
 ### Changed
 
