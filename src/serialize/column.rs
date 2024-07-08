@@ -18,7 +18,6 @@
 
 use crate::alloc::vec::Vec;
 use core::{any::type_name, cell::RefCell, fmt, marker::PhantomData};
-use serde::ser::Error;
 
 use serde::{
     de::{self, DeserializeSeed, SeqAccess, Unexpected, Visitor},
@@ -768,13 +767,12 @@ mod tests {
     use crate::alloc::vec::Vec;
     use core::fmt;
 
-    use alloc::{vec, string::String};
     use serde::{Deserialize, Serialize};
 
     use super::*;
     use crate::*;
 
-    #[derive(Serialize, Deserialize, PartialEq, Debug, Copy, Clone)]
+    #[derive(Serialize, Deserialize, PartialEq, Debug, Copy, Clone, Default)]
     struct Position([f32; 3]);
     #[derive(Serialize, Deserialize, PartialEq, Debug, Copy, Clone)]
     struct Velocity([f32; 3]);
@@ -792,7 +790,7 @@ mod tests {
     /// Bodge into serde_test's very strict interface
     #[derive(Deserialize)]
     struct SerWorld<Q>(
-        #[serde(deserialize_with = "helpers::deserialize")] World,
+        #[serde(deserialize_with = "helpers::deserialize")] RefCell<World>,
         #[serde(skip)] PhantomData<Q>,
     );
 
@@ -802,7 +800,12 @@ mod tests {
                 x.get::<&T>().as_ref().map(|x| &**x) == y.get::<&T>().as_ref().map(|x| &**x)
             }
 
-            for (x, y) in self.0.iter().zip(other.0.iter()) {
+            // Spawn components to make sure generations and freelists are serialized correctly.
+            // This is only ok because SerWorld is only used for testing. 
+            self.0.borrow_mut().spawn((Position::default(),));
+            other.0.borrow_mut().spawn((Position::default(),));
+
+            for (x, y) in self.0.borrow().iter().zip(other.0.borrow().iter()) {
                 if x.entity() != y.entity()
                     || !same_components::<Position>(&x, &y)
                     || !same_components::<Velocity>(&x, &y)
@@ -817,7 +820,7 @@ mod tests {
     impl<Q> fmt::Debug for SerWorld<Q> {
         fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             f.debug_map()
-                .entries(self.0.iter().map(|e| {
+                .entries(self.0.borrow().iter().map(|e| {
                     (
                         e.entity(),
                         (
@@ -834,7 +837,7 @@ mod tests {
 
     impl<'a, Q: Query> Serialize for SerWorldInner<'a, Q> {
         fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
-            helpers::serialize::<Q, S>(&self.0, s)
+            helpers::serialize::<Q, S>(self.0, s)
         }
     }
 
@@ -842,7 +845,7 @@ mod tests {
         fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
             use serde::ser::SerializeTupleStruct;
             let mut t = s.serialize_tuple_struct("SerWorld", 1)?;
-            t.serialize_field(&SerWorldInner(&self.0, self.1))?;
+            t.serialize_field(&SerWorldInner(&*self.0.borrow(), self.1))?;
             t.end()
         }
     }
@@ -858,13 +861,13 @@ mod tests {
                 s,
             )
         }
-        pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<World, D::Error> {
+        pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<RefCell::<World>, D::Error> {
             crate::serialize::column::deserialize(
                 &mut Context {
                     components: Vec::new(),
                 },
                 d,
-            )
+            ).and_then(|x| Ok(RefCell::new(x)))
         }
     }
 
@@ -942,37 +945,6 @@ mod tests {
     }
 
     #[test]
-    fn deterministic() {
-        let buffer = Vec::<u8>::new();
-
-        let mut world = World::new();
-        let mut context = Context {
-            components: vec![ComponentId::Position, ComponentId::Velocity]
-        };
-        let mut serializer = serde_json::Serializer::pretty(buffer);
-
-        let v0 = Velocity([1.0, 1.0, 1.0]);
-        let p0 = Position([2.0, 2.0, 2.0]);
-
-        let e = world.spawn((v0, p0));
-        let _ = world.spawn((v0, p0));
-        world.despawn(e).expect("");
-
-        serialize(&mut world, &mut context, &mut serializer).expect("Could not serialize");
-
-        let serialized = String::from_utf8(serializer.into_inner()).expect("Could not read string");
-
-        let mut deserializer = serde_json::Deserializer::from_str(&serialized);
-        
-        let mut second_world = deserialize(&mut context, &mut deserializer).expect("Could not deserialize");
-
-        let e1 = world.spawn((v0, p0));
-        let e2 = second_world.spawn((v0, p0));
-
-        assert_eq!(e1, e2);
-    }
-
-    #[test]
     #[rustfmt::skip]
     fn roundtrip() {
         use serde_test::{Token, assert_tokens};
@@ -982,23 +954,28 @@ mod tests {
         let v0 = Velocity([1.0, 1.0, 1.0]);
         let p1 = Position([2.0, 2.0, 2.0]);
         let e0 = world.spawn((p0, v0));
+        let e_despawn = world.spawn((p1,));
         let e1 = world.spawn((p1,));
         let e2 = world.spawn(());
 
-        assert_tokens(&SerWorld(world, PhantomData::<()>), &[
+        let _ = world.despawn(e_despawn).unwrap();
+
+        assert_tokens(&SerWorld(RefCell::new(world), PhantomData::<()>), &[
             Token::TupleStruct { name: "SerWorld", len: 1 },
             Token::Seq { len: Some(6) },
 
             // Generaitons 
-            Token::Seq { len: Some(3) },
+            Token::Seq { len: Some(4) },
             Token::U32(1),
+            Token::U32(2),
             Token::U32(1),
             Token::U32(1),
             Token::SeqEnd,
             // FreeCursor
-            Token::I64(0),
+            Token::I64(1),
             // Pending List
-            Token::Seq { len: Some(0) },
+            Token::Seq { len: Some(1) },
+            Token::U32(1),
             Token::SeqEnd,
 
             Token::Tuple { len: 4 },
@@ -1082,7 +1059,7 @@ mod tests {
         let _e1 = world.spawn((p1,));
         let _e2 = world.spawn(());
 
-        assert_ser_tokens(&SerWorld(world, PhantomData::<(&Velocity,)>), &[
+        assert_ser_tokens(&SerWorld(RefCell::new(world), PhantomData::<(&Velocity,)>), &[
             Token::TupleStruct { name: "SerWorld", len: 1 },
             Token::Seq { len: Some(4) },
 

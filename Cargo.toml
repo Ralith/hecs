@@ -38,7 +38,6 @@ spin = { version = "0.9.8", default-features = false, features = ["mutex", "spin
 bencher = "0.1.5"
 rand = "0.8.3"
 trybuild = "1.0.23"
-serde_json = "1.0"
 serde = { version = "1.0.117", features = ["derive"] }
 serde_test = "1.0.117"
 
