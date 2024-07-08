@@ -153,7 +153,10 @@ impl<'a> Iterator for ReserveEntitiesIterator<'a> {
 
 impl<'a> ExactSizeIterator for ReserveEntitiesIterator<'a> {}
 
-
+/// Represents a list of free/pending entities.
+/// 
+/// `pending` contains a list of ids. Entities left (index <=) of the free_cursor
+/// are free and entities right of the free_cursor are pending (reserved).
 pub struct Freelist<'a> {
     pub pending: &'a [u32],
     pub free_cursor: isize,
