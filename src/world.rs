@@ -928,11 +928,6 @@ impl World {
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
-
-    /// Whether there are unallocated reserved entities 
-    pub fn is_flushed(&mut self) -> bool {
-        !self.entities.needs_flush()
-    }
 }
 
 unsafe impl Send for World {}
