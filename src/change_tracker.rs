@@ -1,6 +1,7 @@
 use core::mem;
 
 use alloc::vec::Vec;
+use core::marker::PhantomData;
 
 use crate::{Component, Entity, PreparedQuery, With, Without, World};
 
@@ -13,19 +14,49 @@ use crate::{Component, Entity, PreparedQuery, With, Without, World};
 /// which are expensive to compare and/or clone, consider instead tracking changes manually, e.g.
 /// by setting a flag in the component's `DerefMut` implementation.
 ///
-/// Always use exactly one `ChangeTracker` per [`World`] per component type of interest. Using
-/// multiple trackers of the same `T` on the same world, or using the same tracker across multiple
-/// worlds, will produce unpredictable results.
-pub struct ChangeTracker<T: Component> {
-    added: PreparedQuery<Without<&'static T, &'static Previous<T>>>,
-    changed: PreparedQuery<(&'static T, &'static mut Previous<T>)>,
-    removed: PreparedQuery<Without<With<(), &'static Previous<T>>, &'static T>>,
+/// `ChangeTracker` expect a `Flag` type parameter which is used to distinguish between multiple
+/// trackers of the same component type. This is necessary to prevent multiple trackers from
+/// interfering with each other. The `Flag` type should be a unique type like an empty struct.
+///
+/// Using the same tracker across multiple worlds, will produce unpredictable results.
+///
+/// # Example
+/// ```rust
+/// # use hecs::*;
+/// let mut world = World::new();
+///
+/// // Create a change tracker for `i32` components with a unique id
+/// struct Flag;
+/// let mut tracker = ChangeTracker::<i32, Flag>::new();
+///
+/// // Spawn an entity with an `i32` component
+/// {
+///     world.spawn((42_i32,));
+///     let mut changes = tracker.track(&mut world);
+///     let added = changes.added().map(|(_, &value)| value).collect::<Vec<_>>();
+///     assert_eq!(added, [42]);
+/// }
+///
+/// // Modify the component
+/// {
+///     for (_, value) in world.query_mut::<&mut i32>() {
+///         *value += 1;
+///     }
+///     let mut changes = tracker.track(&mut world);
+///     let changes = changes.changed().map(|(_, old, &new)| (old, new)).collect::<Vec<_>>();
+///     assert_eq!(changes, [(42, 43)]);
+/// }
+/// ```
+pub struct ChangeTracker<T: Component, F: Send + Sync + 'static> {
+    added: PreparedQuery<Without<&'static T, &'static Previous<T, F>>>,
+    changed: PreparedQuery<(&'static T, &'static mut Previous<T, F>)>,
+    removed: PreparedQuery<Without<With<(), &'static Previous<T, F>>, &'static T>>,
 
     added_components: Vec<(Entity, T)>,
     removed_components: Vec<Entity>,
 }
 
-impl<T: Component> ChangeTracker<T> {
+impl<T: Component, F: Send + Sync + 'static> ChangeTracker<T, F> {
     /// Create a change tracker for `T` components
     pub fn new() -> Self {
         Self {
@@ -39,7 +70,7 @@ impl<T: Component> ChangeTracker<T> {
     }
 
     /// Determine the changes in `T` components in `world` since the previous call
-    pub fn track<'a>(&'a mut self, world: &'a mut World) -> Changes<'a, T>
+    pub fn track<'a>(&'a mut self, world: &'a mut World) -> Changes<'a, T, F>
     where
         T: Clone + PartialEq,
     {
@@ -53,29 +84,31 @@ impl<T: Component> ChangeTracker<T> {
     }
 }
 
-impl<T: Component> Default for ChangeTracker<T> {
+impl<T: Component, F: Send + Sync + 'static> Default for ChangeTracker<T, F> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-struct Previous<T>(T);
+struct Previous<T, F>(T, PhantomData<F>);
 
-/// Collection of iterators over changes in `T` components
-pub struct Changes<'a, T>
+/// Collection of iterators over changes in `T` components given a flag `F`
+pub struct Changes<'a, T, F>
 where
     T: Component + Clone + PartialEq,
+    F: Send + Sync + 'static,
 {
-    tracker: &'a mut ChangeTracker<T>,
+    tracker: &'a mut ChangeTracker<T, F>,
     world: &'a mut World,
     added: bool,
     changed: bool,
     removed: bool,
 }
 
-impl<'a, T> Changes<'a, T>
+impl<'a, T, F> Changes<'a, T, F>
 where
     T: Component + Clone + PartialEq,
+    F: Send + Sync + 'static,
 {
     /// Iterate over entities which were given a new `T` component after the preceding
     /// [`track`](ChangeTracker::track) call, including newly spawned entities
@@ -121,12 +154,12 @@ where
             self.tracker
                 .removed_components
                 .drain(..)
-                .map(|e| (e, self.world.remove_one::<Previous<T>>(e).unwrap().0)),
+                .map(|e| (e, self.world.remove_one::<Previous<T, F>>(e).unwrap().0)),
         )
     }
 }
 
-impl<'a, T: Component> Drop for Changes<'a, T>
+impl<'a, T: Component, F: Send + Sync + 'static> Drop for Changes<'a, T, F>
 where
     T: Component + Clone + PartialEq,
 {
@@ -135,7 +168,9 @@ where
             _ = self.added();
         }
         for (entity, component) in self.tracker.added_components.drain(..) {
-            self.world.insert_one(entity, Previous(component)).unwrap();
+            self.world
+                .insert_one(entity, Previous(component, PhantomData::<F>))
+                .unwrap();
         }
         if !self.changed {
             _ = self.changed();
@@ -182,9 +217,22 @@ mod tests {
         let b = world.spawn((17, false));
         let c = world.spawn((true,));
 
-        let mut tracker = ChangeTracker::<i32>::new();
+        struct Flag1;
+        struct Flag2;
+        let mut tracker1 = ChangeTracker::<i32, Flag1>::new();
+        let mut tracker2 = ChangeTracker::<i32, Flag2>::new();
+
         {
-            let mut changes = tracker.track(&mut world);
+            let mut changes = tracker1.track(&mut world);
+            let added = changes.added().collect::<Vec<_>>();
+            assert_eq!(added.len(), 2);
+            assert!(added.contains(&(a, &42)));
+            assert!(added.contains(&(b, &17)));
+            assert_eq!(changes.changed().count(), 0);
+            assert_eq!(changes.removed().count(), 0);
+        }
+        {
+            let mut changes = tracker2.track(&mut world);
             let added = changes.added().collect::<Vec<_>>();
             assert_eq!(added.len(), 2);
             assert!(added.contains(&(a, &42)));
@@ -197,13 +245,26 @@ mod tests {
         *world.get::<&mut i32>(b).unwrap() = 26;
         world.insert_one(c, 74).unwrap();
         {
-            let mut changes = tracker.track(&mut world);
+            let mut changes = tracker1.track(&mut world);
             assert_eq!(changes.removed().collect::<Vec<_>>(), [(a, 42)]);
             assert_eq!(changes.changed().collect::<Vec<_>>(), [(b, 17, &26)]);
             assert_eq!(changes.added().collect::<Vec<_>>(), [(c, &74)]);
         }
         {
-            let mut changes = tracker.track(&mut world);
+            let mut changes = tracker1.track(&mut world);
+            assert_eq!(changes.removed().collect::<Vec<_>>(), []);
+            assert_eq!(changes.changed().collect::<Vec<_>>(), []);
+            assert_eq!(changes.added().collect::<Vec<_>>(), []);
+        }
+
+        {
+            let mut changes = tracker2.track(&mut world);
+            assert_eq!(changes.removed().collect::<Vec<_>>(), [(a, 42)]);
+            assert_eq!(changes.changed().collect::<Vec<_>>(), [(b, 17, &26)]);
+            assert_eq!(changes.added().collect::<Vec<_>>(), [(c, &74)]);
+        }
+        {
+            let mut changes = tracker2.track(&mut world);
             assert_eq!(changes.removed().collect::<Vec<_>>(), []);
             assert_eq!(changes.changed().collect::<Vec<_>>(), []);
             assert_eq!(changes.added().collect::<Vec<_>>(), []);
