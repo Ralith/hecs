@@ -14,7 +14,7 @@ use core::hash::{BuildHasher, BuildHasherDefault, Hasher};
 use core::ops::{Deref, DerefMut};
 use core::ptr::{self, NonNull};
 
-use hashbrown::{hash_map::DefaultHashBuilder, HashMap};
+use hashbrown::HashMap;
 
 use crate::borrow::AtomicBorrow;
 use crate::query::Fetch;
@@ -476,7 +476,7 @@ impl Hasher for TypeIdHasher {
 
         // This will only be called if TypeId is neither u64 nor u128, which is not anticipated.
         // In that case we'll just fall back to using a different hash implementation.
-        let mut hasher = <DefaultHashBuilder as BuildHasher>::Hasher::default();
+        let mut hasher = foldhash::fast::FixedState::with_seed(0xb334867b740a29a5).build_hasher();
         hasher.write(bytes);
         self.hash = hasher.finish();
     }
