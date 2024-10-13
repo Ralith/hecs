@@ -451,7 +451,7 @@ impl Entities {
             {
                 return Ok(Location {
                     archetype: 0,
-                    index: u32::max_value(),
+                    index: u32::MAX,
                 });
             } else {
                 return Err(NoSuchEntity);
@@ -545,7 +545,7 @@ impl EntityMeta {
         },
         location: Location {
             archetype: 0,
-            index: u32::max_value(), // dummy value, to be filled in
+            index: u32::MAX, // dummy value, to be filled in
         },
     };
 }

@@ -195,6 +195,7 @@ macro_rules! tuple_impl {
             }
         }
 
+        #[allow(clippy::zero_repeat_side_effects)]
         unsafe impl<$($name: Component),*> Bundle for ($($name,)*) {
             fn with_static_ids<T>(f: impl FnOnce(&[TypeId]) -> T) -> T {
                 const N: usize = count!($($name),*);
