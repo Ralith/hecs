@@ -8,9 +8,9 @@
 use core::sync::atomic::{AtomicUsize, Ordering};
 
 /// A bit mask used to signal the `AtomicBorrow` has an active mutable borrow.
-const UNIQUE_BIT: usize = !(usize::max_value() >> 1);
+const UNIQUE_BIT: usize = !(usize::MAX >> 1);
 
-const COUNTER_MASK: usize = usize::max_value() >> 1;
+const COUNTER_MASK: usize = usize::MAX >> 1;
 
 /// An atomic integer used to dynamicaly enforce borrowing rules
 ///
