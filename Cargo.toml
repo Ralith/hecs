@@ -41,6 +41,7 @@ rand = "0.8.3"
 trybuild = "1.0.23"
 serde = { version = "1.0.117", features = ["derive"] }
 serde_test = "1.0.117"
+serde_json = "1.0.117"
 
 [[bench]]
 name = "bench"
