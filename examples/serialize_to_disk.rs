@@ -163,8 +163,8 @@ fn main() {
             // we loaded world from disk successfully, let us confirm that its data is still
             // the same:
             println!("Loaded world \'{}\' from disk.", path.display());
-
             print!("Validating world data... ");
+            assert_eq!(world.len(), 2);
             for (_, t) in &mut world.query::<&ComponentA>() {
                 assert_eq!(t, &input_data1);
             }
