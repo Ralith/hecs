@@ -41,6 +41,7 @@ rand = "0.8.3"
 trybuild = "1.0.23"
 serde = { version = "1.0.117", features = ["derive"] }
 serde_test = "1.0.117"
+bincode = "1.3.3"
 
 [[bench]]
 name = "bench"
@@ -52,3 +53,8 @@ debug = true
 
 [workspace]
 members = ["macros", "tests/no-std-test-crates/macros"]
+
+
+[[example]]
+name = "serialize_to_disk"
+required-features = ["column-serialize"]
