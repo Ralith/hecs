@@ -46,7 +46,6 @@ struct ComponentB {
     some_other_data: String,
 }
 
-#[cfg(feature = "column-serialize")]
 impl DeserializeContext for SaveContextDeserialize {
     fn deserialize_component_ids<'de, A>(&mut self, mut seq: A) -> Result<ColumnBatchType, A::Error>
     where
