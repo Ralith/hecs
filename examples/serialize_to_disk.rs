@@ -26,10 +26,12 @@ enum ComponentId {
     ComponentB,
 }
 
-// We need to implement a context type for the hecs serialization process:
+// We need to implement context types for the hecs serialization process:
 #[derive(Default)]
-pub struct SaveContext {
-    pub components: Vec<ComponentId>,
+pub struct SaveContextSerialize {}
+#[derive(Default)]
+pub struct SaveContextDeserialize {
+   pub components: Vec<ComponentId>,
 }
 
 // Components of our world.
@@ -45,7 +47,7 @@ pub struct ComponentB {
 }
 
 #[cfg(feature = "column-serialize")]
-impl DeserializeContext for SaveContext {
+impl DeserializeContext for SaveContextDeserialize {
     fn deserialize_component_ids<'de, A>(&mut self, mut seq: A) -> Result<ColumnBatchType, A::Error>
     where
         A: serde::de::SeqAccess<'de>,
@@ -90,7 +92,7 @@ impl DeserializeContext for SaveContext {
     }
 }
 
-impl SerializeContext for SaveContext {
+impl SerializeContext for SaveContextSerialize {
     fn component_count(&self, archetype: &Archetype) -> usize {
         archetype
             .component_types()
@@ -130,13 +132,12 @@ pub fn main() {
     world.spawn((input_data2.clone(),));
 
     let save_file_name = "saved_world.world";
-    let mut context = SaveContext::default();
 
     // serialize and save our world to disk:
     let mut buffer: Vec<u8> = Vec::new();
     let options = bincode::options();
     let mut serializer = bincode::Serializer::new(&mut buffer, options);
-    hecs::serialize::column::serialize(&world, &mut context, &mut serializer);
+    hecs::serialize::column::serialize(&world, &mut SaveContextSerialize::default(), &mut serializer);
     let path = Path::new(save_file_name);
     let mut file = match File::create(&path) {
         Err(why) => panic!("couldn't create {}: {}", path.display(), why),
@@ -150,7 +151,7 @@ pub fn main() {
     let open = File::open(path).expect("not found!");
     let reader = BufReader::new(open);
     let mut deserializer = bincode::Deserializer::with_reader(reader, options);
-    match hecs::serialize::column::deserialize(&mut context, &mut deserializer) {
+    match hecs::serialize::column::deserialize(&mut SaveContextDeserialize::default(), &mut deserializer) {
         Ok(world) => {
             // we loaded world from disk successfully, let us confirm that its data is still
             // the same:
