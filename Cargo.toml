@@ -53,3 +53,8 @@ debug = true
 
 [workspace]
 members = ["macros", "tests/no-std-test-crates/macros"]
+
+
+[[example]]
+name = "serialize_to_disk"
+required-features = ["column-serialize"]

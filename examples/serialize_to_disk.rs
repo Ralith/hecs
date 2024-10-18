@@ -13,7 +13,7 @@ use hecs::serialize::column::{
     deserialize_column, try_serialize, try_serialize_id, DeserializeContext, SerializeContext,
 };
 use hecs::{Archetype, ColumnBatchBuilder, ColumnBatchType, World};
-use serde::{Deserialize, Serialize, Serializer};
+use serde::{Deserialize, Serialize};
 use std::any::TypeId;
 use std::fs::File;
 use std::io::{BufReader, Write};
@@ -28,22 +28,22 @@ enum ComponentId {
 
 // We need to implement context types for the hecs serialization process:
 #[derive(Default)]
-pub struct SaveContextSerialize {}
+struct SaveContextSerialize {}
 #[derive(Default)]
-pub struct SaveContextDeserialize {
-   pub components: Vec<ComponentId>,
+struct SaveContextDeserialize {
+    components: Vec<ComponentId>,
 }
 
 // Components of our world.
 // Only Serialize and Deserialize derives are necessary.
 #[derive(Serialize, Deserialize, Eq, PartialEq, Debug, Clone)]
-pub struct ComponentA {
-    pub data: usize,
+struct ComponentA {
+    data: usize,
 }
 
 #[derive(Serialize, Deserialize, Eq, PartialEq, Debug, Clone)]
-pub struct ComponentB {
-    pub some_other_data: String,
+struct ComponentB {
+    some_other_data: String,
 }
 
 #[cfg(feature = "column-serialize")]
@@ -121,7 +121,7 @@ impl SerializeContext for SaveContextSerialize {
     }
 }
 
-pub fn main() {
+fn main() {
     // initialize world:
     let mut world = World::new();
     let input_data1 = ComponentA { data: 42 };
@@ -137,7 +137,12 @@ pub fn main() {
     let mut buffer: Vec<u8> = Vec::new();
     let options = bincode::options();
     let mut serializer = bincode::Serializer::new(&mut buffer, options);
-    hecs::serialize::column::serialize(&world, &mut SaveContextSerialize::default(), &mut serializer);
+    hecs::serialize::column::serialize(
+        &world,
+        &mut SaveContextSerialize::default(),
+        &mut serializer,
+    )
+    .expect("Failed to serialize");
     let path = Path::new(save_file_name);
     let mut file = match File::create(&path) {
         Err(why) => panic!("couldn't create {}: {}", path.display(), why),
@@ -151,17 +156,20 @@ pub fn main() {
     let open = File::open(path).expect("not found!");
     let reader = BufReader::new(open);
     let mut deserializer = bincode::Deserializer::with_reader(reader, options);
-    match hecs::serialize::column::deserialize(&mut SaveContextDeserialize::default(), &mut deserializer) {
+    match hecs::serialize::column::deserialize(
+        &mut SaveContextDeserialize::default(),
+        &mut deserializer,
+    ) {
         Ok(world) => {
             // we loaded world from disk successfully, let us confirm that its data is still
             // the same:
             println!("Loaded world \'{}\' from disk.", path.display());
 
             print!("Validating world data... ");
-            for (e, (t)) in &mut world.query::<(&ComponentA)>() {
+            for (_, t) in &mut world.query::<&ComponentA>() {
                 assert_eq!(t, &input_data1);
             }
-            for (e, (t)) in &mut world.query::<(&ComponentB)>() {
+            for (_, t) in &mut world.query::<&ComponentB>() {
                 assert_eq!(t, &input_data2);
             }
             println!("Ok!");
