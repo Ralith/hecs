@@ -11,4 +11,10 @@ struct Bar<'a> {
     baz: &'a mut bool,
 }
 
+#[derive(Query)]
+enum Baz<'a> {
+    Foo(Foo<'a>),
+    Bar(Bar<'a>),
+}
+
 fn main() {}

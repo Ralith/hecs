@@ -8,3 +8,14 @@ error: lifetime may not live long enough
   |          type annotation requires that `'q` must outlive `'static`
   |
   = note: this error originates in the derive macro `Query` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: lifetime may not live long enough
+ --> $DIR/wrong_lifetime.rs:9:10
+  |
+9 | #[derive(Query)]
+  |          ^^^^^
+  |          |
+  |          lifetime `'q` defined here
+  |          type annotation requires that `'q` must outlive `'static`
+  |
+  = note: this error originates in the derive macro `Query` (in Nightly builds, run with -Z macro-backtrace for more info)

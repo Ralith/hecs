@@ -1,20 +1,22 @@
 use proc_macro2::Span;
 use proc_macro2::TokenStream as TokenStream2;
 use quote::quote;
-use syn::{DeriveInput, Error, Ident, Lifetime, Result, Type};
+use syn::{DataEnum, DataStruct, DeriveInput, Error, Ident, Lifetime, Result, Type, Visibility};
 
 pub fn derive(input: DeriveInput) -> Result<TokenStream2> {
     let ident = input.ident;
-    let vis = input.vis;
-    let data = match input.data {
-        syn::Data::Struct(s) => s,
+
+    match input.data {
+        syn::Data::Struct(_) | syn::Data::Enum(_) => {},
         _ => {
             return Err(Error::new_spanned(
                 ident,
-                "derive(Query) may only be applied to structs",
+                "derive(Query) may only be applied to structs and enums",
             ))
         }
-    };
+    }
+
+    let vis = input.vis;
     let lifetime = input
         .generics
         .lifetimes()
@@ -36,6 +38,14 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream2> {
         ));
     }
 
+    match input.data {
+        syn::Data::Struct(data_struct) => derive_struct(ident, vis, data_struct, lifetime),
+        syn::Data::Enum(data_enum) => derive_enum(ident, vis, data_enum, lifetime),
+        _ => unreachable!()
+    }
+}
+
+fn derive_struct(ident: Ident, vis: Visibility, data: DataStruct, lifetime: Lifetime) -> Result<TokenStream2> {
     let (fields, queries) = match data.fields {
         syn::Fields::Named(ref fields) => fields
             .named
@@ -187,6 +197,327 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream2> {
                     #(
                         <#fetches as ::hecs::Fetch>::for_each_borrow(&mut f);
                     )*
+                }
+            }
+        };
+    })
+}
+
+fn derive_enum(enum_ident: Ident, vis: Visibility, data: DataEnum, lifetime: Lifetime) -> Result<TokenStream2> {
+    let mut dangling_variant = None;
+    let mut fetch_variants = TokenStream2::new();
+    let mut state_variants = TokenStream2::new();
+    let mut query_get_variants = TokenStream2::new();
+    let mut fetch_access_variants = TokenStream2::new();
+    let mut fetch_borrow_variants = TokenStream2::new();
+    let mut fetch_prepare_variants = TokenStream2::new();
+    let mut fetch_execute_variants = TokenStream2::new();
+    let mut fetch_release_variants = TokenStream2::new();
+    let mut fetch_for_each_borrow = TokenStream2::new();
+
+    for variant in &data.variants {
+        let (fields, queries): (Vec<syn::Member>, Vec<TokenStream2>) = match variant.fields {
+            syn::Fields::Named(ref fields) => fields
+                .named
+                .iter()
+                .map(|f| {
+                    (
+                        syn::Member::Named(f.ident.clone().unwrap()),
+                        query_ty(&lifetime, &f.ty),
+                    )
+                })
+                .unzip(),
+            syn::Fields::Unnamed(ref fields) => fields
+                .unnamed
+                .iter()
+                .enumerate()
+                .map(|(i, f)| {
+                    (
+                        syn::Member::Unnamed(syn::Index {
+                            index: i as u32,
+                            span: Span::call_site(),
+                        }),
+                        query_ty(&lifetime, &f.ty),
+                    )
+                })
+                .unzip(),
+            syn::Fields::Unit => continue,
+        };
+
+        let ident = variant.ident.clone();
+
+        if fields.is_empty() {
+            // Ignore empty variants since otherwise they would always match
+            continue;
+        }
+
+        let fetches = queries
+            .iter()
+            .map(|ty| quote! { <#ty as ::hecs::Query>::Fetch })
+            .collect::<Vec<_>>();
+
+        if dangling_variant.is_none() {
+            dangling_variant = Some(match variant.fields {
+                syn::Fields::Named(_) => quote! {
+                    Self::#ident {
+                        #(
+                            #fields: #fetches::dangling(),
+                        )*
+                    }
+                },
+                syn::Fields::Unnamed(_) => quote! {
+                    Self::#ident(#(#fetches::dangling()),*)
+                },
+                syn::Fields::Unit => unreachable!(),
+            });
+        }
+
+        fetch_variants.extend(match variant.fields {
+            syn::Fields::Named(_) => quote! {
+                #ident {
+                    #(
+                        #fields: #fetches,
+                    )*
+                },
+            },
+            syn::Fields::Unnamed(_) => quote! {
+                #ident(#(#fetches),*),
+            },
+            syn::Fields::Unit => unreachable!(),
+        });
+
+        state_variants.extend(match variant.fields {
+            syn::Fields::Named(_) => quote! {
+                #ident {
+                    #(
+                        #fields: <#fetches as ::hecs::Fetch>::State,
+                    )*
+                },
+            },
+            syn::Fields::Unnamed(_) => quote! {
+                #ident(#(<#fetches as ::hecs::Fetch>::State),*),
+            },
+            syn::Fields::Unit => unreachable!(),
+        });
+
+        let intermediates = fields
+            .iter()
+            .map(|x| match x {
+                syn::Member::Named(ref ident) => ident.clone(),
+                syn::Member::Unnamed(ref index) => {
+                    Ident::new(&format!("field_{}", index.index), Span::call_site())
+                }
+            })
+            .collect::<Vec<_>>();
+
+        query_get_variants.extend(match variant.fields {
+            syn::Fields::Named(_) => quote! {
+                Self::Fetch::#ident { #(#intermediates),* } => {
+                    #(
+                        let #intermediates: <#queries as ::hecs::Query>::Item<'q> = <#queries as ::hecs::Query>::get(#intermediates, n);
+                    )*
+                    Self::Item::#ident { #(#intermediates,)* }
+                },
+            },
+            syn::Fields::Unnamed(_) => quote! {
+                Self::Fetch::#ident(#(#intermediates),*) => {
+                    #(
+                        let #intermediates: <#queries as ::hecs::Query>::Item<'q> = <#queries as ::hecs::Query>::get(#intermediates, n);
+                    )*
+                    Self::Item::#ident(#(#intermediates,)*)
+                },
+            },
+            syn::Fields::Unit => unreachable!(),
+        });
+
+        fetch_access_variants.extend(quote! {
+            'block: {
+                let mut access = ::hecs::Access::Iterate;
+                #(
+                    if let ::core::option::Option::Some(new_access) = #fetches::access(archetype) {
+                        access = ::core::cmp::max(access, new_access);
+                    } else {
+                        break 'block;
+                    }
+                )*
+                return ::core::option::Option::Some(access)
+            }
+        });
+
+        fetch_borrow_variants.extend(match variant.fields {
+            syn::Fields::Named(_) => quote! {
+                Self::State::#ident { #(#intermediates),* } => {
+                    #(
+                        #fetches::borrow(archetype, #intermediates);
+                    )*
+                },
+            },
+            syn::Fields::Unnamed(_) => quote! {
+                Self::State::#ident(#(#intermediates),*) => {
+                    #(
+                        #fetches::borrow(archetype, #intermediates);
+                    )*
+                },
+            },
+            syn::Fields::Unit => unreachable!(),
+        });
+
+        fetch_prepare_variants.extend(match variant.fields {
+            syn::Fields::Named(_) => quote! {
+                'block: {
+                    #(
+                        let ::core::option::Option::Some(#intermediates) = #fetches::prepare(archetype) else {
+                            break 'block;
+                        };
+                    )*
+                    return ::core::option::Option::Some(Self::State::#ident { #(#intermediates,)* });
+                }
+            },
+            syn::Fields::Unnamed(_) => quote! {
+                'block: {
+                    #(
+                        let ::core::option::Option::Some(#intermediates) = #fetches::prepare(archetype) else {
+                            break 'block;
+                        };
+                    )*
+                    return ::core::option::Option::Some(Self::State::#ident(#(#intermediates,)*));
+                }
+            },
+            syn::Fields::Unit => unreachable!(),
+        });
+
+        fetch_execute_variants.extend(match variant.fields {
+            syn::Fields::Named(_) => quote! {
+                Self::State::#ident { #(#intermediates),* } => {
+                    #(
+                        let #intermediates = #fetches::execute(archetype, #intermediates);
+                    )*
+                    return Self::#ident { #(#intermediates,)* };
+                },
+            },
+            syn::Fields::Unnamed(_) => quote! {
+                Self::State::#ident(#(#intermediates),*) => {
+                    #(
+                        let #intermediates = #fetches::execute(archetype, #intermediates);
+                    )*
+                    return Self::#ident(#(#intermediates,)*);
+                },
+            },
+            syn::Fields::Unit => unreachable!(),
+        });
+
+        fetch_release_variants.extend(match variant.fields {
+            syn::Fields::Named(_) => quote! {
+                Self::State::#ident { #(#intermediates),* } => {
+                    #(
+                        #fetches::release(archetype, #intermediates);
+                    )*
+                },
+            },
+            syn::Fields::Unnamed(_) => quote! {
+                Self::State::#ident(#(#intermediates),*) => {
+                    #(
+                        #fetches::release(archetype, #intermediates);
+                    )*
+                },
+            },
+            syn::Fields::Unit => unreachable!(),
+        });
+
+        fetch_for_each_borrow.extend(quote! {
+            #(
+                <#fetches as ::hecs::Fetch>::for_each_borrow(&mut f);
+            )*
+        });
+    }
+
+    let dangling = if let Some(dangling) = dangling_variant {
+        dangling
+    } else {
+        return Err(Error::new_spanned(
+            enum_ident,
+            "derive(Query) enum must have at least one non-empty variant",
+        ));
+    };
+
+    let fetch_ident = Ident::new(&format!("{}Fetch", enum_ident), Span::call_site());
+    let fetch = quote! {
+        #vis enum #fetch_ident {
+            #fetch_variants
+        }
+    };
+
+    let state_ident = Ident::new(&format!("{}State", enum_ident), Span::call_site());
+    let state = quote! {
+        #vis enum #state_ident {
+            #state_variants
+        }
+    };
+
+    Ok(quote! {
+        const _: () = {
+            #[derive(Clone)]
+            #fetch
+
+            impl<'a> ::hecs::Query for #enum_ident<'a> {
+                type Item<'q> = #enum_ident<'q>;
+
+                type Fetch = #fetch_ident;
+
+                #[allow(unused_variables)]
+                unsafe fn get<'q>(fetch: &Self::Fetch, n: usize) -> Self::Item<'q> {
+                    match &fetch {
+                        #query_get_variants
+                    }
+                }
+            }
+
+            #[derive(Clone, Copy)]
+            #state
+
+            unsafe impl ::hecs::Fetch for #fetch_ident {
+                type State = #state_ident;
+
+                fn dangling() -> Self {
+                    #dangling
+                }
+
+                #[allow(unused_variables, unused_mut)]
+                fn access(archetype: &::hecs::Archetype) -> ::core::option::Option<::hecs::Access> {
+                    #fetch_access_variants
+                    ::core::option::Option::None
+                }
+
+                #[allow(unused_variables)]
+                fn borrow(archetype: &::hecs::Archetype, state: Self::State) {
+                    match state {
+                        #fetch_borrow_variants
+                    }
+                }
+
+                #[allow(unused_variables)]
+                fn prepare(archetype: &::hecs::Archetype) -> ::core::option::Option<Self::State> {
+                    #fetch_prepare_variants
+                    ::core::option::Option::None
+                }
+
+                #[allow(unused_variables)]
+                fn execute(archetype: &::hecs::Archetype, state: Self::State) -> Self {
+                    match state {
+                        #fetch_execute_variants
+                    }
+                }
+
+                #[allow(unused_variables)]
+                fn release(archetype: &::hecs::Archetype, state: Self::State) {
+                    match state {
+                        #fetch_release_variants
+                    }
+                }
+
+                #[allow(unused_variables, unused_mut)]
+                fn for_each_borrow(mut f: impl ::core::ops::FnMut(::core::any::TypeId, bool)) {
+                    #fetch_for_each_borrow
                 }
             }
         };
