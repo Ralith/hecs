@@ -7,7 +7,7 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream2> {
     let ident = input.ident;
 
     match input.data {
-        syn::Data::Struct(_) | syn::Data::Enum(_) => {},
+        syn::Data::Struct(_) | syn::Data::Enum(_) => {}
         _ => {
             return Err(Error::new_spanned(
                 ident,
@@ -41,11 +41,16 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream2> {
     match input.data {
         syn::Data::Struct(data_struct) => derive_struct(ident, vis, data_struct, lifetime),
         syn::Data::Enum(data_enum) => derive_enum(ident, vis, data_enum, lifetime),
-        _ => unreachable!()
+        _ => unreachable!(),
     }
 }
 
-fn derive_struct(ident: Ident, vis: Visibility, data: DataStruct, lifetime: Lifetime) -> Result<TokenStream2> {
+fn derive_struct(
+    ident: Ident,
+    vis: Visibility,
+    data: DataStruct,
+    lifetime: Lifetime,
+) -> Result<TokenStream2> {
     let (fields, queries) = match data.fields {
         syn::Fields::Named(ref fields) => fields
             .named
@@ -203,7 +208,12 @@ fn derive_struct(ident: Ident, vis: Visibility, data: DataStruct, lifetime: Life
     })
 }
 
-fn derive_enum(enum_ident: Ident, vis: Visibility, data: DataEnum, lifetime: Lifetime) -> Result<TokenStream2> {
+fn derive_enum(
+    enum_ident: Ident,
+    vis: Visibility,
+    data: DataEnum,
+    lifetime: Lifetime,
+) -> Result<TokenStream2> {
     let mut dangling_constructor = None;
     let mut fetch_variants = TokenStream2::new();
     let mut state_variants = TokenStream2::new();
@@ -250,7 +260,7 @@ fn derive_enum(enum_ident: Ident, vis: Visibility, data: DataEnum, lifetime: Lif
             return Err(Error::new_spanned(
                 ident,
                 "derive(Query) reserves this identifier for internal use",
-            ))
+            ));
         }
 
         let named_fields = fields
@@ -347,7 +357,7 @@ fn derive_enum(enum_ident: Ident, vis: Visibility, data: DataEnum, lifetime: Lif
             },
         });
 
-        fetch_release_variants.extend( quote! {
+        fetch_release_variants.extend(quote! {
             Self::State::#ident { #(#named_fields),* } => {
                 #(
                     #fetches::release(archetype, #named_fields);
