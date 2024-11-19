@@ -253,58 +253,7 @@ fn derive_enum(enum_ident: Ident, vis: Visibility, data: DataEnum, lifetime: Lif
             ))
         }
 
-        let fetches = queries
-            .iter()
-            .map(|ty| quote! { <#ty as ::hecs::Query>::Fetch })
-            .collect::<Vec<_>>();
-
-        if dangling_constructor.is_none() && fields.is_empty() {
-            dangling_constructor = Some(match variant.fields {
-                syn::Fields::Named(_) => quote! {
-                    Self::#ident {}
-                },
-                syn::Fields::Unnamed(_) => quote! {
-                    Self::#ident()
-                },
-                syn::Fields::Unit => quote! {
-                    Self::#ident
-                },
-            });
-        }
-
-        fetch_variants.extend(match variant.fields {
-            syn::Fields::Named(_) => quote! {
-                #ident {
-                    #(
-                        #fields: #fetches,
-                    )*
-                },
-            },
-            syn::Fields::Unnamed(_) => quote! {
-                #ident(#(#fetches),*),
-            },
-            syn::Fields::Unit => quote! {
-                #ident,
-            },
-        });
-
-        state_variants.extend(match variant.fields {
-            syn::Fields::Named(_) => quote! {
-                #ident {
-                    #(
-                        #fields: <#fetches as ::hecs::Fetch>::State,
-                    )*
-                },
-            },
-            syn::Fields::Unnamed(_) => quote! {
-                #ident(#(<#fetches as ::hecs::Fetch>::State),*),
-            },
-            syn::Fields::Unit => quote! {
-                #ident,
-            },
-        });
-
-        let intermediates = fields
+        let named_fields = fields
             .iter()
             .map(|x| match x {
                 syn::Member::Named(ref ident) => ident.clone(),
@@ -314,25 +263,52 @@ fn derive_enum(enum_ident: Ident, vis: Visibility, data: DataEnum, lifetime: Lif
             })
             .collect::<Vec<_>>();
 
+        let fetches = queries
+            .iter()
+            .map(|ty| quote! { <#ty as ::hecs::Query>::Fetch })
+            .collect::<Vec<_>>();
+
+        if dangling_constructor.is_none() && fields.is_empty() {
+            dangling_constructor = Some(quote! {
+                Self::#ident {}
+            });
+        }
+
+        fetch_variants.extend(quote! {
+            #ident {
+                #(
+                    #named_fields: #fetches,
+                )*
+            },
+        });
+
+        state_variants.extend(quote! {
+            #ident {
+                #(
+                    #named_fields: <#fetches as ::hecs::Fetch>::State,
+                )*
+            },
+        });
+
         query_get_variants.extend(match variant.fields {
             syn::Fields::Named(_) => quote! {
-                Self::Fetch::#ident { #(#intermediates),* } => {
+                Self::Fetch::#ident { #(#named_fields),* } => {
                     #(
-                        let #intermediates: <#queries as ::hecs::Query>::Item<'q> = <#queries as ::hecs::Query>::get(#intermediates, n);
+                        let #named_fields: <#queries as ::hecs::Query>::Item<'q> = <#queries as ::hecs::Query>::get(#named_fields, n);
                     )*
-                    Self::Item::#ident { #(#intermediates,)* }
+                    Self::Item::#ident { #( #fields: #named_fields,)* }
                 },
             },
             syn::Fields::Unnamed(_) => quote! {
-                Self::Fetch::#ident(#(#intermediates),*) => {
+                Self::Fetch::#ident { #(#named_fields),* } => {
                     #(
-                        let #intermediates: <#queries as ::hecs::Query>::Item<'q> = <#queries as ::hecs::Query>::get(#intermediates, n);
+                        let #named_fields: <#queries as ::hecs::Query>::Item<'q> = <#queries as ::hecs::Query>::get(#named_fields, n);
                     )*
-                    Self::Item::#ident(#(#intermediates,)*)
+                    Self::Item::#ident(#(#named_fields,)*)
                 },
             },
             syn::Fields::Unit => quote! {
-                Self::Fetch::#ident => Self::Item::#ident,
+                Self::Fetch::#ident {} => Self::Item::#ident,
             },
         });
 
@@ -350,93 +326,40 @@ fn derive_enum(enum_ident: Ident, vis: Visibility, data: DataEnum, lifetime: Lif
             }
         });
 
-        fetch_borrow_variants.extend(match variant.fields {
-            syn::Fields::Named(_) => quote! {
-                Self::State::#ident { #(#intermediates),* } => {
-                    #(
-                        #fetches::borrow(archetype, #intermediates);
-                    )*
-                },
-            },
-            syn::Fields::Unnamed(_) => quote! {
-                Self::State::#ident(#(#intermediates),*) => {
-                    #(
-                        #fetches::borrow(archetype, #intermediates);
-                    )*
-                },
-            },
-            syn::Fields::Unit => quote! {
-                Self::State::#ident => {},
+        fetch_borrow_variants.extend(quote! {
+            Self::State::#ident { #(#named_fields),* } => {
+                #(
+                    #fetches::borrow(archetype, #named_fields);
+                )*
             },
         });
 
-        fetch_prepare_variants.extend(match variant.fields {
-            syn::Fields::Named(_) => quote! {
-                'block: {
+        fetch_prepare_variants.extend(quote! {
+            'block: {
+                #(
+                    let ::core::option::Option::Some(#named_fields) = #fetches::prepare(archetype) else {
+                        break 'block;
+                    };
+                )*
+                return ::core::option::Option::Some(Self::State::#ident { #(#named_fields,)* });
+            }
+        });
+
+        fetch_execute_variants.extend(quote! {
+            Self::State::#ident { #(#named_fields),* } => {
+                return Self::#ident {
                     #(
-                        let ::core::option::Option::Some(#intermediates) = #fetches::prepare(archetype) else {
-                            break 'block;
-                        };
+                        #named_fields: #fetches::execute(archetype, #named_fields),
                     )*
-                    return ::core::option::Option::Some(Self::State::#ident { #(#intermediates,)* });
-                }
-            },
-            syn::Fields::Unnamed(_) => quote! {
-                'block: {
-                    #(
-                        let ::core::option::Option::Some(#intermediates) = #fetches::prepare(archetype) else {
-                            break 'block;
-                        };
-                    )*
-                    return ::core::option::Option::Some(Self::State::#ident(#(#intermediates,)*));
-                }
-            },
-            syn::Fields::Unit => quote! {
-                return ::core::option::Option::Some(Self::State::#ident);
+                };
             },
         });
 
-        fetch_execute_variants.extend(match variant.fields {
-            syn::Fields::Named(_) => quote! {
-                Self::State::#ident { #(#intermediates),* } => {
-                    #(
-                        let #intermediates = #fetches::execute(archetype, #intermediates);
-                    )*
-                    return Self::#ident { #(#intermediates,)* };
-                },
-            },
-            syn::Fields::Unnamed(_) => quote! {
-                Self::State::#ident(#(#intermediates),*) => {
-                    #(
-                        let #intermediates = #fetches::execute(archetype, #intermediates);
-                    )*
-                    return Self::#ident(#(#intermediates,)*);
-                },
-            },
-            syn::Fields::Unit => quote! {
-                Self::State::#ident => {
-                    return Self::#ident;
-                },
-            },
-        });
-
-        fetch_release_variants.extend(match variant.fields {
-            syn::Fields::Named(_) => quote! {
-                Self::State::#ident { #(#intermediates),* } => {
-                    #(
-                        #fetches::release(archetype, #intermediates);
-                    )*
-                },
-            },
-            syn::Fields::Unnamed(_) => quote! {
-                Self::State::#ident(#(#intermediates),*) => {
-                    #(
-                        #fetches::release(archetype, #intermediates);
-                    )*
-                },
-            },
-            syn::Fields::Unit => quote! {
-                Self::State::#ident => {},
+        fetch_release_variants.extend( quote! {
+            Self::State::#ident { #(#named_fields),* } => {
+                #(
+                    #fetches::release(archetype, #named_fields);
+                )*
             },
         });
 
@@ -487,7 +410,7 @@ fn derive_enum(enum_ident: Ident, vis: Visibility, data: DataEnum, lifetime: Lif
 
                 #[allow(unused_variables)]
                 unsafe fn get<'q>(fetch: &Self::Fetch, n: usize) -> Self::Item<'q> {
-                    match &fetch {
+                    match fetch {
                         #query_get_variants
                     }
                 }
