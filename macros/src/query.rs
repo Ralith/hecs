@@ -65,7 +65,7 @@ fn derive_struct(ident: Ident, vis: Visibility, data: DataStruct, lifetime: Life
                 (
                     syn::Member::Unnamed(syn::Index {
                         index: i as u32,
-                        span: Span::call_site(),
+                        span: Span::mixed_site(),
                     }),
                     query_ty(&lifetime, &f.ty),
                 )
@@ -77,7 +77,7 @@ fn derive_struct(ident: Ident, vis: Visibility, data: DataStruct, lifetime: Life
         .iter()
         .map(|ty| quote! { <#ty as ::hecs::Query>::Fetch })
         .collect::<Vec<_>>();
-    let fetch_ident = Ident::new(&format!("{}Fetch", ident), Span::call_site());
+    let fetch_ident = Ident::new(&format!("{}Fetch", ident), Span::mixed_site());
     let fetch = match data.fields {
         syn::Fields::Named(_) => quote! {
             #vis struct #fetch_ident {
@@ -93,7 +93,7 @@ fn derive_struct(ident: Ident, vis: Visibility, data: DataStruct, lifetime: Life
             #vis struct #fetch_ident;
         },
     };
-    let state_ident = Ident::new(&format!("{}State", ident), Span::call_site());
+    let state_ident = Ident::new(&format!("{}State", ident), Span::mixed_site());
     let state = match data.fields {
         syn::Fields::Named(_) => quote! {
             #[derive(Clone, Copy)]
@@ -118,7 +118,7 @@ fn derive_struct(ident: Ident, vis: Visibility, data: DataStruct, lifetime: Life
         .map(|x| match x {
             syn::Member::Named(ref ident) => ident.clone(),
             syn::Member::Unnamed(ref index) => {
-                Ident::new(&format!("field_{}", index.index), Span::call_site())
+                Ident::new(&format!("field_{}", index.index), Span::mixed_site())
             }
         })
         .collect::<Vec<_>>();
@@ -235,7 +235,7 @@ fn derive_enum(enum_ident: Ident, vis: Visibility, data: DataEnum, lifetime: Lif
                     (
                         syn::Member::Unnamed(syn::Index {
                             index: i as u32,
-                            span: Span::call_site(),
+                            span: Span::mixed_site(),
                         }),
                         query_ty(&lifetime, &f.ty),
                     )
@@ -309,7 +309,7 @@ fn derive_enum(enum_ident: Ident, vis: Visibility, data: DataEnum, lifetime: Lif
             .map(|x| match x {
                 syn::Member::Named(ref ident) => ident.clone(),
                 syn::Member::Unnamed(ref index) => {
-                    Ident::new(&format!("field_{}", index.index), Span::call_site())
+                    Ident::new(&format!("field_{}", index.index), Span::mixed_site())
                 }
             })
             .collect::<Vec<_>>();
@@ -461,14 +461,14 @@ fn derive_enum(enum_ident: Ident, vis: Visibility, data: DataEnum, lifetime: Lif
         }
     };
 
-    let fetch_ident = Ident::new(&format!("{}Fetch", enum_ident), Span::call_site());
+    let fetch_ident = Ident::new(&format!("{}Fetch", enum_ident), Span::mixed_site());
     let fetch = quote! {
         #vis enum #fetch_ident {
             #fetch_variants
         }
     };
 
-    let state_ident = Ident::new(&format!("{}State", enum_ident), Span::call_site());
+    let state_ident = Ident::new(&format!("{}State", enum_ident), Span::mixed_site());
     let state = quote! {
         #vis enum #state_ident {
             #state_variants
@@ -552,7 +552,7 @@ fn query_ty(lifetime: &Lifetime, ty: &Type) -> TokenStream2 {
     impl syn::visit_mut::VisitMut for Visitor<'_> {
         fn visit_lifetime_mut(&mut self, l: &mut Lifetime) {
             if l == self.replace {
-                *l = Lifetime::new("'static", Span::call_site());
+                *l = Lifetime::new("'static", Span::mixed_site());
             }
         }
     }
