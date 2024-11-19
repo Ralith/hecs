@@ -256,7 +256,7 @@ fn derive_enum(
 
         let ident = variant.ident.clone();
 
-        if ident.to_string() == "__HecsDanglingFetch__" {
+        if ident == "__HecsDanglingFetch__" {
             return Err(Error::new_spanned(
                 ident,
                 "derive(Query) reserves this identifier for internal use",
