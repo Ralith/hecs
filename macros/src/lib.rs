@@ -63,11 +63,14 @@ pub fn derive_dynamic_bundle_clone(input: TokenStream) -> TokenStream {
     .into()
 }
 
-/// Implement `Query` for a struct
+/// Implement `Query` for a struct or enum.
 ///
-/// Queries structs can be passed to the type parameter of `World::query`. They must have exactly
+/// Queries can be passed to the type parameter of `World::query`. They must have exactly
 /// one lifetime parameter, and all of their fields must be queries (e.g. references) using that
 /// lifetime.
+///
+/// For enum queries, the result will always be the first variant that satisfies the entity.
+/// Unit variants and variants without any fields will always satisfy an entity.
 ///
 /// # Example
 /// ```
