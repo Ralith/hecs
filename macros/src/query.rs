@@ -204,7 +204,7 @@ fn derive_struct(ident: Ident, vis: Visibility, data: DataStruct, lifetime: Life
 }
 
 fn derive_enum(enum_ident: Ident, vis: Visibility, data: DataEnum, lifetime: Lifetime) -> Result<TokenStream2> {
-    let mut dangling_variant = None;
+    let mut dangling_constructor = None;
     let mut fetch_variants = TokenStream2::new();
     let mut state_variants = TokenStream2::new();
     let mut query_get_variants = TokenStream2::new();
@@ -216,7 +216,7 @@ fn derive_enum(enum_ident: Ident, vis: Visibility, data: DataEnum, lifetime: Lif
     let mut fetch_for_each_borrow = TokenStream2::new();
 
     for variant in &data.variants {
-        let (fields, queries): (Vec<syn::Member>, Vec<TokenStream2>) = match variant.fields {
+        let (fields, queries) = match variant.fields {
             syn::Fields::Named(ref fields) => fields
                 .named
                 .iter()
@@ -241,14 +241,16 @@ fn derive_enum(enum_ident: Ident, vis: Visibility, data: DataEnum, lifetime: Lif
                     )
                 })
                 .unzip(),
-            syn::Fields::Unit => continue,
+            syn::Fields::Unit => (Vec::new(), Vec::new()),
         };
 
         let ident = variant.ident.clone();
 
-        if fields.is_empty() {
-            // Ignore empty variants since otherwise they would always match
-            continue;
+        if ident.to_string() == "__HecsDanglingFetch__" {
+            return Err(Error::new_spanned(
+                ident,
+                "derive(Query) reserves this identifier for internal use",
+            ))
         }
 
         let fetches = queries
@@ -256,19 +258,17 @@ fn derive_enum(enum_ident: Ident, vis: Visibility, data: DataEnum, lifetime: Lif
             .map(|ty| quote! { <#ty as ::hecs::Query>::Fetch })
             .collect::<Vec<_>>();
 
-        if dangling_variant.is_none() {
-            dangling_variant = Some(match variant.fields {
+        if dangling_constructor.is_none() && fields.is_empty() {
+            dangling_constructor = Some(match variant.fields {
                 syn::Fields::Named(_) => quote! {
-                    Self::#ident {
-                        #(
-                            #fields: #fetches::dangling(),
-                        )*
-                    }
+                    Self::#ident {}
                 },
                 syn::Fields::Unnamed(_) => quote! {
-                    Self::#ident(#(#fetches::dangling()),*)
+                    Self::#ident()
                 },
-                syn::Fields::Unit => unreachable!(),
+                syn::Fields::Unit => quote! {
+                    Self::#ident
+                },
             });
         }
 
@@ -283,7 +283,9 @@ fn derive_enum(enum_ident: Ident, vis: Visibility, data: DataEnum, lifetime: Lif
             syn::Fields::Unnamed(_) => quote! {
                 #ident(#(#fetches),*),
             },
-            syn::Fields::Unit => unreachable!(),
+            syn::Fields::Unit => quote! {
+                #ident,
+            },
         });
 
         state_variants.extend(match variant.fields {
@@ -297,7 +299,9 @@ fn derive_enum(enum_ident: Ident, vis: Visibility, data: DataEnum, lifetime: Lif
             syn::Fields::Unnamed(_) => quote! {
                 #ident(#(<#fetches as ::hecs::Fetch>::State),*),
             },
-            syn::Fields::Unit => unreachable!(),
+            syn::Fields::Unit => quote! {
+                #ident,
+            },
         });
 
         let intermediates = fields
@@ -327,7 +331,9 @@ fn derive_enum(enum_ident: Ident, vis: Visibility, data: DataEnum, lifetime: Lif
                     Self::Item::#ident(#(#intermediates,)*)
                 },
             },
-            syn::Fields::Unit => unreachable!(),
+            syn::Fields::Unit => quote! {
+                Self::Fetch::#ident => Self::Item::#ident,
+            },
         });
 
         fetch_access_variants.extend(quote! {
@@ -359,7 +365,9 @@ fn derive_enum(enum_ident: Ident, vis: Visibility, data: DataEnum, lifetime: Lif
                     )*
                 },
             },
-            syn::Fields::Unit => unreachable!(),
+            syn::Fields::Unit => quote! {
+                Self::State::#ident => {},
+            },
         });
 
         fetch_prepare_variants.extend(match variant.fields {
@@ -383,7 +391,9 @@ fn derive_enum(enum_ident: Ident, vis: Visibility, data: DataEnum, lifetime: Lif
                     return ::core::option::Option::Some(Self::State::#ident(#(#intermediates,)*));
                 }
             },
-            syn::Fields::Unit => unreachable!(),
+            syn::Fields::Unit => quote! {
+                return ::core::option::Option::Some(Self::State::#ident);
+            },
         });
 
         fetch_execute_variants.extend(match variant.fields {
@@ -403,7 +413,11 @@ fn derive_enum(enum_ident: Ident, vis: Visibility, data: DataEnum, lifetime: Lif
                     return Self::#ident(#(#intermediates,)*);
                 },
             },
-            syn::Fields::Unit => unreachable!(),
+            syn::Fields::Unit => quote! {
+                Self::State::#ident => {
+                    return Self::#ident;
+                },
+            },
         });
 
         fetch_release_variants.extend(match variant.fields {
@@ -421,7 +435,9 @@ fn derive_enum(enum_ident: Ident, vis: Visibility, data: DataEnum, lifetime: Lif
                     )*
                 },
             },
-            syn::Fields::Unit => unreachable!(),
+            syn::Fields::Unit => quote! {
+                Self::State::#ident => {},
+            },
         });
 
         fetch_for_each_borrow.extend(quote! {
@@ -431,13 +447,18 @@ fn derive_enum(enum_ident: Ident, vis: Visibility, data: DataEnum, lifetime: Lif
         });
     }
 
-    let dangling = if let Some(dangling) = dangling_variant {
-        dangling
+    let dangling_constructor = if let Some(dangling_constructor) = dangling_constructor {
+        dangling_constructor
     } else {
-        return Err(Error::new_spanned(
-            enum_ident,
-            "derive(Query) enum must have at least one non-empty variant",
-        ));
+        fetch_variants.extend(quote! {
+            __HecsDanglingFetch__,
+        });
+        query_get_variants.extend(quote! {
+            Self::Fetch::__HecsDanglingFetch__ => panic!("Called get() with dangling fetch"),
+        });
+        quote! {
+            Self::__HecsDanglingFetch__
+        }
     };
 
     let fetch_ident = Ident::new(&format!("{}Fetch", enum_ident), Span::call_site());
@@ -479,10 +500,10 @@ fn derive_enum(enum_ident: Ident, vis: Visibility, data: DataEnum, lifetime: Lif
                 type State = #state_ident;
 
                 fn dangling() -> Self {
-                    #dangling
+                    #dangling_constructor
                 }
 
-                #[allow(unused_variables, unused_mut)]
+                #[allow(unused_variables, unused_mut, unreachable_code)]
                 fn access(archetype: &::hecs::Archetype) -> ::core::option::Option<::hecs::Access> {
                     #fetch_access_variants
                     ::core::option::Option::None
@@ -495,7 +516,7 @@ fn derive_enum(enum_ident: Ident, vis: Visibility, data: DataEnum, lifetime: Lif
                     }
                 }
 
-                #[allow(unused_variables)]
+                #[allow(unused_variables, unreachable_code)]
                 fn prepare(archetype: &::hecs::Archetype) -> ::core::option::Option<Self::State> {
                     #fetch_prepare_variants
                     ::core::option::Option::None

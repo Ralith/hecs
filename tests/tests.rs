@@ -89,10 +89,10 @@ fn derived_enum_query() {
     }
 
     let mut world = World::new();
-    let e = world.spawn((42, false));
+    let e1 = world.spawn((42, false));
 
     assert_eq!(
-        world.query_one_mut::<Foo>(e).unwrap(),
+        world.query_one_mut::<Foo>(e1).unwrap(),
         Foo::Number(&42)
     );
 
@@ -115,6 +115,40 @@ fn derived_enum_query() {
     assert_eq!(
         world.query_one_mut::<Foo>(e4),
         Err(QueryOneError::Unsatisfied)
+    );
+
+}
+
+#[test]
+#[cfg(feature = "macros")]
+fn derived_enum_query_with_empty() {
+    #[derive(Query, Debug, PartialEq)]
+    enum Foo<'a> {
+        Number(&'a i32),
+        Empty,
+        Impossible(&'a String),
+    }
+
+    let mut world = World::new();
+    let e1 = world.spawn((42, false));
+
+    assert_eq!(
+        world.query_one_mut::<Foo>(e1).unwrap(),
+        Foo::Number(&42)
+    );
+
+    let e2 = world.spawn((false, 0_usize));
+
+    assert_eq!(
+        world.query_one_mut::<Foo>(e2).unwrap(),
+        Foo::Empty
+    );
+
+    let e3 = world.spawn((String::from("Hello"), false));
+
+    assert_eq!(
+        world.query_one_mut::<Foo>(e3).unwrap(),
+        Foo::Empty
     );
 }
 
