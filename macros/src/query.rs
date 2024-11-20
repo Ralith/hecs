@@ -300,17 +300,12 @@ fn derive_enum(
             },
         });
 
-        query_get_variants.extend(match variant.fields {
-            syn::Fields::Named(_) | syn::Fields::Unnamed(_) => quote! {
-                Self::Fetch::#ident { #(#named_fields),* } => {
-                    #(
-                        let #named_fields: <#queries as ::hecs::Query>::Item<'q> = <#queries as ::hecs::Query>::get(#named_fields, n);
-                    )*
-                    Self::Item::#ident { #( #fields: #named_fields,)* }
-                },
-            },
-            syn::Fields::Unit => quote! {
-                Self::Fetch::#ident {} => Self::Item::#ident,
+        query_get_variants.extend(quote! {
+            Self::Fetch::#ident { #(#named_fields),* } => {
+                #(
+                    let #named_fields: <#queries as ::hecs::Query>::Item<'q> = <#queries as ::hecs::Query>::get(#named_fields, n);
+                )*
+                Self::Item::#ident { #( #fields: #named_fields,)* }
             },
         });
 
