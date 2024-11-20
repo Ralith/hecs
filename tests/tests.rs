@@ -80,6 +80,67 @@ fn derived_query() {
 
 #[test]
 #[cfg(feature = "macros")]
+fn derived_enum_query() {
+    #[derive(Query, Debug, PartialEq)]
+    enum Foo<'a> {
+        NumberAndString(&'a i32, &'a String),
+        Number(&'a i32),
+        Boolean(&'a mut bool),
+    }
+
+    let mut world = World::new();
+    let e1 = world.spawn((42, false));
+
+    assert_eq!(world.query_one_mut::<Foo>(e1).unwrap(), Foo::Number(&42));
+
+    let e2 = world.spawn((String::from("Hello"), false));
+
+    assert_eq!(
+        world.query_one_mut::<Foo>(e2).unwrap(),
+        Foo::Boolean(&mut false)
+    );
+
+    let e3 = world.spawn((String::from("Hello"), 42));
+
+    assert_eq!(
+        world.query_one_mut::<Foo>(e3).unwrap(),
+        Foo::NumberAndString(&42, &String::from("Hello"))
+    );
+
+    let e4 = world.spawn((String::from("Hello"), 0_usize));
+
+    assert_eq!(
+        world.query_one_mut::<Foo>(e4),
+        Err(QueryOneError::Unsatisfied)
+    );
+}
+
+#[test]
+#[cfg(feature = "macros")]
+fn derived_enum_query_with_empty() {
+    #[derive(Query, Debug, PartialEq)]
+    enum Foo<'a> {
+        Number(&'a i32),
+        Empty,
+        Impossible(&'a String),
+    }
+
+    let mut world = World::new();
+    let e1 = world.spawn((42, false));
+
+    assert_eq!(world.query_one_mut::<Foo>(e1).unwrap(), Foo::Number(&42));
+
+    let e2 = world.spawn((false, 0_usize));
+
+    assert_eq!(world.query_one_mut::<Foo>(e2).unwrap(), Foo::Empty);
+
+    let e3 = world.spawn((String::from("Hello"), false));
+
+    assert_eq!(world.query_one_mut::<Foo>(e3).unwrap(), Foo::Empty);
+}
+
+#[test]
+#[cfg(feature = "macros")]
 fn derived_bundle_clone() {
     #[derive(Bundle, DynamicBundleClone)]
     struct Foo<T: Clone + Component> {

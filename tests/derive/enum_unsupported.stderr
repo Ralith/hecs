@@ -1,0 +1,5 @@
+error: derive(Bundle) does not support enums or unions
+ --> $DIR/enum_unsupported.rs:4:6
+  |
+4 | enum Foo {}
+  |      ^^^

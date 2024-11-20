@@ -1,4 +1,4 @@
-error: derive(Query) may only be applied to structs
+error: derive(Query) may only be applied to structs and enums
  --> $DIR/union.rs:4:7
   |
 4 | union Foo {

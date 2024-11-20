@@ -6,8 +6,9 @@
 fn derive() {
     const TEST_DIR: &str = "tests/derive";
     let t = trybuild::TestCases::new();
-    let failures = &["enum.rs", "union.rs", "wrong_lifetime.rs"];
+    let failures = &["enum_unsupported.rs", "union.rs", "wrong_lifetime.rs"];
     let successes = &[
+        "enum_query.rs",
         "unit_structs.rs",
         "tuple_structs.rs",
         "named_structs.rs",

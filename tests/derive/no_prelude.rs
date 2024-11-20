@@ -18,4 +18,13 @@ struct Quux<'a> {
     foo: &'a (),
 }
 
+#[derive(::hecs::Query)]
+enum Corge<'a> {
+    Foo (&'a i32),
+    Bar {
+        bar: &'a bool
+    },
+    Baz
+}
+
 fn main() {}
