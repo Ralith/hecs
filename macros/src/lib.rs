@@ -69,8 +69,8 @@ pub fn derive_dynamic_bundle_clone(input: TokenStream) -> TokenStream {
 /// one lifetime parameter, and all of their fields must be queries (e.g. references) using that
 /// lifetime.
 ///
-/// For enum queries, the result will always be the first variant that satisfies the entity.
-/// Unit variants and variants without any fields will always satisfy an entity.
+/// For enum queries, the result will always be the first variant that matches the entity.
+/// Unit variants and variants without any fields will always match an entity.
 ///
 /// # Example
 /// ```
