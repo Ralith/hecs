@@ -912,6 +912,31 @@ impl World {
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
+
+    /// Entity handles that will be yielded by future spawns
+    ///
+    /// [`Entity`] handles will be allocated deterministically between different
+    /// worlds (e.g. across serialization) if they have the same live entities
+    /// and the same freelist.
+    ///
+    /// To deserialize a world that will match the entity allocation behavior of
+    /// a previously serialized world, first create a new world, then use
+    /// [`spawn_at`](Self::spawn_at) or similar to reconstruct the serialized
+    /// world's entities in place, then call
+    /// [`set_freelist`](Self::set_freelist) with the serialized world's
+    /// freelist.
+    pub fn freelist(&self) -> impl ExactSizeIterator<Item = Entity> + '_ {
+        self.entities.freelist()
+    }
+
+    /// Designate entity IDs to be reused by future spawns
+    ///
+    /// See [`freelist`](Self::freelist). May only be called when the set of
+    /// live entity IDs exactly matches those that were live when the supplied
+    /// freelist was captured.
+    pub fn set_freelist(&mut self, freelist: &[Entity]) {
+        self.entities.set_freelist(freelist);
+    }
 }
 
 unsafe impl Send for World {}
@@ -1392,5 +1417,33 @@ mod tests {
     fn bad_insert() {
         let mut world = World::new();
         assert!(world.insert_one(Entity::DANGLING, ()).is_err());
+    }
+
+    #[test]
+    fn deterministic_ids() {
+        let mut world = World::new();
+        let entities = world.spawn_batch([(); 10]).collect::<Vec<_>>();
+        const DESPAWNS: [usize; 3] = [4, 0, 7];
+        for index in DESPAWNS {
+            world.despawn(entities[index]).unwrap();
+        }
+
+        let mut world2 = World::new();
+        for (i, entity) in entities.iter().copied().enumerate() {
+            if DESPAWNS.contains(&i) {
+                continue;
+            }
+            world2.spawn_at(entity, ());
+        }
+        world2.set_freelist(&world.freelist().collect::<Vec<_>>());
+
+        assert_eq!(
+            world
+                .spawn_batch([(); DESPAWNS.len() + 2])
+                .collect::<Vec<_>>(),
+            world2
+                .spawn_batch([(); DESPAWNS.len() + 2])
+                .collect::<Vec<_>>()
+        );
     }
 }
