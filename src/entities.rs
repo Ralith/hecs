@@ -617,7 +617,7 @@ mod tests {
         let mut len = 0;
 
         for _ in 0..100 {
-            let alloc = rng.gen_bool(0.7);
+            let alloc = rng.random_bool(0.7);
             if alloc || first_unused == 0 {
                 let entity = e.alloc();
                 e.meta[entity.id as usize].location.index = 0;
@@ -636,7 +636,7 @@ mod tests {
                 assert!(id_to_gen.insert(id, entity.generation.get()).is_none());
             } else {
                 // Free a random ID, whether or not it's in use, and check for errors.
-                let id = rng.gen_range(0..first_unused);
+                let id = rng.random_range(0..first_unused);
 
                 let generation = id_to_gen.remove(&id);
                 let entity = Entity {

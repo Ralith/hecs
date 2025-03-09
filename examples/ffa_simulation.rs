@@ -1,5 +1,5 @@
 use hecs::*;
-use rand::{thread_rng, Rng};
+use rand::Rng;
 use std::io;
 
 /*
@@ -39,16 +39,16 @@ fn manhattan_dist(x0: i32, x1: i32, y0: i32, y1: i32) -> i32 {
 }
 
 fn batch_spawn_entities(world: &mut World, n: usize) {
-    let mut rng = thread_rng();
+    let mut rng = rand::rng();
 
     let to_spawn = (0..n).map(|_| {
         let pos = Position {
-            x: rng.gen_range(-10..10),
-            y: rng.gen_range(-10..10),
+            x: rng.random_range(-10..10),
+            y: rng.random_range(-10..10),
         };
-        let s = Speed(rng.gen_range(1..5));
-        let hp = Health(rng.gen_range(30..50));
-        let dmg = Damage(rng.gen_range(1..10));
+        let s = Speed(rng.random_range(1..5));
+        let hp = Health(rng.random_range(30..50));
+        let dmg = Damage(rng.random_range(1..10));
         let kc = KillCount(0);
 
         (pos, s, hp, dmg, kc)
@@ -60,10 +60,10 @@ fn batch_spawn_entities(world: &mut World, n: usize) {
 }
 
 fn system_integrate_motion(world: &mut World, query: &mut PreparedQuery<(&mut Position, &Speed)>) {
-    let mut rng = thread_rng();
+    let mut rng = rand::rng();
 
     for (id, (pos, s)) in query.query_mut(world) {
-        let change = (rng.gen_range(-s.0..s.0), rng.gen_range(-s.0..s.0));
+        let change = (rng.random_range(-s.0..s.0), rng.random_range(-s.0..s.0));
         pos.x += change.0;
         pos.y += change.1;
         println!("Unit {:?} moved to {:?}", id, pos);
