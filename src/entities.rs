@@ -343,6 +343,7 @@ impl Entities {
         self.verify_flushed();
 
         let loc = if entity.id as usize >= self.meta.len() {
+            // ID has never been used in this world before
             self.pending.extend((self.meta.len() as u32)..entity.id);
             let new_free_cursor = self.pending.len() as isize;
             *self.free_cursor.get_mut() = new_free_cursor;
@@ -350,12 +351,14 @@ impl Entities {
             self.len += 1;
             None
         } else if let Some(index) = self.pending.iter().position(|item| *item == entity.id) {
+            // ID was previously in use, but is now free
             self.pending.swap_remove(index);
             let new_free_cursor = self.pending.len() as isize;
             *self.free_cursor.get_mut() = new_free_cursor;
             self.len += 1;
             None
         } else {
+            // ID is currently in use by a live entity
             Some(mem::replace(
                 &mut self.meta[entity.id as usize].location,
                 EntityMeta::EMPTY.location,
@@ -528,6 +531,45 @@ impl Entities {
     #[inline]
     pub fn len(&self) -> u32 {
         self.len
+    }
+
+    pub fn freelist(&self) -> impl ExactSizeIterator<Item = Entity> + '_ {
+        let free = self.free_cursor.load(Ordering::Relaxed);
+        let ids = match usize::try_from(free) {
+            Err(_) => &[],
+            Ok(free) => &self.pending[0..free],
+        };
+        ids.iter().map(|&id| Entity {
+            id,
+            generation: self.meta[id as usize].generation,
+        })
+    }
+
+    pub fn set_freelist(&mut self, freelist: &[Entity]) {
+        #[cfg(debug_assertions)]
+        {
+            for entity in freelist {
+                let Some(meta) = self.meta.get(entity.id as usize) else {
+                    continue;
+                };
+                assert_eq!(
+                    meta.location.index,
+                    u32::MAX,
+                    "freelist addresses live entities"
+                );
+            }
+        }
+        if let Some(max) = freelist.iter().map(|e: &Entity| e.id()).max() {
+            if max as usize >= self.meta.len() {
+                self.meta.resize(max as usize + 1, EntityMeta::EMPTY);
+            }
+        }
+        self.pending.clear();
+        for entity in freelist {
+            self.pending.push(entity.id);
+            self.meta[entity.id as usize].generation = entity.generation;
+        }
+        self.free_cursor = AtomicIsize::new(freelist.len() as isize);
     }
 }
 
