@@ -43,7 +43,7 @@ impl Entity {
     /// representation.
     pub const fn to_bits(self) -> NonZeroU64 {
         unsafe {
-            NonZeroU64::new_unchecked((self.generation.get() as u64) << 32 | (self.id as u64))
+            NonZeroU64::new_unchecked(((self.generation.get() as u64) << 32) | (self.id as u64))
         }
     }
 
@@ -121,7 +121,7 @@ pub struct ReserveEntitiesIterator<'a> {
     id_range: core::ops::Range<u32>,
 }
 
-impl<'a> Iterator for ReserveEntitiesIterator<'a> {
+impl Iterator for ReserveEntitiesIterator<'_> {
     type Item = Entity;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -145,7 +145,7 @@ impl<'a> Iterator for ReserveEntitiesIterator<'a> {
     }
 }
 
-impl<'a> ExactSizeIterator for ReserveEntitiesIterator<'a> {}
+impl ExactSizeIterator for ReserveEntitiesIterator<'_> {}
 
 #[derive(Default)]
 pub(crate) struct Entities {

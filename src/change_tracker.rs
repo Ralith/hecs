@@ -73,7 +73,7 @@ where
     removed: bool,
 }
 
-impl<'a, T> Changes<'a, T>
+impl<T> Changes<'_, T>
 where
     T: Component + Clone + PartialEq,
 {
@@ -126,7 +126,7 @@ where
     }
 }
 
-impl<'a, T: Component> Drop for Changes<'a, T>
+impl<T: Component> Drop for Changes<'_, T>
 where
     T: Component + Clone + PartialEq,
 {

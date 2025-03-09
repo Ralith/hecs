@@ -106,8 +106,8 @@ impl<'a> EntityRef<'a> {
     }
 }
 
-unsafe impl<'a> Send for EntityRef<'a> {}
-unsafe impl<'a> Sync for EntityRef<'a> {}
+unsafe impl Send for EntityRef<'_> {}
+unsafe impl Sync for EntityRef<'_> {}
 
 /// Shared borrow of an entity's component
 pub struct Ref<'a, T: ?Sized> {
@@ -167,26 +167,26 @@ impl<'a, T: ?Sized> Ref<'a, T> {
     }
 }
 
-impl<'a, T: ?Sized> Deref for Ref<'a, T> {
+impl<T: ?Sized> Deref for Ref<'_, T> {
     type Target = T;
     fn deref(&self) -> &T {
         unsafe { self.target.as_ref() }
     }
 }
 
-impl<'a, T: ?Sized + Debug> Debug for Ref<'a, T> {
+impl<T: ?Sized + Debug> Debug for Ref<'_, T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         Debug::fmt(self.deref(), f)
     }
 }
 
-impl<'a, T: ?Sized + Display> Display for Ref<'a, T> {
+impl<T: ?Sized + Display> Display for Ref<'_, T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         Display::fmt(self.deref(), f)
     }
 }
 
-impl<'a, T: ?Sized> Clone for Ref<'a, T> {
+impl<T: ?Sized> Clone for Ref<'_, T> {
     fn clone(&self) -> Self {
         Self {
             borrow: self.borrow.clone(),
@@ -255,26 +255,26 @@ impl<'a, T: ?Sized> RefMut<'a, T> {
     }
 }
 
-impl<'a, T: ?Sized> Deref for RefMut<'a, T> {
+impl<T: ?Sized> Deref for RefMut<'_, T> {
     type Target = T;
     fn deref(&self) -> &T {
         unsafe { self.target.as_ref() }
     }
 }
 
-impl<'a, T: ?Sized> DerefMut for RefMut<'a, T> {
+impl<T: ?Sized> DerefMut for RefMut<'_, T> {
     fn deref_mut(&mut self) -> &mut T {
         unsafe { self.target.as_mut() }
     }
 }
 
-impl<'a, T: ?Sized + Debug> Debug for RefMut<'a, T> {
+impl<T: ?Sized + Debug> Debug for RefMut<'_, T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         Debug::fmt(self.deref(), f)
     }
 }
 
-impl<'a, T: ?Sized + Display> Display for RefMut<'a, T> {
+impl<T: ?Sized + Display> Display for RefMut<'_, T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         Display::fmt(self.deref(), f)
     }
@@ -389,7 +389,7 @@ impl<'a> ComponentBorrow<'a> {
     }
 }
 
-impl<'a> Clone for ComponentBorrow<'a> {
+impl Clone for ComponentBorrow<'_> {
     fn clone(&self) -> Self {
         unsafe {
             self.archetype.borrow_raw(self.state);
@@ -401,7 +401,7 @@ impl<'a> Clone for ComponentBorrow<'a> {
     }
 }
 
-impl<'a> Drop for ComponentBorrow<'a> {
+impl Drop for ComponentBorrow<'_> {
     fn drop(&mut self) {
         unsafe {
             self.archetype.release_raw(self.state);
@@ -436,7 +436,7 @@ impl<'a> ComponentBorrowMut<'a> {
     }
 }
 
-impl<'a> Drop for ComponentBorrowMut<'a> {
+impl Drop for ComponentBorrowMut<'_> {
     fn drop(&mut self) {
         unsafe {
             self.archetype.release_raw_mut(self.state);

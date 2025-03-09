@@ -79,7 +79,7 @@ pub enum Access {
     Write,
 }
 
-impl<'a, T: Component> Query for &'a T {
+impl<T: Component> Query for &'_ T {
     type Item<'q> = &'q T;
 
     type Fetch = FetchRead<T>;
@@ -89,7 +89,7 @@ impl<'a, T: Component> Query for &'a T {
     }
 }
 
-unsafe impl<'a, T> QueryShared for &'a T {}
+unsafe impl<T> QueryShared for &'_ T {}
 
 #[doc(hidden)]
 pub struct FetchRead<T>(NonNull<T>);
@@ -134,7 +134,7 @@ impl<T> Clone for FetchRead<T> {
     }
 }
 
-impl<'a, T: Component> Query for &'a mut T {
+impl<T: Component> Query for &'_ mut T {
     type Item<'q> = &'q mut T;
 
     type Fetch = FetchWrite<T>;
@@ -714,10 +714,10 @@ impl<'w, Q: Query> QueryBorrow<'w, Q> {
     }
 }
 
-unsafe impl<'w, Q: Query> Send for QueryBorrow<'w, Q> where for<'a> Q::Item<'a>: Send {}
-unsafe impl<'w, Q: Query> Sync for QueryBorrow<'w, Q> where for<'a> Q::Item<'a>: Send {}
+unsafe impl<Q: Query> Send for QueryBorrow<'_, Q> where for<'a> Q::Item<'a>: Send {}
+unsafe impl<Q: Query> Sync for QueryBorrow<'_, Q> where for<'a> Q::Item<'a>: Send {}
 
-impl<'w, Q: Query> Drop for QueryBorrow<'w, Q> {
+impl<Q: Query> Drop for QueryBorrow<'_, Q> {
     fn drop(&mut self) {
         if self.borrowed {
             release_borrow::<Q>(self.world.archetypes_inner());
@@ -725,7 +725,7 @@ impl<'w, Q: Query> Drop for QueryBorrow<'w, Q> {
     }
 }
 
-impl<'q, 'w, Q: Query> IntoIterator for &'q mut QueryBorrow<'w, Q> {
+impl<'q, Q: Query> IntoIterator for &'q mut QueryBorrow<'_, Q> {
     type Item = (Entity, Q::Item<'q>);
     type IntoIter = QueryIter<'q, Q>;
 
@@ -768,8 +768,8 @@ impl<'q, Q: Query> QueryIter<'q, Q> {
     }
 }
 
-unsafe impl<'q, Q: Query> Send for QueryIter<'q, Q> where for<'a> Q::Item<'a>: Send {}
-unsafe impl<'q, Q: Query> Sync for QueryIter<'q, Q> where for<'a> Q::Item<'a>: Send {}
+unsafe impl<Q: Query> Send for QueryIter<'_, Q> where for<'a> Q::Item<'a>: Send {}
+unsafe impl<Q: Query> Sync for QueryIter<'_, Q> where for<'a> Q::Item<'a>: Send {}
 
 impl<'q, Q: Query> Iterator for QueryIter<'q, Q> {
     type Item = (Entity, Q::Item<'q>);
@@ -806,7 +806,7 @@ impl<'q, Q: Query> Iterator for QueryIter<'q, Q> {
     }
 }
 
-impl<'q, Q: Query> ExactSizeIterator for QueryIter<'q, Q> {
+impl<Q: Query> ExactSizeIterator for QueryIter<'_, Q> {
     fn len(&self) -> usize {
         self.archetypes
             .clone()
@@ -977,8 +977,8 @@ impl<'q, Q: Query> BatchedIter<'q, Q> {
     }
 }
 
-unsafe impl<'q, Q: Query> Send for BatchedIter<'q, Q> where for<'a> Q::Item<'a>: Send {}
-unsafe impl<'q, Q: Query> Sync for BatchedIter<'q, Q> where for<'a> Q::Item<'a>: Send {}
+unsafe impl<Q: Query> Send for BatchedIter<'_, Q> where for<'a> Q::Item<'a>: Send {}
+unsafe impl<Q: Query> Sync for BatchedIter<'_, Q> where for<'a> Q::Item<'a>: Send {}
 
 impl<'q, Q: Query> Iterator for BatchedIter<'q, Q> {
     type Item = Batch<'q, Q>;
@@ -1037,8 +1037,8 @@ impl<'q, Q: Query> Iterator for Batch<'q, Q> {
     }
 }
 
-unsafe impl<'q, Q: Query> Send for Batch<'q, Q> where for<'a> Q::Item<'a>: Send {}
-unsafe impl<'q, Q: Query> Sync for Batch<'q, Q> where for<'a> Q::Item<'a>: Send {}
+unsafe impl<Q: Query> Send for Batch<'_, Q> where for<'a> Q::Item<'a>: Send {}
+unsafe impl<Q: Query> Sync for Batch<'_, Q> where for<'a> Q::Item<'a>: Send {}
 
 macro_rules! tuple_impl {
     ($($name: ident),*) => {
@@ -1272,8 +1272,8 @@ impl<'q, Q: Query> PreparedQueryIter<'q, Q> {
     }
 }
 
-unsafe impl<'q, Q: Query> Send for PreparedQueryIter<'q, Q> where for<'a> Q::Item<'a>: Send {}
-unsafe impl<'q, Q: Query> Sync for PreparedQueryIter<'q, Q> where for<'a> Q::Item<'a>: Send {}
+unsafe impl<Q: Query> Send for PreparedQueryIter<'_, Q> where for<'a> Q::Item<'a>: Send {}
+unsafe impl<Q: Query> Sync for PreparedQueryIter<'_, Q> where for<'a> Q::Item<'a>: Send {}
 
 impl<'q, Q: Query> Iterator for PreparedQueryIter<'q, Q> {
     type Item = (Entity, Q::Item<'q>);
@@ -1324,8 +1324,8 @@ pub struct View<'q, Q: Query> {
     fetch: Vec<Option<Q::Fetch>>,
 }
 
-unsafe impl<'q, Q: Query> Send for View<'q, Q> where for<'a> Q::Item<'a>: Send {}
-unsafe impl<'q, Q: Query> Sync for View<'q, Q> where for<'a> Q::Item<'a>: Send {}
+unsafe impl<Q: Query> Send for View<'_, Q> where for<'a> Q::Item<'a>: Send {}
+unsafe impl<Q: Query> Sync for View<'_, Q> where for<'a> Q::Item<'a>: Send {}
 
 impl<'q, Q: Query> View<'q, Q> {
     /// # Safety
@@ -1458,7 +1458,7 @@ impl<'q, Q: Query> View<'q, Q> {
     }
 }
 
-impl<'a, 'q, Q: Query> IntoIterator for &'a mut View<'q, Q> {
+impl<'a, Q: Query> IntoIterator for &'a mut View<'_, Q> {
     type IntoIter = ViewIter<'a, Q>;
     type Item = (Entity, Q::Item<'a>);
 
@@ -1511,8 +1511,8 @@ pub struct PreparedView<'q, Q: Query> {
     fetch: &'q mut [Option<Q::Fetch>],
 }
 
-unsafe impl<'q, Q: Query> Send for PreparedView<'q, Q> where for<'a> Q::Item<'a>: Send {}
-unsafe impl<'q, Q: Query> Sync for PreparedView<'q, Q> where for<'a> Q::Item<'a>: Send {}
+unsafe impl<Q: Query> Send for PreparedView<'_, Q> where for<'a> Q::Item<'a>: Send {}
+unsafe impl<Q: Query> Sync for PreparedView<'_, Q> where for<'a> Q::Item<'a>: Send {}
 
 impl<'q, Q: Query> PreparedView<'q, Q> {
     /// # Safety
@@ -1631,7 +1631,7 @@ impl<'q, Q: Query> PreparedView<'q, Q> {
     }
 }
 
-impl<'a, 'q, Q: Query> IntoIterator for &'a mut PreparedView<'q, Q> {
+impl<'a, Q: Query> IntoIterator for &'a mut PreparedView<'_, Q> {
     type IntoIter = ViewIter<'a, Q>;
     type Item = (Entity, Q::Item<'a>);
 
@@ -1737,13 +1737,13 @@ impl<'w, Q: Query> ViewBorrow<'w, Q> {
     }
 }
 
-impl<'w, Q: Query> Drop for ViewBorrow<'w, Q> {
+impl<Q: Query> Drop for ViewBorrow<'_, Q> {
     fn drop(&mut self) {
         release_borrow::<Q>(self.view.archetypes)
     }
 }
 
-impl<'a, 'q, Q: Query> IntoIterator for &'a mut ViewBorrow<'q, Q> {
+impl<'a, Q: Query> IntoIterator for &'a mut ViewBorrow<'_, Q> {
     type IntoIter = ViewIter<'a, Q>;
     type Item = (Entity, Q::Item<'a>);
 
