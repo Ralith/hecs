@@ -1,14 +1,12 @@
 //! This example demonstrates using the [ColumnBatch][hecs::ColumnBatch] API to efficiently clone
 //! the entities in a [World] along with some or all components.
 //!
-//! Note that the cloned world may have different iteration order and/or newly created entity ids
-//! may diverge between the original and newly created worlds. If that is a dealbreaker for you,
-//! see https://github.com/Ralith/hecs/issues/332 for some pointers on preserving entity allocator
-//! state; as of time of writing, you'll need to patch `hecs`.
-
-use std::any::TypeId;
+//! By using [`World::set_freelist()`], we ensure that the cloned world will allocate new entities
+//! in sync with the original world: newly allocated entities will have the same entity ids as the
+//! original world, and the iteration order will be the same.
 
 use hecs::{Archetype, ColumnBatchBuilder, ColumnBatchType, Component, TypeIdMap, TypeInfo, World};
+use std::any::TypeId;
 
 struct ComponentCloneMetadata {
     type_info: TypeInfo,
@@ -45,6 +43,8 @@ impl WorldCloner {
     }
 
     fn clone_world(&self, world: &World) -> World {
+        let freelist = world.freelist().collect::<Vec<_>>();
+
         let mut cloned = World::new();
 
         for archetype in world.archetypes() {
@@ -62,36 +62,46 @@ impl WorldCloner {
                 }
             }
 
-            let batch = batch_builder.build().expect("batch should be complete");
-            let handles = &cloned
-                .reserve_entities(archetype.ids().len() as u32)
+            let handles = archetype
+                .ids()
+                .iter()
+                .map(|id| unsafe { world.find_entity_from_id(*id) })
                 .collect::<Vec<_>>();
-            cloned.flush();
-            cloned.spawn_column_batch_at(handles, batch);
+
+            let batch = batch_builder.build().expect("batch should be complete");
+            cloned.spawn_column_batch_at(&handles, batch);
         }
+
+        // make sure that the cloned world allocates new entities in sync with the original world
+        cloned.set_freelist(&freelist);
 
         cloned
     }
 }
 
 pub fn main() {
-    let int0 = 0;
-    let int1 = 1;
-    let str0 = "Ada".to_owned();
-    let str1 = "Bob".to_owned();
-    let str2 = "Cal".to_owned();
+    let entity0_data = (0i32, "Ada".to_owned());
+    let entity1_data = (1i32,);
+    let entity2_data = (2i32, "Cob".to_owned());
+    let entity3_data = (3i32,);
+    let entity4_data = (4i32, 4u8); // we don't register u8 so it won't be cloned
 
     let mut world0 = World::new();
-    let entity0 = world0.spawn((int0, str0));
-    let entity1 = world0.spawn((int1, str1));
-    let entity2 = world0.spawn((str2,));
-    let entity3 = world0.spawn((0u8,)); // unregistered component
+    let entity0 = world0.spawn(entity0_data.clone());
+    let entity1 = world0.spawn(entity1_data.clone());
+    let entity2 = world0.spawn(entity2_data.clone());
+    let _entity3 = world0.spawn(entity3_data.clone());
+    let entity4 = world0.spawn(entity4_data.clone());
+
+    world0.despawn(entity1).unwrap();
+    world0.despawn(_entity3).unwrap();
+    let _entity3 = world0.spawn(entity3_data.clone());
 
     let mut cloner = WorldCloner::default();
     cloner.register::<i32>();
     cloner.register::<String>();
 
-    let world1 = cloner.clone_world(&world0);
+    let mut world1 = cloner.clone_world(&world0);
 
     assert_eq!(
         world0.len(),
@@ -99,43 +109,46 @@ pub fn main() {
         "cloned world should have same entity count as original world"
     );
 
-    // NB: unregistered components don't get cloned
-    assert!(
-        world0
-            .entity(entity3)
-            .expect("w0 entity3 should exist")
-            .has::<u8>(),
-        "original world entity has u8 component"
-    );
-    assert!(
-        !world1
-            .entity(entity3)
-            .expect("w1 entity3 should exist")
-            .has::<u8>(),
-        "cloned world entity does not have u8 component because it was not registered"
-    );
-
-    type AllRegisteredComponentsQuery = (&'static i32, &'static String);
-    for entity in [entity0, entity1] {
-        let w0_e = world0.entity(entity).expect("w0 entity should exist");
-        let w1_e = world1.entity(entity).expect("w1 entity should exist");
-        assert!(w0_e.satisfies::<AllRegisteredComponentsQuery>());
-        assert!(w1_e.satisfies::<AllRegisteredComponentsQuery>());
-
+    for (original_entity, cloned_entity) in world0.iter().zip(world1.iter()) {
         assert_eq!(
-            w0_e.query::<AllRegisteredComponentsQuery>().get().unwrap(),
-            w1_e.query::<AllRegisteredComponentsQuery>().get().unwrap()
+            original_entity.entity(),
+            cloned_entity.entity(),
+            "entity iteration order should be the same"
         );
+        let original_i32 = original_entity.get::<&i32>().unwrap();
+        let cloned_i32 = cloned_entity.get::<&i32>().unwrap();
+        assert_eq!(*original_i32, *cloned_i32, "i32 component should be cloned");
     }
 
-    type SomeRegisteredComponentsQuery = (&'static String,);
-    let w0_e = world0.entity(entity2).expect("w0 entity2 should exist");
-    let w1_e = world1.entity(entity2).expect("w1 entity2 should exist");
-    assert!(w0_e.satisfies::<SomeRegisteredComponentsQuery>());
-    assert!(w1_e.satisfies::<SomeRegisteredComponentsQuery>());
-
+    // spawn something to make sure that entity ids allocated are the same
+    let entity1 = world0.spawn(entity1_data.clone());
     assert_eq!(
-        w0_e.query::<SomeRegisteredComponentsQuery>().get().unwrap(),
-        w1_e.query::<SomeRegisteredComponentsQuery>().get().unwrap()
+        entity1,
+        world1.spawn(entity1_data.clone()),
+        "newly spawned entity should have same id in both worlds"
+    );
+
+    // despawn and re-spawn to make sure that entity ids allocated are the same
+    world0.despawn(entity0).unwrap();
+    world1.despawn(entity0).unwrap();
+    let entity0 = world0.spawn(entity0_data.clone());
+    assert_eq!(
+        entity0,
+        world1.spawn(entity0_data.clone()),
+        "despawned and re-spawned entity should have same id in both worlds"
+    );
+
+    // make sure that entity 2 has had its string cloned as expected
+    let original_string = world0.get::<&String>(entity2).unwrap();
+    let cloned_string = world1.get::<&String>(entity2).unwrap();
+    assert_eq!(
+        *original_string, *cloned_string,
+        "string component should be cloned"
+    );
+
+    // but the u8 component shouldn't have been cloned
+    assert!(
+        world1.get::<&u8>(entity4).is_err(),
+        "u8 component should not be cloned because it was not registered"
     );
 }
