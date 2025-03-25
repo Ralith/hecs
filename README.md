@@ -112,11 +112,6 @@ submitted for inclusion in the work by you, as defined in the
 Apache-2.0 license, shall be dual licensed as above, without any
 additional terms or conditions.
 
-### Disclaimer
-
-This is not an official Google product (experimental or otherwise), it is just
-code that happens to be owned by Google.
-
 [bevy]: https://github.com/bevyengine/bevy
 [specs]: https://github.com/amethyst/specs
 [legion]: https://github.com/TomGillen/legion
