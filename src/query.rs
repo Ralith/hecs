@@ -1311,6 +1311,10 @@ impl<Q: Query> ExactSizeIterator for PreparedQueryIter<'_, Q> {
 }
 
 /// Provides random access to the results of a query
+///
+/// Views borrow all components that they expose, from when the view is created until it's
+/// dropped. As with any borrowing pattern, they should usually be short-lived to avoid conflicts
+/// with distant code that might want to borrow the same components.
 pub struct View<'q, Q: Query> {
     meta: &'q [EntityMeta],
     archetypes: &'q [Archetype],
