@@ -1011,6 +1011,62 @@ fn columnar_access() {
 }
 
 #[test]
+fn columnwise_cloning_preserves_iteration_order() {
+    // Iteration order should be preserved when a new world is created with column batches of the
+    // same order and contents as the original world's archetypes(), so that a cloned world has
+    // the same iteration order as the original world (see also examples/cloning.rs).
+
+    let mut world_a = World::new();
+    world_a.spawn((0u16,));
+    world_a.spawn((1u8,));
+    world_a.spawn((2u8,));
+
+    let mut world_b = World::new();
+
+    for archetype in world_a.archetypes() {
+        let mut batch_type = ColumnBatchType::new();
+        if archetype.has::<u8>() {
+            batch_type.add::<u8>();
+        }
+        if archetype.has::<u16>() {
+            batch_type.add::<u16>();
+        }
+        let mut batch_builder = batch_type.into_batch(archetype.ids().len() as u32);
+
+        let handles = archetype
+            .ids()
+            .iter()
+            .map(|id| unsafe { world_a.find_entity_from_id(*id) })
+            .collect::<Vec<_>>();
+
+        if archetype.has::<u8>() {
+            let mut writer_u8 = batch_builder.writer::<u8>().unwrap();
+            for handle in handles.iter() {
+                writer_u8
+                    .push(*world_a.get::<&u8>(*handle).unwrap())
+                    .unwrap();
+            }
+        }
+        if archetype.has::<u16>() {
+            let mut writer_u16 = batch_builder.writer::<u16>().unwrap();
+            for handle in handles.iter() {
+                writer_u16
+                    .push(*world_a.get::<&u16>(*handle).unwrap())
+                    .unwrap();
+            }
+        }
+
+        let batch = batch_builder.build().unwrap();
+        world_b.spawn_column_batch(batch);
+    }
+
+    assert_eq!(world_a.len(), world_b.len());
+    for (a, b) in world_a.iter().zip(world_b.iter()) {
+        assert_eq!(a.entity(), b.entity());
+    }
+}
+
+#[test]
 fn empty_entity_ref() {
     let mut world = World::new();
     let e = world.spawn(());
