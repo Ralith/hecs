@@ -49,12 +49,12 @@ impl WorldCloner {
 
         // Copy over archetypes by invoking the stored cloning function for each component type.
         //
-        // Iteration order of the cloned world is (incidentally) preserved here because iterating
-        // through the world (or iterating through the results of a query on the world) iterates
-        // through all archetypes in the order in which they were added to the world - so to keep
-        // iteration order the same, we rely on `archetypes()` returning archetypes in the order
-        // they were added to the world, and we make sure to add those to the cloned world in that
-        // same order again.
+        // Iteration order of the cloned world is preserved here because iterating through the world
+        // (or iterating through the results of a query on the world) iterates through all
+        // archetypes in the order in which they were added to the world - so to keep iteration
+        // order the same, we rely on `archetypes()` returning archetypes in the order they were
+        // added to the world, and we make sure to add those to the cloned world in that same order
+        // again. See the test `columnwise_cloning_preserves_iteration_order`.
         for archetype in world.archetypes() {
             let mut batch_type = ColumnBatchType::new();
             for (&type_id, clone_metadata) in self.registry.iter() {
