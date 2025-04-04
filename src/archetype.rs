@@ -418,7 +418,7 @@ impl Archetype {
 impl Drop for Archetype {
     fn drop(&mut self) {
         self.clear();
-        if self.entities.len() == 0 {
+        if self.entities.is_empty() {
             return;
         }
         for (info, data) in self.types.iter().zip(&*self.data) {
