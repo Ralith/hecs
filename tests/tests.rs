@@ -1117,3 +1117,15 @@ fn query_many_duplicate() {
     let e = world.spawn(());
     _ = world.query_many_mut::<(), 2>([e, e]);
 }
+
+#[test]
+fn cache_invalidation() {
+    let mut world = World::new();
+    assert_eq!(world.query::<&i32>().iter().collect::<Vec<_>>(), []);
+    let a = world.spawn((42, true));
+    let b = world.spawn((17,));
+    assert_eq!(
+        world.query::<&i32>().iter().collect::<Vec<_>>(),
+        &[(a, &42), (b, &17)]
+    );
+}
