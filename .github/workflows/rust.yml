@@ -59,6 +59,10 @@ jobs:
 
   miri:
     runs-on: ubuntu-latest
+    env:
+      # We only use permissive provenance ops for creating aligned
+      # dangling pointers, and strict provenance is a big MSRV bump.
+      MIRIFLAGS: -Zmiri-permissive-provenance
     steps:
       - uses: actions/checkout@v4
 
@@ -68,4 +72,5 @@ jobs:
 
       - run: cargo miri setup
 
-      - run: cargo miri test --all-features
+        # miri doesn't want to run doctests for some reason
+      - run: cargo miri test --all-features --lib --tests
