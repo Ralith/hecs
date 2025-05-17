@@ -1,11 +1,17 @@
+#[cfg(feature = "std")]
+use core::any::Any;
 use core::any::TypeId;
 use core::marker::PhantomData;
 use core::ptr::NonNull;
 use core::slice::Iter as SliceIter;
+#[cfg(feature = "std")]
+use std::sync::{Arc, RwLock};
 
 use crate::alloc::{boxed::Box, vec::Vec};
 use crate::archetype::Archetype;
 use crate::entities::EntityMeta;
+#[cfg(feature = "std")]
+use crate::TypeIdMap;
 use crate::{Component, Entity, World};
 
 /// A collection of component types to fetch from a [`World`](crate::World)
@@ -37,10 +43,10 @@ pub unsafe trait QueryShared {}
 
 /// Streaming iterators over contiguous homogeneous ranges of components
 #[allow(clippy::missing_safety_doc)]
-pub unsafe trait Fetch: Clone + Sized {
+pub unsafe trait Fetch: Clone + Sized + 'static {
     /// The type of the data which can be cached to speed up retrieving
     /// the relevant type states from a matching [`Archetype`]
-    type State: Copy;
+    type State: Copy + Send + Sync;
 
     /// A value on which `get` may never be called
     fn dangling() -> Self;
@@ -1783,11 +1789,92 @@ fn release_borrow<Q: Query>(archetypes: &[Archetype]) {
     }
 }
 
+#[cfg(feature = "std")]
+pub(crate) type QueryCache = RwLock<TypeIdMap<Arc<dyn Any + Send + Sync>>>;
+
+#[cfg(feature = "std")]
+struct CachedQuery<F: Fetch> {
+    state: Box<[(usize, F::State)]>,
+    archetypes_generation: crate::ArchetypesGeneration,
+}
+
+#[cfg(feature = "std")]
+impl<F: Fetch> CachedQuery<F> {
+    fn new(world: &World) -> Self {
+        Self {
+            state: world
+                .archetypes()
+                .enumerate()
+                .filter_map(|(idx, x)| F::prepare(x).map(|state| (idx, state)))
+                .collect(),
+            archetypes_generation: world.archetypes_generation(),
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+struct ArchetypeIter<Q: Query> {
+    state_index: core::ops::Range<usize>,
+    cache: Arc<CachedQuery<Q::Fetch>>,
+}
+
+#[cfg(feature = "std")]
+impl<Q: Query> ArchetypeIter<Q> {
+    fn new(world: &World) -> Self {
+        let existing_cache = world
+            .query_cache()
+            .read()
+            .unwrap()
+            .get(&TypeId::of::<Q::Fetch>())
+            .map(|x| Arc::downcast::<CachedQuery<Q::Fetch>>(x.clone()).unwrap())
+            .filter(|x| x.archetypes_generation == world.archetypes_generation());
+        let cache = existing_cache.unwrap_or_else(
+            #[cold]
+            || {
+                Arc::downcast::<CachedQuery<Q::Fetch>>(
+                    world
+                        .query_cache()
+                        .write()
+                        .unwrap()
+                        .entry(TypeId::of::<Q::Fetch>())
+                        .or_insert_with(|| Arc::new(CachedQuery::<Q::Fetch>::new(world)))
+                        .clone(),
+                )
+                .unwrap()
+            },
+        );
+        Self {
+            state_index: 0..cache.state.len(),
+            cache,
+        }
+    }
+
+    fn next(&mut self, world: &World) -> Option<ChunkIter<Q>> {
+        let state = self.state_index.next()?;
+        let (archetype, state) = self.cache.state[state];
+        let archetype = unsafe { world.archetypes_inner().get_unchecked(archetype) };
+        let fetch = Q::Fetch::execute(archetype, state);
+        Some(ChunkIter::new(archetype, fetch))
+    }
+
+    fn entity_len(&self, world: &World) -> usize {
+        self.state_index
+            .clone()
+            .map(|i| unsafe {
+                let &(x, _) = self.cache.state.get_unchecked(i);
+                world.archetypes_inner().get_unchecked(x).len() as usize
+            })
+            .sum::<usize>()
+    }
+}
+
+#[cfg(not(feature = "std"))]
 struct ArchetypeIter<Q: Query> {
     archetypes: core::ops::Range<usize>,
     _marker: PhantomData<Q>,
 }
 
+#[cfg(not(feature = "std"))]
 impl<Q: Query> ArchetypeIter<Q> {
     fn new(world: &World) -> Self {
         Self {
