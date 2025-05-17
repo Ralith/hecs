@@ -730,7 +730,7 @@ impl<'q, Q: Query> IntoIterator for &'q mut QueryBorrow<'_, Q> {
 /// Iterator over the set of entities with the components in `Q`
 pub struct QueryIter<'q, Q: Query> {
     world: &'q World,
-    archetypes: core::ops::Range<usize>,
+    archetypes: ArchetypeIter<Q>,
     iter: ChunkIter<Q>,
 }
 
@@ -740,24 +740,11 @@ impl<'q, Q: Query> QueryIter<'q, Q> {
     /// `'q` must be sufficient to guarantee that `Q` cannot violate borrow safety, either with
     /// dynamic borrow checks or by representing exclusive access to the `World`.
     unsafe fn new(world: &'q World) -> Self {
-        let n = world.archetypes().len();
         Self {
             world,
-            archetypes: 0..n,
+            archetypes: ArchetypeIter::new(world),
             iter: ChunkIter::empty(),
         }
-    }
-
-    /// Advance query to the next archetype
-    ///
-    /// Outlined from `Iterator::next` for improved iteration performance.
-    fn next_archetype(&mut self) -> Option<()> {
-        let archetype = self.archetypes.next()?;
-        let archetype = unsafe { self.world.archetypes_inner().get_unchecked(archetype) };
-        let state = Q::Fetch::prepare(archetype);
-        let fetch = state.map(|state| Q::Fetch::execute(archetype, state));
-        self.iter = fetch.map_or(ChunkIter::empty(), |fetch| ChunkIter::new(archetype, fetch));
-        Some(())
     }
 }
 
@@ -772,7 +759,10 @@ impl<'q, Q: Query> Iterator for QueryIter<'q, Q> {
         loop {
             match unsafe { self.iter.next() } {
                 None => {
-                    self.next_archetype()?;
+                    // Safety: `self.world` is the same one we passed to `ArchetypeIter::new` just above
+                    unsafe {
+                        self.iter = self.archetypes.next(self.world)?;
+                    }
                     continue;
                 }
                 Some((id, components)) => {
@@ -801,13 +791,7 @@ impl<'q, Q: Query> Iterator for QueryIter<'q, Q> {
 
 impl<Q: Query> ExactSizeIterator for QueryIter<'_, Q> {
     fn len(&self) -> usize {
-        self.archetypes
-            .clone()
-            .map(|x| unsafe { self.world.archetypes_inner().get_unchecked(x) })
-            .filter(|&x| Q::Fetch::access(x).is_some())
-            .map(|x| x.len() as usize)
-            .sum::<usize>()
-            + self.iter.remaining()
+        self.archetypes.entity_len(self.world) + self.iter.remaining()
     }
 }
 
@@ -1791,6 +1775,41 @@ fn release_borrow<Q: Query>(archetypes: &[Archetype]) {
         if let Some(state) = Q::Fetch::prepare(x) {
             Q::Fetch::release(x, state);
         }
+    }
+}
+
+struct ArchetypeIter<Q: Query> {
+    archetypes: core::ops::Range<usize>,
+    _marker: PhantomData<Q>,
+}
+
+impl<Q: Query> ArchetypeIter<Q> {
+    fn new(world: &World) -> Self {
+        Self {
+            archetypes: 0..world.archetypes().len(),
+            _marker: PhantomData,
+        }
+    }
+
+    /// Safety: `world` must be the same as passed to `new`
+    unsafe fn next(&mut self, world: &World) -> Option<ChunkIter<Q>> {
+        loop {
+            let archetype = self.archetypes.next()?;
+            let archetype = unsafe { world.archetypes_inner().get_unchecked(archetype) };
+            if let Some(state) = Q::Fetch::prepare(archetype) {
+                let fetch = Q::Fetch::execute(archetype, state);
+                return Some(ChunkIter::new(archetype, fetch));
+            }
+        }
+    }
+
+    fn entity_len(&self, world: &World) -> usize {
+        self.archetypes
+            .clone()
+            .map(|x| unsafe { world.archetypes_inner().get_unchecked(x) })
+            .filter(|&x| Q::Fetch::access(x).is_some())
+            .map(|x| x.len() as usize)
+            .sum()
     }
 }
 
