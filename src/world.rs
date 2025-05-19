@@ -15,6 +15,8 @@ use hashbrown::hash_map::{Entry, HashMap};
 use crate::alloc::boxed::Box;
 use crate::archetype::{Archetype, TypeIdMap, TypeInfo};
 use crate::entities::{Entities, EntityMeta, Location, ReserveEntitiesIterator};
+#[cfg(feature = "std")]
+use crate::query::QueryCache;
 use crate::query::{assert_borrow, assert_distinct};
 use crate::{
     Bundle, ColumnBatch, ComponentRef, DynamicBundle, Entity, EntityRef, Fetch, MissingComponent,
@@ -50,6 +52,8 @@ pub struct World {
     /// Maps source archetype and static bundle types to the archetype that an entity is moved to
     /// after removing the components from that bundle.
     remove_edges: IndexTypeIdMap<u32>,
+    #[cfg(feature = "std")]
+    query_cache: QueryCache,
     id: u64,
 }
 
@@ -71,6 +75,8 @@ impl World {
             bundle_to_archetype: HashMap::default(),
             insert_edges: HashMap::default(),
             remove_edges: HashMap::default(),
+            #[cfg(feature = "std")]
+            query_cache: QueryCache::default(),
             id,
         }
     }
@@ -425,6 +431,11 @@ impl World {
     #[inline(always)]
     pub(crate) fn archetypes_inner(&self) -> &[Archetype] {
         &self.archetypes.archetypes
+    }
+
+    #[cfg(feature = "std")]
+    pub(crate) fn query_cache(&self) -> &QueryCache {
+        &self.query_cache
     }
 
     /// Prepare a query against a single entity, using dynamic borrow checking
