@@ -638,12 +638,13 @@ impl<'w, Q: Query> QueryBorrow<'w, Q> {
     /// Useful for distributing work over a threadpool.
     // The lifetime narrowing here is required for soundness.
     pub fn iter_batched(&mut self, batch_size: u32) -> BatchedIter<'_, Q> {
-        self.borrow();
+        let cache = self.borrow().clone();
         unsafe {
             BatchedIter::new(
                 self.world.entities_meta(),
-                self.world.archetypes_inner().iter(),
+                self.world.archetypes_inner(),
                 batch_size,
+                cache,
             )
         }
     }
@@ -854,11 +855,13 @@ impl<'q, Q: Query> QueryMut<'q, Q> {
     ///
     /// Useful for distributing work over a threadpool.
     pub fn into_iter_batched(self, batch_size: u32) -> BatchedIter<'q, Q> {
+        let cache = CachedQuery::get(self.iter.world);
         unsafe {
             BatchedIter::new(
                 self.iter.world.entities_meta(),
-                self.iter.world.archetypes_inner().iter(),
+                self.iter.world.archetypes_inner(),
                 batch_size,
+                cache,
             )
         }
     }
@@ -939,8 +942,10 @@ impl<Q: Query> ChunkIter<Q> {
 pub struct BatchedIter<'q, Q: Query> {
     _marker: PhantomData<&'q Q>,
     meta: &'q [EntityMeta],
-    archetypes: SliceIter<'q, Archetype>,
+    archetypes: &'q [Archetype],
+    index_iter: core::ops::Range<usize>,
     batch_size: u32,
+    cache: CachedQuery<Q::Fetch>,
     batch: u32,
 }
 
@@ -951,14 +956,17 @@ impl<'q, Q: Query> BatchedIter<'q, Q> {
     /// dynamic borrow checks or by representing exclusive access to the `World`.
     unsafe fn new(
         meta: &'q [EntityMeta],
-        archetypes: SliceIter<'q, Archetype>,
+        archetypes: &'q [Archetype],
         batch_size: u32,
+        cache: CachedQuery<Q::Fetch>,
     ) -> Self {
         Self {
             _marker: PhantomData,
             meta,
             archetypes,
+            index_iter: (0..cache.archetype_count(archetypes)),
             batch_size,
+            cache,
             batch: 0,
         }
     }
@@ -972,33 +980,31 @@ impl<'q, Q: Query> Iterator for BatchedIter<'q, Q> {
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
-            let mut archetypes = self.archetypes.clone();
-            let archetype = archetypes.next()?;
+            let mut indices = self.index_iter.clone();
+            let index = indices.next()?;
+            let Some((archetype, state)) =
+                (unsafe { self.cache.get_state(self.archetypes, index) })
+            else {
+                // Skip this archetype entirely
+                self.index_iter = indices;
+                continue;
+            };
             let offset = self.batch_size * self.batch;
             if offset >= archetype.len() {
-                self.archetypes = archetypes;
+                // We've yielded the contents of this archetype already
+                self.index_iter = indices;
                 self.batch = 0;
                 continue;
             }
-            let state = Q::Fetch::prepare(archetype);
-            let fetch = state.map(|state| Q::Fetch::execute(archetype, state));
-            if let Some(fetch) = fetch {
-                self.batch += 1;
-                let mut state = ChunkIter::new(archetype, fetch);
-                state.position = offset as usize;
-                state.len = (offset + self.batch_size.min(archetype.len() - offset)) as usize;
-                return Some(Batch {
-                    meta: self.meta,
-                    state,
-                });
-            } else {
-                self.archetypes = archetypes;
-                debug_assert_eq!(
-                    self.batch, 0,
-                    "query fetch should always reject at the first batch or not at all"
-                );
-                continue;
-            }
+            let fetch = Q::Fetch::execute(archetype, state);
+            self.batch += 1;
+            let mut state = ChunkIter::new(archetype, fetch);
+            state.position = offset as usize;
+            state.len = (offset + self.batch_size.min(archetype.len() - offset)) as usize;
+            return Some(Batch {
+                meta: self.meta,
+                state,
+            });
         }
     }
 }
