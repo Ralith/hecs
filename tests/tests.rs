@@ -851,6 +851,16 @@ fn query_batched() {
     assert!(entities.contains(&a));
     assert!(entities.contains(&b));
     assert!(entities.contains(&c));
+
+    // Batched queries filter like usual
+    assert_eq!(
+        world
+            .query::<&i32>()
+            .iter_batched(1)
+            .flatten()
+            .collect::<Vec<_>>(),
+        &[(c, &42)]
+    );
 }
 
 #[test]
