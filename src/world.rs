@@ -17,7 +17,7 @@ use crate::archetype::{Archetype, TypeIdMap, TypeInfo};
 use crate::entities::{Entities, EntityMeta, Location, ReserveEntitiesIterator};
 #[cfg(feature = "std")]
 use crate::query::QueryCache;
-use crate::query::{assert_borrow, assert_distinct};
+use crate::query::{assert_borrow, assert_distinct, CachedQuery};
 use crate::{
     Bundle, ColumnBatch, ComponentRef, DynamicBundle, Entity, EntityRef, Fetch, MissingComponent,
     NoSuchEntity, Query, QueryBorrow, QueryMut, QueryOne, TakenEntity, View, ViewBorrow,
@@ -407,7 +407,8 @@ impl World {
     /// borrowed world. Like [`view`](Self::view), but faster because dynamic borrow checks can be skipped.
     pub fn view_mut<Q: Query>(&mut self) -> View<'_, Q> {
         assert_borrow::<Q>();
-        unsafe { View::<Q>::new(self.entities_meta(), self.archetypes_inner()) }
+        let cache = CachedQuery::get(self);
+        unsafe { View::<Q>::new(self.entities_meta(), self.archetypes_inner(), cache) }
     }
 
     /// Query a uniquely borrowed world
