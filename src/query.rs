@@ -623,8 +623,14 @@ impl<'w, Q: Query> QueryBorrow<'w, Q> {
 
     /// Provide random access to the query results
     pub fn view(&mut self) -> View<'_, Q> {
-        self.borrow();
-        unsafe { View::new(self.world.entities_meta(), self.world.archetypes_inner()) }
+        let cache = self.borrow().clone();
+        unsafe {
+            View::new(
+                self.world.entities_meta(),
+                self.world.archetypes_inner(),
+                cache,
+            )
+        }
     }
 
     /// Like `iter`, but returns child iterators of at most `batch_size` elements
@@ -812,10 +818,12 @@ impl<'q, Q: Query> QueryMut<'q, Q> {
 
     /// Provide random access to the query results
     pub fn view(&mut self) -> View<'_, Q> {
+        let cache = CachedQuery::get(self.iter.world);
         unsafe {
             View::new(
                 self.iter.world.entities_meta(),
                 self.iter.world.archetypes_inner(),
+                cache,
             )
         }
     }
@@ -1315,18 +1323,15 @@ impl<'q, Q: Query> View<'q, Q> {
     ///
     /// `'q` must be sufficient to guarantee that `Q` cannot violate borrow safety, either with
     /// dynamic borrow checks or by representing exclusive access to the `World`.
-    pub(crate) unsafe fn new(meta: &'q [EntityMeta], archetypes: &'q [Archetype]) -> Self {
-        let fetch = archetypes
-            .iter()
-            .map(|archetype| {
-                Q::Fetch::prepare(archetype).map(|state| Q::Fetch::execute(archetype, state))
-            })
-            .collect();
-
+    pub(crate) unsafe fn new(
+        meta: &'q [EntityMeta],
+        archetypes: &'q [Archetype],
+        cache: CachedQuery<Q::Fetch>,
+    ) -> Self {
         Self {
             meta,
             archetypes,
-            fetch,
+            fetch: cache.fetch_all(archetypes),
         }
     }
 
@@ -1631,14 +1636,22 @@ impl<'a, Q: Query> IntoIterator for &'a mut PreparedView<'_, Q> {
 /// This struct is a thin wrapper around [`View`]. See it for more documentation.
 pub struct ViewBorrow<'w, Q: Query> {
     view: View<'w, Q>,
+    cache: CachedQuery<Q::Fetch>,
 }
 
 impl<'w, Q: Query> ViewBorrow<'w, Q> {
     pub(crate) fn new(world: &'w World) -> Self {
-        start_borrow::<Q::Fetch>(world.archetypes_inner());
-        let view = unsafe { View::<Q>::new(world.entities_meta(), world.archetypes_inner()) };
+        let cache = CachedQuery::get(world);
+        cache.borrow(world.archetypes_inner());
+        let view = unsafe {
+            View::<Q>::new(
+                world.entities_meta(),
+                world.archetypes_inner(),
+                cache.clone(),
+            )
+        };
 
-        Self { view }
+        Self { view, cache }
     }
 
     /// Retrieve the query results corresponding to `entity`
@@ -1722,7 +1735,7 @@ impl<'w, Q: Query> ViewBorrow<'w, Q> {
 
 impl<Q: Query> Drop for ViewBorrow<'_, Q> {
     fn drop(&mut self) {
-        release_borrow::<Q::Fetch>(self.view.archetypes)
+        self.cache.release_borrow(self.view.archetypes);
     }
 }
 
@@ -1755,31 +1768,6 @@ pub(crate) fn assert_distinct<const N: usize>(entities: &[Entity; N]) {
     }
 }
 
-/// Start the borrow
-fn start_borrow<F: Fetch>(archetypes: &[Archetype]) {
-    for x in archetypes {
-        if x.is_empty() {
-            continue;
-        }
-        // TODO: Release prior borrows on failure?
-        if let Some(state) = F::prepare(x) {
-            F::borrow(x, state);
-        }
-    }
-}
-
-/// Releases the borrow
-fn release_borrow<F: Fetch>(archetypes: &[Archetype]) {
-    for x in archetypes {
-        if x.is_empty() {
-            continue;
-        }
-        if let Some(state) = F::prepare(x) {
-            F::release(x, state);
-        }
-    }
-}
-
 #[cfg(feature = "std")]
 pub(crate) type QueryCache = RwLock<TypeIdMap<Arc<dyn Any + Send + Sync>>>;
 
@@ -1805,7 +1793,7 @@ impl<F: Fetch> CachedQueryInner<F> {
     }
 }
 
-struct CachedQuery<F: Fetch> {
+pub(crate) struct CachedQuery<F: Fetch> {
     #[cfg(feature = "std")]
     inner: Arc<CachedQueryInner<F>>,
     #[cfg(not(feature = "std"))]
@@ -1813,7 +1801,7 @@ struct CachedQuery<F: Fetch> {
 }
 
 impl<F: Fetch> CachedQuery<F> {
-    fn get(world: &World) -> Self {
+    pub(crate) fn get(world: &World) -> Self {
         #[cfg(feature = "std")]
         {
             let existing_cache = world
@@ -1936,7 +1924,17 @@ impl<F: Fetch> CachedQuery<F> {
         }
 
         #[cfg(not(feature = "std"))]
-        start_borrow::<F>(archetypes);
+        {
+            for x in archetypes {
+                if x.is_empty() {
+                    continue;
+                }
+                // TODO: Release prior borrows on failure?
+                if let Some(state) = F::prepare(x) {
+                    F::borrow(x, state);
+                }
+            }
+        }
     }
 
     fn release_borrow(&self, archetypes: &[Archetype]) {
@@ -1952,7 +1950,35 @@ impl<F: Fetch> CachedQuery<F> {
         }
 
         #[cfg(not(feature = "std"))]
-        release_borrow::<F>(archetypes);
+        {
+            for x in archetypes {
+                if x.is_empty() {
+                    continue;
+                }
+                if let Some(state) = F::prepare(x) {
+                    F::release(x, state);
+                }
+            }
+        }
+    }
+
+    fn fetch_all(&self, archetypes: &[Archetype]) -> Vec<Option<F>> {
+        #[cfg(feature = "std")]
+        {
+            let mut fetch = alloc::vec![None; archetypes.len()];
+            for &(archetype_index, state) in &self.inner.state {
+                let archetype = &archetypes[archetype_index];
+                fetch[archetype_index] = Some(F::execute(archetype, state));
+            }
+            fetch
+        }
+        #[cfg(not(feature = "std"))]
+        {
+            archetypes
+                .iter()
+                .map(|archetype| F::prepare(archetype).map(|state| F::execute(archetype, state)))
+                .collect()
+        }
     }
 }
 
