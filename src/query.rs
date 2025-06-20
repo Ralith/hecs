@@ -1791,7 +1791,7 @@ fn release_borrow<Q: Query>(archetypes: &[Archetype]) {
 pub(crate) type QueryCache = RwLock<TypeIdMap<Arc<dyn Any + Send + Sync>>>;
 
 #[cfg(feature = "std")]
-struct CachedQuery<F: Fetch> {
+struct CachedQueryInner<F: Fetch> {
     state: Box<[(usize, F::State)]>,
     // In theory we could drop the cache eagerly when invalidated rather than tracking this, but
     // this is harder to screw up.
@@ -1799,7 +1799,7 @@ struct CachedQuery<F: Fetch> {
 }
 
 #[cfg(feature = "std")]
-impl<F: Fetch> CachedQuery<F> {
+impl<F: Fetch> CachedQueryInner<F> {
     fn new(world: &World) -> Self {
         Self {
             state: world
@@ -1812,45 +1812,41 @@ impl<F: Fetch> CachedQuery<F> {
     }
 }
 
-struct ArchetypeIter<Q: Query> {
+struct CachedQuery<F: Fetch> {
     #[cfg(feature = "std")]
-    state_index: core::ops::Range<usize>,
-    #[cfg(feature = "std")]
-    cache: Arc<CachedQuery<Q::Fetch>>,
+    inner: Arc<CachedQueryInner<F>>,
     #[cfg(not(feature = "std"))]
-    archetypes: core::ops::Range<usize>,
-    #[cfg(not(feature = "std"))]
-    _marker: PhantomData<Q::Fetch>,
+    _marker: PhantomData<F>,
 }
 
-impl<Q: Query> ArchetypeIter<Q> {
-    fn new(world: &World) -> Self {
+impl<F: Fetch> CachedQuery<F> {
+    fn get(world: &World) -> Self {
         #[cfg(feature = "std")]
         {
             let existing_cache = world
                 .query_cache()
                 .read()
                 .unwrap()
-                .get(&TypeId::of::<Q::Fetch>())
-                .map(|x| Arc::downcast::<CachedQuery<Q::Fetch>>(x.clone()).unwrap())
+                .get(&TypeId::of::<F>())
+                .map(|x| Arc::downcast::<CachedQueryInner<F>>(x.clone()).unwrap())
                 .filter(|x| x.archetypes_generation == world.archetypes_generation());
-            let cache = existing_cache.unwrap_or_else(
+            let inner = existing_cache.unwrap_or_else(
                 #[cold]
                 || {
                     let mut cache = world.query_cache().write().unwrap();
-                    let entry = cache.entry(TypeId::of::<Q::Fetch>());
+                    let entry = cache.entry(TypeId::of::<F>());
                     let cached = match entry {
                         hash_map::Entry::Vacant(e) => {
-                            let fresh = Arc::new(CachedQuery::<Q::Fetch>::new(world));
+                            let fresh = Arc::new(CachedQueryInner::<F>::new(world));
                             e.insert(fresh.clone());
                             fresh
                         }
                         hash_map::Entry::Occupied(mut e) => {
                             let value =
-                                Arc::downcast::<CachedQuery<Q::Fetch>>(e.get().clone()).unwrap();
+                                Arc::downcast::<CachedQueryInner<F>>(e.get().clone()).unwrap();
                             match value.archetypes_generation == world.archetypes_generation() {
                                 false => {
-                                    let fresh = Arc::new(CachedQuery::<Q::Fetch>::new(world));
+                                    let fresh = Arc::new(CachedQueryInner::<F>::new(world));
                                     e.insert(fresh.clone());
                                     fresh
                                 }
@@ -1861,61 +1857,114 @@ impl<Q: Query> ArchetypeIter<Q> {
                     cached
                 },
             );
-            Self {
-                state_index: 0..cache.state.len(),
-                cache,
-            }
+            Self { inner }
         }
         #[cfg(not(feature = "std"))]
         {
+            _ = world;
             Self {
-                archetypes: 0..world.archetypes().len(),
                 _marker: PhantomData,
             }
         }
     }
 
-    /// Safety: `world` must be the same as passed to `new`
-    unsafe fn next(&mut self, world: &World) -> Option<ChunkIter<Q>> {
+    fn archetype_count(&self, archetypes: &[Archetype]) -> usize {
         #[cfg(feature = "std")]
         {
-            let state = self.state_index.next()?;
-            let (archetype, state) = self.cache.state[state];
-            let archetype = unsafe { world.archetypes_inner().get_unchecked(archetype) };
-            let fetch = Q::Fetch::execute(archetype, state);
-            Some(ChunkIter::new(archetype, fetch))
+            _ = archetypes;
+            self.inner.state.len()
         }
         #[cfg(not(feature = "std"))]
-        loop {
-            let archetype = self.archetypes.next()?;
-            let archetype = unsafe { world.archetypes_inner().get_unchecked(archetype) };
-            if let Some(state) = Q::Fetch::prepare(archetype) {
-                let fetch = Q::Fetch::execute(archetype, state);
-                return Some(ChunkIter::new(archetype, fetch));
+        {
+            archetypes.len()
+        }
+    }
+
+    /// Returns `None` if this index should be skipped.
+    ///
+    /// # Safety
+    /// - `index` must be <= the value returned by `archetype_count`
+    /// - `archetypes` must match that passed to `archetype_count` and the world passed to `get`
+    unsafe fn get_state<'a>(
+        &self,
+        archetypes: &'a [Archetype],
+        index: usize,
+    ) -> Option<(&'a Archetype, F::State)> {
+        #[cfg(feature = "std")]
+        unsafe {
+            let &(archetype, state) = self.inner.state.get_unchecked(index);
+            let archetype = archetypes.get_unchecked(archetype);
+            Some((archetype, state))
+        }
+        #[cfg(not(feature = "std"))]
+        {
+            let archetype = unsafe { archetypes.get_unchecked(index) };
+            let state = F::prepare(archetype)?;
+            Some((archetype, state))
+        }
+    }
+
+    /// Returns `None` if this index should be skipped.
+    ///
+    /// # Safety
+    /// - `index` must be <= the value returned by `archetype_count`
+    /// - `archetypes` must match that passed to `archetype_count` and the world passed to `get`
+    unsafe fn get_archetype<'a>(
+        &self,
+        archetypes: &'a [Archetype],
+        index: usize,
+    ) -> Option<&'a Archetype> {
+        #[cfg(feature = "std")]
+        unsafe {
+            let &(archetype, _) = self.inner.state.get_unchecked(index);
+            let archetype = archetypes.get_unchecked(archetype);
+            Some(archetype)
+        }
+        #[cfg(not(feature = "std"))]
+        {
+            let x = unsafe { archetypes.get_unchecked(index) };
+            if F::access(x).is_none() {
+                return None;
             }
+            Some(x)
+        }
+    }
+}
+
+struct ArchetypeIter<Q: Query> {
+    archetypes: core::ops::Range<usize>,
+    cache: CachedQuery<Q::Fetch>,
+}
+
+impl<Q: Query> ArchetypeIter<Q> {
+    fn new(world: &World) -> Self {
+        let cache = CachedQuery::get(world);
+        Self {
+            archetypes: 0..cache.archetype_count(world.archetypes_inner()),
+            cache,
+        }
+    }
+
+    /// Safety: `world` must be the same as passed to `new`
+    unsafe fn next(&mut self, world: &World) -> Option<ChunkIter<Q>> {
+        loop {
+            let Some((archetype, state)) = self
+                .cache
+                .get_state(world.archetypes_inner(), self.archetypes.next()?)
+            else {
+                continue;
+            };
+            let fetch = Q::Fetch::execute(archetype, state);
+            return Some(ChunkIter::new(archetype, fetch));
         }
     }
 
     fn entity_len(&self, world: &World) -> usize {
-        #[cfg(feature = "std")]
-        {
-            self.state_index
-                .clone()
-                .map(|i| unsafe {
-                    let &(x, _) = self.cache.state.get_unchecked(i);
-                    world.archetypes_inner().get_unchecked(x).len() as usize
-                })
-                .sum()
-        }
-        #[cfg(not(feature = "std"))]
-        {
-            self.archetypes
-                .clone()
-                .map(|x| unsafe { world.archetypes_inner().get_unchecked(x) })
-                .filter(|&x| Q::Fetch::access(x).is_some())
-                .map(|x| x.len() as usize)
-                .sum()
-        }
+        self.archetypes
+            .clone()
+            .filter_map(|x| unsafe { self.cache.get_archetype(world.archetypes_inner(), x) })
+            .map(|x| x.len() as usize)
+            .sum()
     }
 }
 
