@@ -7,7 +7,7 @@ use core::slice::Iter as SliceIter;
 #[cfg(feature = "std")]
 use std::sync::{Arc, RwLock};
 
-use crate::alloc::{boxed::Box, vec::Vec};
+use crate::alloc::boxed::Box;
 #[cfg(feature = "std")]
 use hashbrown::hash_map;
 
@@ -1312,7 +1312,7 @@ impl<Q: Query> ExactSizeIterator for PreparedQueryIter<'_, Q> {
 pub struct View<'q, Q: Query> {
     meta: &'q [EntityMeta],
     archetypes: &'q [Archetype],
-    fetch: Vec<Option<Q::Fetch>>,
+    fetch: Box<[Option<Q::Fetch>]>,
 }
 
 unsafe impl<Q: Query> Send for View<'_, Q> where for<'a> Q::Item<'a>: Send {}
@@ -1962,10 +1962,10 @@ impl<F: Fetch> CachedQuery<F> {
         }
     }
 
-    fn fetch_all(&self, archetypes: &[Archetype]) -> Vec<Option<F>> {
+    fn fetch_all(&self, archetypes: &[Archetype]) -> Box<[Option<F>]> {
         #[cfg(feature = "std")]
         {
-            let mut fetch = alloc::vec![None; archetypes.len()];
+            let mut fetch = (0..archetypes.len()).map(|_| None).collect::<Box<[_]>>();
             for &(archetype_index, state) in &self.inner.state {
                 let archetype = &archetypes[archetype_index];
                 fetch[archetype_index] = Some(F::execute(archetype, state));
