@@ -606,24 +606,19 @@ impl<T> Clone for FetchSatisfies<T> {
 /// Note that borrows are not released until this object is dropped.
 pub struct QueryBorrow<'w, Q: Query> {
     world: &'w World,
-    borrowed: bool,
-    _marker: PhantomData<Q>,
+    cache: Option<CachedQuery<Q::Fetch>>,
 }
 
 impl<'w, Q: Query> QueryBorrow<'w, Q> {
     pub(crate) fn new(world: &'w World) -> Self {
-        Self {
-            world,
-            borrowed: false,
-            _marker: PhantomData,
-        }
+        Self { world, cache: None }
     }
 
     /// Execute the query
     // The lifetime narrowing here is required for soundness.
     pub fn iter(&mut self) -> QueryIter<'_, Q> {
-        self.borrow();
-        unsafe { QueryIter::new(self.world) }
+        let cache = self.borrow().clone();
+        unsafe { QueryIter::new(self.world, cache) }
     }
 
     /// Provide random access to the query results
@@ -647,12 +642,12 @@ impl<'w, Q: Query> QueryBorrow<'w, Q> {
         }
     }
 
-    fn borrow(&mut self) {
-        if self.borrowed {
-            return;
-        }
-        start_borrow::<Q::Fetch>(self.world.archetypes_inner());
-        self.borrowed = true;
+    fn borrow(&mut self) -> &CachedQuery<Q::Fetch> {
+        self.cache.get_or_insert_with(|| {
+            let cache = CachedQuery::get(self.world);
+            cache.borrow(self.world.archetypes_inner());
+            cache
+        })
     }
 
     /// Transform the query into one that requires another query be satisfied
@@ -704,15 +699,11 @@ impl<'w, Q: Query> QueryBorrow<'w, Q> {
     }
 
     /// Helper to change the type of the query
-    fn transform<R: Query>(mut self) -> QueryBorrow<'w, R> {
-        let x = QueryBorrow {
+    fn transform<R: Query>(self) -> QueryBorrow<'w, R> {
+        QueryBorrow {
             world: self.world,
-            borrowed: self.borrowed,
-            _marker: PhantomData,
-        };
-        // Ensure `Drop` won't fire redundantly
-        self.borrowed = false;
-        x
+            cache: None,
+        }
     }
 }
 
@@ -721,8 +712,8 @@ unsafe impl<Q: Query> Sync for QueryBorrow<'_, Q> where for<'a> Q::Item<'a>: Sen
 
 impl<Q: Query> Drop for QueryBorrow<'_, Q> {
     fn drop(&mut self) {
-        if self.borrowed {
-            release_borrow::<Q::Fetch>(self.world.archetypes_inner());
+        if let Some(cache) = &self.cache {
+            cache.release_borrow(self.world.archetypes_inner());
         }
     }
 }
@@ -747,11 +738,12 @@ impl<'q, Q: Query> QueryIter<'q, Q> {
     /// # Safety
     ///
     /// `'q` must be sufficient to guarantee that `Q` cannot violate borrow safety, either with
-    /// dynamic borrow checks or by representing exclusive access to the `World`.
-    unsafe fn new(world: &'q World) -> Self {
+    /// dynamic borrow checks or by representing exclusive access to the `World`. `cache` must be
+    /// from `world`.
+    unsafe fn new(world: &'q World, cache: CachedQuery<Q::Fetch>) -> Self {
         Self {
             world,
-            archetypes: ArchetypeIter::new(world),
+            archetypes: ArchetypeIter::new(world, cache),
             iter: ChunkIter::empty(),
         }
     }
@@ -812,9 +804,9 @@ pub struct QueryMut<'q, Q: Query> {
 impl<'q, Q: Query> QueryMut<'q, Q> {
     pub(crate) fn new(world: &'q mut World) -> Self {
         assert_borrow::<Q>();
-
+        let cache = CachedQuery::get(world);
         Self {
-            iter: unsafe { QueryIter::new(world) },
+            iter: unsafe { QueryIter::new(world, cache) },
         }
     }
 
@@ -844,8 +836,9 @@ impl<'q, Q: Query> QueryMut<'q, Q> {
 
     /// Helper to change the type of the query
     fn transform<R: Query>(self) -> QueryMut<'q, R> {
+        let cache = CachedQuery::get(self.iter.world);
         QueryMut {
-            iter: unsafe { QueryIter::new(self.iter.world) },
+            iter: unsafe { QueryIter::new(self.iter.world, cache) },
         }
     }
 
@@ -1929,6 +1922,49 @@ impl<F: Fetch> CachedQuery<F> {
             Some(x)
         }
     }
+
+    fn borrow(&self, archetypes: &[Archetype]) {
+        #[cfg(feature = "std")]
+        {
+            for &(archetype, state) in &self.inner.state {
+                let archetype = unsafe { archetypes.get_unchecked(archetype) };
+                if archetype.is_empty() {
+                    continue;
+                }
+                F::borrow(archetype, state);
+            }
+        }
+
+        #[cfg(not(feature = "std"))]
+        start_borrow::<F>(archetypes);
+    }
+
+    fn release_borrow(&self, archetypes: &[Archetype]) {
+        #[cfg(feature = "std")]
+        {
+            for &(archetype, state) in &self.inner.state {
+                let archetype = unsafe { archetypes.get_unchecked(archetype) };
+                if archetype.is_empty() {
+                    continue;
+                }
+                F::release(archetype, state);
+            }
+        }
+
+        #[cfg(not(feature = "std"))]
+        release_borrow::<F>(archetypes);
+    }
+}
+
+impl<F: Fetch> Clone for CachedQuery<F> {
+    fn clone(&self) -> Self {
+        Self {
+            #[cfg(feature = "std")]
+            inner: self.inner.clone(),
+            #[cfg(not(feature = "std"))]
+            _marker: PhantomData,
+        }
+    }
 }
 
 struct ArchetypeIter<Q: Query> {
@@ -1937,8 +1973,7 @@ struct ArchetypeIter<Q: Query> {
 }
 
 impl<Q: Query> ArchetypeIter<Q> {
-    fn new(world: &World) -> Self {
-        let cache = CachedQuery::get(world);
+    fn new(world: &World, cache: CachedQuery<Q::Fetch>) -> Self {
         Self {
             archetypes: 0..cache.archetype_count(world.archetypes_inner()),
             cache,
