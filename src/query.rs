@@ -805,25 +805,26 @@ impl<Q: Query> ExactSizeIterator for QueryIter<'_, Q> {
 
 /// A query builder that's convertible directly into an iterator
 pub struct QueryMut<'q, Q: Query> {
-    iter: QueryIter<'q, Q>,
+    world: &'q mut World,
+    _marker: PhantomData<fn() -> Q>,
 }
 
 impl<'q, Q: Query> QueryMut<'q, Q> {
     pub(crate) fn new(world: &'q mut World) -> Self {
         assert_borrow::<Q>();
-        let cache = CachedQuery::get(world);
         Self {
-            iter: unsafe { QueryIter::new(world, cache) },
+            world,
+            _marker: PhantomData,
         }
     }
 
     /// Provide random access to the query results
     pub fn view(&mut self) -> View<'_, Q> {
-        let cache = CachedQuery::get(self.iter.world);
+        let cache = CachedQuery::get(self.world);
         unsafe {
             View::new(
-                self.iter.world.entities_meta(),
-                self.iter.world.archetypes_inner(),
+                self.world.entities_meta(),
+                self.world.archetypes_inner(),
                 cache,
             )
         }
@@ -845,9 +846,9 @@ impl<'q, Q: Query> QueryMut<'q, Q> {
 
     /// Helper to change the type of the query
     fn transform<R: Query>(self) -> QueryMut<'q, R> {
-        let cache = CachedQuery::get(self.iter.world);
         QueryMut {
-            iter: unsafe { QueryIter::new(self.iter.world, cache) },
+            world: self.world,
+            _marker: PhantomData,
         }
     }
 
@@ -855,11 +856,11 @@ impl<'q, Q: Query> QueryMut<'q, Q> {
     ///
     /// Useful for distributing work over a threadpool.
     pub fn into_iter_batched(self, batch_size: u32) -> BatchedIter<'q, Q> {
-        let cache = CachedQuery::get(self.iter.world);
+        let cache = CachedQuery::get(self.world);
         unsafe {
             BatchedIter::new(
-                self.iter.world.entities_meta(),
-                self.iter.world.archetypes_inner(),
+                self.world.entities_meta(),
+                self.world.archetypes_inner(),
                 batch_size,
                 cache,
             )
@@ -873,7 +874,8 @@ impl<'q, Q: Query> IntoIterator for QueryMut<'q, Q> {
 
     #[inline]
     fn into_iter(self) -> Self::IntoIter {
-        self.iter
+        let cache = CachedQuery::get(self.world);
+        unsafe { QueryIter::new(self.world, cache) }
     }
 }
 
