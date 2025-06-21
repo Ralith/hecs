@@ -93,8 +93,11 @@ impl Archetype {
     }
 
     /// Get the address of the first `T` component using an index from `get_state::<T>`
-    pub(crate) fn get_base<T: Component>(&self, state: usize) -> NonNull<T> {
-        assert_eq!(self.types[state].id, TypeId::of::<T>());
+    ///
+    /// # Safety
+    /// - `state` must be associated with a component of type `T`
+    pub(crate) unsafe fn get_base<T: Component>(&self, state: usize) -> NonNull<T> {
+        debug_assert_eq!(self.types[state].id, TypeId::of::<T>());
 
         unsafe {
             NonNull::new_unchecked(self.data.get_unchecked(state).storage.as_ptr().cast::<T>())
@@ -613,7 +616,7 @@ pub struct ArchetypeColumn<'a, T: Component> {
 impl<'a, T: Component> ArchetypeColumn<'a, T> {
     pub(crate) fn new(archetype: &'a Archetype) -> Option<Self> {
         let state = archetype.get_state::<T>()?;
-        let ptr = archetype.get_base::<T>(state);
+        let ptr = unsafe { archetype.get_base::<T>(state) };
         let column = unsafe { core::slice::from_raw_parts(ptr.as_ptr(), archetype.len() as usize) };
         archetype.borrow::<T>(state);
         Some(Self { archetype, column })
@@ -660,7 +663,7 @@ pub struct ArchetypeColumnMut<'a, T: Component> {
 impl<'a, T: Component> ArchetypeColumnMut<'a, T> {
     pub(crate) fn new(archetype: &'a Archetype) -> Option<Self> {
         let state = archetype.get_state::<T>()?;
-        let ptr = archetype.get_base::<T>(state);
+        let ptr = unsafe { archetype.get_base::<T>(state) };
         let column =
             unsafe { core::slice::from_raw_parts_mut(ptr.as_ptr(), archetype.len() as usize) };
         archetype.borrow_mut::<T>(state);
