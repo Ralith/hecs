@@ -118,7 +118,7 @@ unsafe impl<T: Component> Fetch for FetchRead<T> {
         archetype.get_state::<T>()
     }
     fn execute(archetype: &Archetype, state: Self::State) -> Self {
-        Self(archetype.get_base(state))
+        unsafe { Self(archetype.get_base(state)) }
     }
     fn release(archetype: &Archetype, state: Self::State) {
         archetype.release::<T>(state);
@@ -172,7 +172,7 @@ unsafe impl<T: Component> Fetch for FetchWrite<T> {
         Some(archetype.get_state::<T>()?)
     }
     fn execute(archetype: &Archetype, state: Self::State) -> Self {
-        Self(archetype.get_base::<T>(state))
+        unsafe { Self(archetype.get_base::<T>(state)) }
     }
     fn release(archetype: &Archetype, state: Self::State) {
         archetype.release_mut::<T>(state);

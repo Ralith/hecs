@@ -66,7 +66,7 @@ impl ColumnBatchBuilder {
     pub fn writer<T: Component>(&mut self) -> Option<BatchWriter<'_, T>> {
         let archetype = self.archetype.as_mut().unwrap();
         let state = archetype.get_state::<T>()?;
-        let base = archetype.get_base::<T>(state);
+        let base = unsafe { archetype.get_base::<T>(state) };
         let fill = self.fill.entry(TypeId::of::<T>()).or_insert(0);
         let current_fill = *fill as usize;
         Some(BatchWriter {
