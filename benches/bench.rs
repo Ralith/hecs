@@ -1,6 +1,6 @@
 use std::hint::black_box;
 
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
 use hecs::*;
 
 #[derive(Clone)]
@@ -57,36 +57,42 @@ fn spawn_batch(c: &mut Criterion) {
 }
 
 fn remove(c: &mut Criterion) {
-    let mut world = World::new();
     c.bench_function("remove", |b| {
-        b.iter(|| {
-            // This really shouldn't be counted as part of the benchmark, but bencher doesn't seem to
-            // support that.
-            let entities = world
-                .spawn_batch((0..1_000).map(|_| (Position(0.0), Velocity(0.0))))
-                .collect::<Vec<_>>();
-            for e in entities {
-                world.remove_one::<Velocity>(e).unwrap();
-            }
-            world.clear();
-        })
+        b.iter_batched(
+            || {
+                let mut world = World::new();
+                let entities = world
+                    .spawn_batch((0..1_000).map(|_| (Position(0.0), Velocity(0.0))))
+                    .collect::<Vec<_>>();
+                (world, entities)
+            },
+            |(mut world, entities)| {
+                for e in entities {
+                    world.remove_one::<Velocity>(e).unwrap();
+                }
+            },
+            BatchSize::SmallInput,
+        )
     });
 }
 
 fn insert(c: &mut Criterion) {
-    let mut world = World::new();
     c.bench_function("insert", |b| {
-        b.iter(|| {
-            // This really shouldn't be counted as part of the benchmark, but bencher doesn't seem to
-            // support that.
-            let entities = world
-                .spawn_batch((0..1_000).map(|_| (Position(0.0),)))
-                .collect::<Vec<_>>();
-            for e in entities {
-                world.insert_one(e, Velocity(0.0)).unwrap();
-            }
-            world.clear();
-        })
+        b.iter_batched(
+            || {
+                let mut world = World::new();
+                let entities = world
+                    .spawn_batch((0..1_000).map(|_| (Position(0.0),)))
+                    .collect::<Vec<_>>();
+                (world, entities)
+            },
+            |(mut world, entities)| {
+                for e in entities {
+                    world.insert_one(e, Velocity(0.0)).unwrap();
+                }
+            },
+            BatchSize::SmallInput,
+        )
     });
 }
 
