@@ -773,7 +773,7 @@ mod tests {
     impl<Q> PartialEq for SerWorld<Q> {
         fn eq(&self, other: &Self) -> bool {
             fn same_components<T: Component + PartialEq>(x: &EntityRef, y: &EntityRef) -> bool {
-                x.get::<&T>().as_ref().map(|x| &**x) == y.get::<&T>().as_ref().map(|x| &**x)
+                x.get::<&T>().as_deref() == y.get::<&T>().as_deref()
             }
 
             for (x, y) in self.0.iter().zip(other.0.iter()) {
@@ -808,7 +808,7 @@ mod tests {
 
     impl<'a, Q: Query> Serialize for SerWorldInner<'a, Q> {
         fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
-            helpers::serialize::<Q, S>(&self.0, s)
+            helpers::serialize::<Q, S>(self.0, s)
         }
     }
 

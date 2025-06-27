@@ -66,7 +66,7 @@ fn system_integrate_motion(world: &mut World, query: &mut PreparedQuery<(&mut Po
         let change = (rng.random_range(-s.0..s.0), rng.random_range(-s.0..s.0));
         pos.x += change.0;
         pos.y += change.1;
-        println!("Unit {:?} moved to {:?}", id, pos);
+        println!("Unit {id:?} moved to {pos:?}");
     }
 }
 
@@ -89,7 +89,7 @@ fn system_fire_at_closest(world: &mut World) {
         let closest = match closest {
             Some(entity) => entity,
             None => {
-                println!("{:?} is the last survivor!", id0);
+                println!("{id0:?} is the last survivor!");
                 return;
             }
         };
@@ -109,13 +109,13 @@ fn system_fire_at_closest(world: &mut World) {
             // apply damage
             hp1.0 -= dmg0.0;
             println!(
-                "Unit {:?} was damaged by {:?} for {:?} HP",
-                closest, id0, dmg0.0
+                "Unit {closest:?} was damaged by {id0:?} for {:?} HP",
+                dmg0.0
             );
             if hp1.0 <= 0 {
                 // if this killed it, increase own killcount
                 kc0.0 += 1;
-                println!("Unit {:?} was killed by unit {:?}!", closest, id0);
+                println!("Unit {closest:?} was killed by unit {id0:?}!");
             }
         }
     }
@@ -139,7 +139,7 @@ fn print_world_state(world: &mut World) {
     println!("\nEntity stats:");
     for (id, (hp, pos, dmg, kc)) in &mut world.query::<(&Health, &Position, &Damage, &KillCount)>()
     {
-        println!("ID: {:?}, {:?}, {:?}, {:?}, {:?}", id, hp, dmg, pos, kc);
+        println!("ID: {id:?}, {hp:?}, {dmg:?}, {pos:?}, {kc:?}");
     }
 }
 

@@ -1,3 +1,5 @@
+#![allow(clippy::incompatible_msrv)] // Dev only
+
 use std::hint::black_box;
 
 use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
