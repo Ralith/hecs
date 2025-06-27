@@ -147,7 +147,7 @@ fn main() {
         Err(why) => panic!("couldn't create {}: {}", path.display(), why),
         Ok(file) => file,
     };
-    file.write(&buffer)
+    file.write_all(&buffer)
         .unwrap_or_else(|_| panic!("Failed to write file: {save_file_name}"));
     println!("Saved world \'{}\' to disk.", path.display());
 
