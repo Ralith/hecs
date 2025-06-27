@@ -33,7 +33,7 @@ pub fn member_as_idents(members: &[syn::Member]) -> Vec<Cow<'_, syn::Ident>> {
         .map(|member| match member {
             syn::Member::Named(ident) => Cow::Borrowed(ident),
             &syn::Member::Unnamed(syn::Index { index, span }) => {
-                Cow::Owned(syn::Ident::new(&format!("tuple_field_{}", index), span))
+                Cow::Owned(syn::Ident::new(&format!("tuple_field_{index}"), span))
             }
         })
         .collect()

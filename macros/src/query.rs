@@ -82,7 +82,7 @@ fn derive_struct(
         .iter()
         .map(|ty| quote! { <#ty as ::hecs::Query>::Fetch })
         .collect::<Vec<_>>();
-    let fetch_ident = Ident::new(&format!("{}Fetch", ident), Span::mixed_site());
+    let fetch_ident = Ident::new(&format!("{ident}Fetch"), Span::mixed_site());
     let fetch = match data.fields {
         syn::Fields::Named(_) => quote! {
             #vis struct #fetch_ident {
@@ -98,7 +98,7 @@ fn derive_struct(
             #vis struct #fetch_ident;
         },
     };
-    let state_ident = Ident::new(&format!("{}State", ident), Span::mixed_site());
+    let state_ident = Ident::new(&format!("{ident}State"), Span::mixed_site());
     let state = match data.fields {
         syn::Fields::Named(_) => quote! {
             #[derive(Clone, Copy)]
@@ -381,14 +381,14 @@ fn derive_enum(
         }
     };
 
-    let fetch_ident = Ident::new(&format!("{}Fetch", enum_ident), Span::mixed_site());
+    let fetch_ident = Ident::new(&format!("{enum_ident}Fetch"), Span::mixed_site());
     let fetch = quote! {
         #vis enum #fetch_ident {
             #fetch_variants
         }
     };
 
-    let state_ident = Ident::new(&format!("{}State", enum_ident), Span::mixed_site());
+    let state_ident = Ident::new(&format!("{enum_ident}State"), Span::mixed_site());
     let state = quote! {
         #vis enum #state_ident {
             #state_variants

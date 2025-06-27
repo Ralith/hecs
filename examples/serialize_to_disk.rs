@@ -143,12 +143,12 @@ fn main() {
     )
     .expect("Failed to serialize");
     let path = Path::new(save_file_name);
-    let mut file = match File::create(&path) {
+    let mut file = match File::create(path) {
         Err(why) => panic!("couldn't create {}: {}", path.display(), why),
         Ok(file) => file,
     };
     file.write(&buffer)
-        .expect(&format!("Failed to write file: {}", save_file_name));
+        .unwrap_or_else(|_| panic!("Failed to write file: {save_file_name}"));
     println!("Saved world \'{}\' to disk.", path.display());
 
     // load our world from disk and deserialize it back as world:
@@ -174,7 +174,7 @@ fn main() {
             println!("Ok!");
         }
         Err(err) => {
-            println!("Failed to deserialize world: {}", err);
+            println!("Failed to deserialize world: {err}");
         }
     }
 }

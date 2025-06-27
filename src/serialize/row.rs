@@ -298,7 +298,7 @@ mod tests {
     impl PartialEq for SerWorld {
         fn eq(&self, other: &Self) -> bool {
             fn same_components<T: Component + PartialEq>(x: &EntityRef, y: &EntityRef) -> bool {
-                x.get::<&T>().as_ref().map(|x| &**x) == y.get::<&T>().as_ref().map(|x| &**x)
+                x.get::<&T>().as_deref() == y.get::<&T>().as_deref()
             }
 
             for (x, y) in self.0.iter().zip(other.0.iter()) {
@@ -441,7 +441,7 @@ mod tests {
     impl<Q> PartialEq for SerSatisfyingWorld<Q> {
         fn eq(&self, other: &Self) -> bool {
             fn same_components<T: Component + PartialEq>(x: &EntityRef, y: &EntityRef) -> bool {
-                x.get::<&T>().as_ref().map(|x| &**x) == y.get::<&T>().as_ref().map(|x| &**x)
+                x.get::<&T>().as_deref() == y.get::<&T>().as_deref()
             }
 
             for (x, y) in self.0.iter().zip(other.0.iter()) {
@@ -476,7 +476,7 @@ mod tests {
 
     impl<'a, Q: Query> Serialize for SerSatisfyingWorldInner<'a, Q> {
         fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
-            crate::serialize::row::serialize_satisfying::<Q, Context, S>(&self.0, &mut Context, s)
+            crate::serialize::row::serialize_satisfying::<Q, Context, S>(self.0, &mut Context, s)
         }
     }
 
