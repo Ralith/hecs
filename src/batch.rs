@@ -67,12 +67,15 @@ impl ColumnBatchBuilder {
         let archetype = self.archetype.as_mut().unwrap();
         let state = archetype.get_state::<T>()?;
         let base = archetype.get_base::<T>(state);
+        let fill = self.fill.entry(TypeId::of::<T>()).or_insert(0);
+        let current_fill = *fill as usize;
         Some(BatchWriter {
-            fill: self.fill.entry(TypeId::of::<T>()).or_insert(0),
+            fill,
             storage: unsafe {
-                slice::from_raw_parts_mut(base.as_ptr().cast(), self.target_fill as usize)
-                    .iter_mut()
-            },
+                &mut slice::from_raw_parts_mut(base.as_ptr().cast(), self.target_fill as usize)
+                    [current_fill..]
+            }
+            .iter_mut(),
         })
     }
 
@@ -163,5 +166,19 @@ mod tests {
         let mut builder = types.into_batch(0);
         let mut writer = builder.writer::<usize>().unwrap();
         assert!(writer.push(42).is_err());
+    }
+
+    #[test]
+    fn writer_continues_from_last_fill() {
+        let mut types = ColumnBatchType::new();
+        types.add::<usize>();
+        let mut builder = types.into_batch(2);
+        let mut writer = builder.writer::<usize>().unwrap();
+        writer.push(42).unwrap();
+
+        let mut writer = builder.writer::<usize>().unwrap();
+
+        assert_eq!(writer.push(42), Ok(()));
+        assert_eq!(writer.push(42), Err(42));
     }
 }
