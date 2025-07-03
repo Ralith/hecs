@@ -1,5 +1,5 @@
 use crate::alloc::collections::BinaryHeap;
-use core::{any::TypeId, fmt, mem::MaybeUninit, slice};
+use core::{any::TypeId, cell::Cell, fmt, mem::MaybeUninit, slice};
 
 use crate::{
     archetype::{TypeIdMap, TypeInfo},
@@ -34,7 +34,12 @@ impl ColumnBatchType {
     pub fn into_batch(self, size: u32) -> ColumnBatchBuilder {
         let mut types = self.types.into_sorted_vec();
         types.dedup();
-        let fill = TypeIdMap::with_capacity_and_hasher(types.len(), Default::default());
+
+        let mut fill = TypeIdMap::with_capacity_and_hasher(types.len(), Default::default());
+        for ty in &types {
+            fill.insert(ty.id(), Cell::new(Some(0)));
+        }
+
         let mut arch = Archetype::new(types);
         arch.reserve(size);
         ColumnBatchBuilder {
@@ -48,7 +53,7 @@ impl ColumnBatchType {
 /// An incomplete collection of component data for entities with the same component types
 pub struct ColumnBatchBuilder {
     /// Number of components written so far for each component type
-    fill: TypeIdMap<u32>,
+    fill: TypeIdMap<Cell<Option<u32>>>,
     target_fill: u32,
     pub(crate) archetype: Option<Archetype>,
 }
@@ -62,18 +67,22 @@ impl ColumnBatchBuilder {
         ty.into_batch(size)
     }
 
-    /// Get a handle for inserting `T` components if `T` was in the [`ColumnBatchType`]
-    pub fn writer<T: Component>(&mut self) -> Option<BatchWriter<'_, T>> {
-        let archetype = self.archetype.as_mut().unwrap();
+    /// Get a handle for inserting `T` components if `T` was in the [`ColumnBatchType`] or `None`
+    /// if the previous one was not yet dropped
+    pub fn writer<T: Component>(&self) -> Option<BatchWriter<'_, T>> {
+        let fill_cell = self.fill.get(&TypeId::of::<T>())?;
+        let fill = fill_cell.take()?;
+
+        let archetype = self.archetype.as_ref().unwrap();
         let state = archetype.get_state::<T>()?;
         let base = archetype.get_base::<T>(state);
-        let fill = self.fill.entry(TypeId::of::<T>()).or_insert(0);
-        let current_fill = *fill as usize;
+
         Some(BatchWriter {
+            fill_cell,
             fill,
             storage: unsafe {
                 &mut slice::from_raw_parts_mut(base.as_ptr().cast(), self.target_fill as usize)
-                    [current_fill..]
+                    [fill as usize..]
             }
             .iter_mut(),
         })
@@ -85,7 +94,7 @@ impl ColumnBatchBuilder {
         if archetype
             .types()
             .iter()
-            .any(|ty| self.fill.get(&ty.id()).copied().unwrap_or(0) != self.target_fill)
+            .any(|ty| self.fill.get(&ty.id()).and_then(Cell::get) != Some(self.target_fill))
         {
             return Err(BatchIncomplete { _opaque: () });
         }
@@ -100,7 +109,8 @@ impl Drop for ColumnBatchBuilder {
     fn drop(&mut self) {
         if let Some(archetype) = self.archetype.take() {
             for ty in archetype.types() {
-                let fill = self.fill.get(&ty.id()).copied().unwrap_or(0);
+                // All writers are dropped at this point, so the `Cell`s contain their values.
+                let fill = self.fill.get(&ty.id()).and_then(Cell::get).unwrap();
                 unsafe {
                     let base = archetype.get_dynamic(ty.id(), 0, 0).unwrap();
                     for i in 0..fill {
@@ -117,7 +127,8 @@ pub struct ColumnBatch(pub(crate) Archetype);
 
 /// Handle for appending components
 pub struct BatchWriter<'a, T> {
-    fill: &'a mut u32,
+    fill_cell: &'a Cell<Option<u32>>,
+    fill: u32,
     storage: core::slice::IterMut<'a, MaybeUninit<T>>,
 }
 
@@ -128,7 +139,7 @@ impl<T> BatchWriter<'_, T> {
             None => Err(x),
             Some(slot) => {
                 *slot = MaybeUninit::new(x);
-                *self.fill += 1;
+                self.fill += 1;
                 Ok(())
             }
         }
@@ -136,7 +147,13 @@ impl<T> BatchWriter<'_, T> {
 
     /// How many components have been added so far
     pub fn fill(&self) -> u32 {
-        *self.fill
+        self.fill
+    }
+}
+
+impl<T> Drop for BatchWriter<'_, T> {
+    fn drop(&mut self) {
+        self.fill_cell.set(Some(self.fill))
     }
 }
 
@@ -163,7 +180,7 @@ mod tests {
     fn empty_batch() {
         let mut types = ColumnBatchType::new();
         types.add::<usize>();
-        let mut builder = types.into_batch(0);
+        let builder = types.into_batch(0);
         let mut writer = builder.writer::<usize>().unwrap();
         assert!(writer.push(42).is_err());
     }
@@ -172,9 +189,37 @@ mod tests {
     fn writer_continues_from_last_fill() {
         let mut types = ColumnBatchType::new();
         types.add::<usize>();
-        let mut builder = types.into_batch(2);
+        let builder = types.into_batch(2);
+        {
+            let mut writer = builder.writer::<usize>().unwrap();
+            writer.push(42).unwrap();
+        }
+
         let mut writer = builder.writer::<usize>().unwrap();
-        writer.push(42).unwrap();
+
+        assert_eq!(writer.push(42), Ok(()));
+        assert_eq!(writer.push(42), Err(42));
+    }
+
+    #[test]
+    fn multiple_concurrent_writers() {
+        let mut types = ColumnBatchType::new();
+        types.add::<bool>();
+        types.add::<usize>();
+        let builder = types.into_batch(2);
+
+        {
+            let bool_writer = builder.writer::<bool>();
+            let usize_writer = builder.writer::<usize>();
+
+            assert!(bool_writer.is_some());
+            assert!(usize_writer.is_some());
+
+            assert!(builder.writer::<bool>().is_none());
+            assert!(builder.writer::<usize>().is_none());
+
+            usize_writer.unwrap().push(42).unwrap();
+        }
 
         let mut writer = builder.writer::<usize>().unwrap();
 
