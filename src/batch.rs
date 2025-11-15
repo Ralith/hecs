@@ -157,6 +157,9 @@ impl<T> BatchWriter<'_, T> {
 
 impl<T> Drop for BatchWriter<'_, T> {
     fn drop(&mut self) {
+        // Release any reference to component storage before permitting another writer to be built
+        // for this type
+        self.storage = core::slice::IterMut::default();
         self.fill_storage.store(self.fill, Ordering::Release);
     }
 }
