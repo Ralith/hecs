@@ -955,13 +955,15 @@ fn spawn_column_batch() {
     // Unique archetype
     let b;
     {
-        let mut batch = batch_ty.clone().into_batch(2);
-        let mut bs = batch.writer::<bool>().unwrap();
-        bs.push(true).unwrap();
-        bs.push(false).unwrap();
-        let mut is = batch.writer::<i32>().unwrap();
-        is.push(42).unwrap();
-        is.push(43).unwrap();
+        let batch = batch_ty.clone().into_batch(2);
+        {
+            let mut bs = batch.writer::<bool>().unwrap();
+            bs.push(true).unwrap();
+            bs.push(false).unwrap();
+            let mut is = batch.writer::<i32>().unwrap();
+            is.push(42).unwrap();
+            is.push(43).unwrap();
+        }
         let entities = world
             .spawn_column_batch(batch.build().unwrap())
             .collect::<Vec<_>>();
@@ -980,13 +982,15 @@ fn spawn_column_batch() {
 
     // Duplicate archetype
     {
-        let mut batch = batch_ty.clone().into_batch(2);
-        let mut bs = batch.writer::<bool>().unwrap();
-        bs.push(true).unwrap();
-        bs.push(false).unwrap();
-        let mut is = batch.writer::<i32>().unwrap();
-        is.push(44).unwrap();
-        is.push(45).unwrap();
+        let batch = batch_ty.clone().into_batch(2);
+        {
+            let mut bs = batch.writer::<bool>().unwrap();
+            bs.push(true).unwrap();
+            bs.push(false).unwrap();
+            let mut is = batch.writer::<i32>().unwrap();
+            is.push(44).unwrap();
+            is.push(45).unwrap();
+        }
         let entities = world
             .spawn_column_batch(batch.build().unwrap())
             .collect::<Vec<_>>();

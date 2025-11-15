@@ -10,6 +10,10 @@
 ### Changed
 
 - `TypeIdMap` and `TypeInfo` are now public to facilitate easy cloning of `World`
+- `ColumnBatchBuilder::writer` now takes `&self` rather than `&mut self`, allowing columns in a
+  single batch to be populated concurrently.
+- To support the above, `BatchWriter` now implements `Drop`. Existing code may need to introduce
+  explicit drops to avoid borrowing `ColumnBatchBuilder` longer than intended.
 
 # 0.10.5
 
