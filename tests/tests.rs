@@ -666,7 +666,7 @@ fn illegal_query_one_borrow() {
     let mut world = World::new();
     let entity = world.spawn(("abc", 123));
 
-    world.query_one::<(&mut i32, &i32)>(entity).unwrap();
+    world.query_one::<(&mut i32, &i32)>(entity);
 }
 
 #[test]
@@ -675,7 +675,7 @@ fn illegal_query_one_borrow_2() {
     let mut world = World::new();
     let entity = world.spawn(("abc", 123));
 
-    world.query_one::<(&mut i32, &mut i32)>(entity).unwrap();
+    world.query_one::<(&mut i32, &mut i32)>(entity);
 }
 
 #[test]
@@ -911,15 +911,18 @@ fn query_one() {
     let a = world.spawn(("abc", 123));
     let b = world.spawn(("def", 456));
     let c = world.spawn(("ghi", 789, true));
-    assert_eq!(world.query_one::<&i32>(a).unwrap().get(), Some(&123));
-    assert_eq!(world.query_one::<&i32>(b).unwrap().get(), Some(&456));
-    assert!(world.query_one::<(&i32, &bool)>(a).unwrap().get().is_none());
+    assert_eq!(world.query_one::<&i32>(a).get(), Ok(&123));
+    assert_eq!(world.query_one::<&i32>(b).get(), Ok(&456));
     assert_eq!(
-        world.query_one::<(&i32, &bool)>(c).unwrap().get(),
-        Some((&789, &true))
+        world.query_one::<(&i32, &bool)>(a).get(),
+        Err(QueryOneError::Unsatisfied)
     );
+    assert_eq!(world.query_one::<(&i32, &bool)>(c).get(), Ok((&789, &true)));
     world.despawn(a).unwrap();
-    assert!(world.query_one::<&i32>(a).is_err());
+    assert_eq!(
+        world.query_one::<&i32>(a).get(),
+        Err(QueryOneError::NoSuchEntity)
+    );
 }
 
 #[test]
