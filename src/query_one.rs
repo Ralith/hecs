@@ -21,8 +21,6 @@ impl<'a, Q: Query> QueryOne<'a, Q> {
     ///
     /// `index` must be in-bounds for `archetype`
     pub(crate) unsafe fn new(generation: NonZeroU32, archetype: &'a Archetype, index: u32) -> Self {
-        assert_borrow::<Q>();
-
         Self {
             generation,
             archetype: Some(archetype),
@@ -40,6 +38,7 @@ impl<'a, Q: Query> QueryOne<'a, Q> {
     /// pre-existing borrow.
     // Note that this uses self's lifetime, not 'a, for soundness.
     pub fn get(&mut self) -> Result<Q::Item<'_>, QueryOneError> {
+        assert_borrow::<Q>();
         if self.borrowed {
             panic!("called QueryOnce::get twice; construct a new query instead");
         }
