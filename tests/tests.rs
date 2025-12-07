@@ -666,7 +666,7 @@ fn illegal_query_one_borrow() {
     let mut world = World::new();
     let entity = world.spawn(("abc", 123));
 
-    world.query_one::<(&mut i32, &i32)>(entity);
+    world.query_one::<(&mut i32, &i32)>(entity).get().unwrap();
 }
 
 #[test]
@@ -675,7 +675,10 @@ fn illegal_query_one_borrow_2() {
     let mut world = World::new();
     let entity = world.spawn(("abc", 123));
 
-    world.query_one::<(&mut i32, &mut i32)>(entity);
+    world
+        .query_one::<(&mut i32, &mut i32)>(entity)
+        .get()
+        .unwrap();
 }
 
 #[test]
