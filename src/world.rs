@@ -455,20 +455,22 @@ impl World {
     /// let mut world = World::new();
     /// let a = world.spawn((123, true, "abc"));
     /// // The returned query must outlive the borrow made by `get`
-    /// let mut query = world.query_one::<(&mut i32, &bool)>(a).unwrap();
+    /// let mut query = world.query_one::<(&mut i32, &bool)>(a);
     /// let (number, flag) = query.get().unwrap();
     /// if *flag { *number *= 2; }
     /// assert_eq!(*number, 246);
     /// ```
-    pub fn query_one<Q: Query>(&self, entity: Entity) -> Result<QueryOne<'_, Q>, NoSuchEntity> {
-        let loc = self.entities.get(entity)?;
-        Ok(unsafe {
+    pub fn query_one<Q: Query>(&self, entity: Entity) -> QueryOne<'_, Q> {
+        let Ok(loc) = self.entities.get(entity) else {
+            return QueryOne::default();
+        };
+        unsafe {
             QueryOne::new(
                 entity.generation,
                 &self.archetypes.archetypes[loc.archetype as usize],
                 loc.index,
             )
-        })
+        }
     }
 
     /// Query a single entity in a uniquely borrowed world

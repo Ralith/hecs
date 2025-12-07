@@ -2,12 +2,13 @@ use core::marker::PhantomData;
 use core::num::NonZeroU32;
 
 use crate::query::{assert_borrow, Fetch, With, Without};
+use crate::QueryOneError;
 use crate::{Archetype, Query};
 
 /// A borrow of a [`World`](crate::World) sufficient to execute the query `Q` on a single entity
 pub struct QueryOne<'a, Q: Query> {
     generation: NonZeroU32,
-    archetype: &'a Archetype,
+    archetype: Option<&'a Archetype>,
     index: u32,
     borrowed: bool,
     _marker: PhantomData<Q>,
@@ -24,29 +25,30 @@ impl<'a, Q: Query> QueryOne<'a, Q> {
 
         Self {
             generation,
-            archetype,
+            archetype: Some(archetype),
             index,
             borrowed: false,
             _marker: PhantomData,
         }
     }
 
-    /// Get the query result, or `None` if the entity does not satisfy the query
+    /// Get the query result, or an error if the entity does not exist or satisfy the query
     ///
     /// Must be called at most once.
     ///
     /// Panics if called more than once or if it would construct a borrow that clashes with another
     /// pre-existing borrow.
     // Note that this uses self's lifetime, not 'a, for soundness.
-    pub fn get(&mut self) -> Option<Q::Item<'_>> {
+    pub fn get(&mut self) -> Result<Q::Item<'_>, QueryOneError> {
         if self.borrowed {
             panic!("called QueryOnce::get twice; construct a new query instead");
         }
-        let state = Q::Fetch::prepare(self.archetype)?;
-        Q::Fetch::borrow(self.archetype, state);
-        let fetch = Q::Fetch::execute(self.archetype, state);
+        let archetype = self.archetype.as_ref().ok_or(QueryOneError::NoSuchEntity)?;
+        let state = Q::Fetch::prepare(archetype).ok_or(QueryOneError::Unsatisfied)?;
+        Q::Fetch::borrow(archetype, state);
+        let fetch = Q::Fetch::execute(archetype, state);
         self.borrowed = true;
-        unsafe { Some(Q::get(self.generation, &fetch, self.index as usize)) }
+        unsafe { Ok(Q::get(self.generation, &fetch, self.index as usize)) }
     }
 
     /// Transform the query into one that requires another query be satisfied
@@ -78,11 +80,24 @@ impl<'a, Q: Query> QueryOne<'a, Q> {
     }
 }
 
+impl<Q: Query> Default for QueryOne<'_, Q> {
+    /// Construct a `QueryOne` for which `get` will return `NoSuchEntity`
+    fn default() -> Self {
+        Self {
+            generation: NonZeroU32::new(1).unwrap(),
+            archetype: None,
+            index: 0,
+            borrowed: false,
+            _marker: PhantomData,
+        }
+    }
+}
+
 impl<Q: Query> Drop for QueryOne<'_, Q> {
     fn drop(&mut self) {
         if self.borrowed {
-            let state = Q::Fetch::prepare(self.archetype).unwrap();
-            Q::Fetch::release(self.archetype, state);
+            let state = Q::Fetch::prepare(self.archetype.unwrap()).unwrap();
+            Q::Fetch::release(self.archetype.unwrap(), state);
         }
     }
 }
