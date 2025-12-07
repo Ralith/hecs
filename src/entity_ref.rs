@@ -82,7 +82,7 @@ impl<'a> EntityRef<'a> {
     /// assert_eq!(*number, 246);
     /// ```
     pub fn query<Q: Query>(&self) -> QueryOne<'a, Q> {
-        unsafe { QueryOne::new(self.archetype, self.index) }
+        unsafe { QueryOne::new(self.entity.generation, self.archetype, self.index) }
     }
 
     /// Enumerate the types of the entity's components

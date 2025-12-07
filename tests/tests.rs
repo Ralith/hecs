@@ -38,18 +38,18 @@ fn query_all() {
     let f = world.spawn(("def", 456));
 
     let ents = world
-        .query::<(&i32, &&str)>()
+        .query::<(Entity, &i32, &&str)>()
         .iter()
-        .map(|(e, (&i, &s))| (e, i, s))
+        .map(|(e, &i, &s)| (e, i, s))
         .collect::<Vec<_>>();
     assert_eq!(ents.len(), 2);
     assert!(ents.contains(&(e, 123, "abc")));
     assert!(ents.contains(&(f, 456, "def")));
 
-    let ents = world.query::<()>().iter().collect::<Vec<_>>();
+    let ents = world.query::<Entity>().iter().collect::<Vec<_>>();
     assert_eq!(ents.len(), 2);
-    assert!(ents.contains(&(e, ())));
-    assert!(ents.contains(&(f, ())));
+    assert!(ents.contains(&e));
+    assert!(ents.contains(&f));
 }
 
 #[test]
@@ -176,7 +176,7 @@ fn query_single_component() {
     let e = world.spawn(("abc", 123));
     let f = world.spawn(("def", 456, true));
     let ents = world
-        .query::<&i32>()
+        .query::<(Entity, &i32)>()
         .iter()
         .map(|(e, &i)| (e, i))
         .collect::<Vec<_>>();
@@ -199,7 +199,7 @@ fn query_sparse_component() {
     world.spawn(("abc", 123));
     let f = world.spawn(("def", 456, true));
     let ents = world
-        .query::<&bool>()
+        .query::<(Entity, &bool)>()
         .iter()
         .map(|(e, &b)| (e, b))
         .collect::<Vec<_>>();
@@ -212,9 +212,9 @@ fn query_optional_component() {
     let e = world.spawn(("abc", 123));
     let f = world.spawn(("def", 456, true));
     let ents = world
-        .query::<(Option<&bool>, &i32)>()
+        .query::<(Entity, Option<&bool>, &i32)>()
         .iter()
-        .map(|(e, (b, &i))| (e, b.copied(), i))
+        .map(|(e, b, &i)| (e, b.copied(), i))
         .collect::<Vec<_>>();
     assert_eq!(ents.len(), 2);
     assert!(ents.contains(&(e, None, 123)));
@@ -227,12 +227,12 @@ fn prepare_query() {
     let e = world.spawn(("abc", 123));
     let f = world.spawn(("def", 456));
 
-    let mut query = PreparedQuery::<(&i32, &&str)>::default();
+    let mut query = PreparedQuery::<(Entity, &i32, &&str)>::default();
 
     let ents = query
         .query(&world)
         .iter()
-        .map(|(e, (&i, &s))| (e, i, s))
+        .map(|(e, &i, &s)| (e, i, s))
         .collect::<Vec<_>>();
     assert_eq!(ents.len(), 2);
     assert!(ents.contains(&(e, 123, "abc")));
@@ -240,7 +240,7 @@ fn prepare_query() {
 
     let ents = query
         .query_mut(&mut world)
-        .map(|(e, (&i, &s))| (e, i, s))
+        .map(|(e, &i, &s)| (e, i, s))
         .collect::<Vec<_>>();
     assert_eq!(ents.len(), 2);
     assert!(ents.contains(&(e, 123, "abc")));
@@ -253,12 +253,12 @@ fn invalidate_prepared_query() {
     let e = world.spawn(("abc", 123));
     let f = world.spawn(("def", 456));
 
-    let mut query = PreparedQuery::<(&i32, &&str)>::default();
+    let mut query = PreparedQuery::<(Entity, &i32, &&str)>::default();
 
     let ents = query
         .query(&world)
         .iter()
-        .map(|(e, (&i, &s))| (e, i, s))
+        .map(|(e, &i, &s)| (e, i, s))
         .collect::<Vec<_>>();
     assert_eq!(ents.len(), 2);
     assert!(ents.contains(&(e, 123, "abc")));
@@ -269,7 +269,7 @@ fn invalidate_prepared_query() {
 
     let ents = query
         .query_mut(&mut world)
-        .map(|(e, (&i, &s))| (e, i, s))
+        .map(|(e, &i, &s)| (e, i, s))
         .collect::<Vec<_>>();
     assert_eq!(ents.len(), 3);
     assert!(ents.contains(&(e, 123, "abc")));
@@ -557,26 +557,26 @@ fn dynamic_components() {
     world.insert(e, (true, "abc")).unwrap();
     assert_eq!(
         world
-            .query::<(&i32, &bool)>()
+            .query::<(Entity, &i32, &bool)>()
             .iter()
-            .map(|(e, (&i, &b))| (e, i, b))
+            .map(|(e, &i, &b)| (e, i, b))
             .collect::<Vec<_>>(),
         &[(e, 42, true)]
     );
     assert_eq!(world.remove_one::<i32>(e), Ok(42));
     assert_eq!(
         world
-            .query::<(&i32, &bool)>()
+            .query::<(Entity, &i32, &bool)>()
             .iter()
-            .map(|(e, (&i, &b))| (e, i, b))
+            .map(|(e, &i, &b)| (e, i, b))
             .collect::<Vec<_>>(),
         &[]
     );
     assert_eq!(
         world
-            .query::<(&bool, &&str)>()
+            .query::<(Entity, &bool, &&str)>()
             .iter()
-            .map(|(e, (&b, &s))| (e, b, s))
+            .map(|(e, &b, &s)| (e, b, s))
             .collect::<Vec<_>>(),
         &[(e, true, "abc")]
     );
@@ -816,11 +816,7 @@ fn reserve() {
 
     world.flush();
 
-    let entities = world
-        .query::<()>()
-        .iter()
-        .map(|(e, ())| e)
-        .collect::<Vec<_>>();
+    let entities = world.query::<Entity>().iter().collect::<Vec<_>>();
 
     assert_eq!(entities.len(), 2);
     assert!(entities.contains(&a));
@@ -841,10 +837,9 @@ fn query_batched() {
     assert_eq!(world.query::<()>().iter_batched(3).flatten().count(), 3);
     assert_eq!(world.query::<()>().iter_batched(4).count(), 2);
     let entities = world
-        .query::<()>()
+        .query::<Entity>()
         .iter_batched(1)
         .flatten()
-        .map(|(e, ())| e)
         .collect::<Vec<_>>();
     dbg!(&entities);
     assert_eq!(entities.len(), 3);
@@ -855,7 +850,7 @@ fn query_batched() {
     // Batched queries filter like usual
     assert_eq!(
         world
-            .query::<&i32>()
+            .query::<(Entity, &i32)>()
             .iter_batched(1)
             .flatten()
             .collect::<Vec<_>>(),
@@ -891,10 +886,9 @@ fn query_mut_batched() {
     );
     assert_eq!(world.query_mut::<()>().into_iter_batched(4).count(), 2);
     let entities = world
-        .query_mut::<()>()
+        .query_mut::<Entity>()
         .into_iter_batched(1)
         .flatten()
-        .map(|(e, ())| e)
         .collect::<Vec<_>>();
     dbg!(&entities);
     assert_eq!(entities.len(), 3);
@@ -1034,9 +1028,9 @@ fn query_or() {
     let f = world.spawn(("ghi", true));
     let g = world.spawn(("jkl", 456, false));
     let results = world
-        .query::<(&&str, Or<&i32, &bool>)>()
+        .query::<(Entity, &&str, Or<&i32, &bool>)>()
         .iter()
-        .map(|(handle, (&s, value))| (handle, s, value.cloned()))
+        .map(|(handle, &s, value)| (handle, s, value.cloned()))
         .collect::<Vec<_>>();
     assert_eq!(results.len(), 3);
     assert!(results.contains(&(e, "abc", Or::Left(123))));
@@ -1135,11 +1129,14 @@ fn query_many_duplicate() {
 #[test]
 fn cache_invalidation() {
     let mut world = World::new();
-    assert_eq!(world.query::<&i32>().iter().collect::<Vec<_>>(), []);
+    assert_eq!(
+        world.query::<(Entity, &i32)>().iter().collect::<Vec<_>>(),
+        []
+    );
     let a = world.spawn((42, true));
     let b = world.spawn((17,));
     assert_eq!(
-        world.query::<&i32>().iter().collect::<Vec<_>>(),
+        world.query::<(Entity, &i32)>().iter().collect::<Vec<_>>(),
         &[(a, &42), (b, &17)]
     );
 }

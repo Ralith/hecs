@@ -137,7 +137,7 @@ fn iterate_100k(c: &mut Criterion) {
     }
     c.bench_function("iterate 100k", |b| {
         b.iter(|| {
-            for (_, (pos, vel)) in &mut world.query::<(&mut Position, &Velocity)>() {
+            for (pos, vel) in &mut world.query::<(&mut Position, &Velocity)>() {
                 pos.0 += vel.0;
             }
         })
@@ -151,7 +151,7 @@ fn iterate_mut_100k(c: &mut Criterion) {
     }
     c.bench_function("iterate mut 100k", |b| {
         b.iter(|| {
-            for (_, (pos, vel)) in world.query_mut::<(&mut Position, &Velocity)>() {
+            for (pos, vel) in world.query_mut::<(&mut Position, &Velocity)>() {
                 pos.0 += vel.0;
             }
         })
@@ -198,7 +198,7 @@ fn iterate_uncached_100_by_50(c: &mut Criterion) {
     spawn_100_by_50(&mut world);
     c.bench_function("iterate_uncached_100_by_50", |b| {
         b.iter(|| {
-            for (_, (pos, vel)) in world.query::<(&mut Position, &Velocity)>().iter() {
+            for (pos, vel) in world.query::<(&mut Position, &Velocity)>().iter() {
                 pos.0 += vel.0;
             }
         })
@@ -210,7 +210,7 @@ fn iterate_uncached_1_of_100_by_50(c: &mut Criterion) {
     spawn_100_by_50(&mut world);
     c.bench_function("iterate_uncached_1_of_100_by_50", |b| {
         b.iter(|| {
-            for (_, (pos, vel)) in world
+            for (pos, vel) in world
                 .query::<(&mut Position, &Velocity)>()
                 .with::<&[(); 0]>()
                 .iter()
@@ -228,7 +228,7 @@ fn iterate_cached_100_by_50(c: &mut Criterion) {
     let _ = query.query(&world).iter();
     c.bench_function("iterate_cached_100_by_50", |b| {
         b.iter(|| {
-            for (_, (pos, vel)) in query.query(&world).iter() {
+            for (pos, vel) in query.query(&world).iter() {
                 pos.0 += vel.0;
             }
         })
@@ -240,7 +240,7 @@ fn iterate_mut_uncached_100_by_50(c: &mut Criterion) {
     spawn_100_by_50(&mut world);
     c.bench_function("iterate_mut_uncached_100_by_50", |b| {
         b.iter(|| {
-            for (_, (pos, vel)) in world.query_mut::<(&mut Position, &Velocity)>() {
+            for (pos, vel) in world.query_mut::<(&mut Position, &Velocity)>() {
                 pos.0 += vel.0;
             }
         })
@@ -254,7 +254,7 @@ fn iterate_mut_cached_100_by_50(c: &mut Criterion) {
     let _ = query.query_mut(&mut world);
     c.bench_function("iterate_mut_cached_100_by_50", |b| {
         b.iter(|| {
-            for (_, (pos, vel)) in query.query_mut(&mut world) {
+            for (pos, vel) in query.query_mut(&mut world) {
                 pos.0 += vel.0;
             }
         })

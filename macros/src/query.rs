@@ -139,9 +139,9 @@ fn derive_struct(
                 type Fetch = #fetch_ident;
 
                 #[allow(unused_variables)]
-                unsafe fn get<'q>(fetch: &Self::Fetch, n: usize) -> Self::Item<'q> {
+                unsafe fn get<'q>(generation: ::core::num::NonZeroU32, fetch: &Self::Fetch, n: usize) -> Self::Item<'q> {
                     #(
-                        let #intermediates: <#queries as ::hecs::Query>::Item<'q> = <#queries as ::hecs::Query>::get(&fetch.#fields, n);
+                        let #intermediates: <#queries as ::hecs::Query>::Item<'q> = <#queries as ::hecs::Query>::get(generation, &fetch.#fields, n);
                     )*
                     #ident {#(#fields: #intermediates,)*}
                 }
@@ -303,7 +303,7 @@ fn derive_enum(
         query_get_variants.extend(quote! {
             Self::Fetch::#ident { #(#named_fields),* } => {
                 #(
-                    let #named_fields: <#queries as ::hecs::Query>::Item<'q> = <#queries as ::hecs::Query>::get(#named_fields, n);
+                    let #named_fields: <#queries as ::hecs::Query>::Item<'q> = <#queries as ::hecs::Query>::get(generation, #named_fields, n);
                 )*
                 Self::Item::#ident { #( #fields: #named_fields,)* }
             },
@@ -406,7 +406,7 @@ fn derive_enum(
                 type Fetch = #fetch_ident;
 
                 #[allow(unused_variables)]
-                unsafe fn get<'q>(fetch: &Self::Fetch, n: usize) -> Self::Item<'q> {
+                unsafe fn get<'q>(generation: ::core::num::NonZeroU32, fetch: &Self::Fetch, n: usize) -> Self::Item<'q> {
                     match fetch {
                         #query_get_variants
                     }
