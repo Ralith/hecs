@@ -1102,7 +1102,12 @@ macro_rules! tuple_impl {
 //smaller_tuples_too!(tuple_impl, B, A);
 smaller_tuples_too!(tuple_impl, O, N, M, L, K, J, I, H, G, F, E, D, C, B, A);
 
-/// A prepared query can be stored independently of the [`World`] to amortize query set-up costs.
+/// A prepared query can be stored independently of the [`World`] to fractionally reduce query
+/// set-up costs.
+///
+/// Prepared queries are less convenient and usually do not measurably impact performance. Regular
+/// queries should be preferred unless end-to-end performance measurements clearly indicate
+/// otherwise.
 pub struct PreparedQuery<Q: Query> {
     memo: (u64, u32),
     state: Box<[(usize, <Q::Fetch as Fetch>::State)]>,
