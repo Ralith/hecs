@@ -336,7 +336,7 @@ mod tests {
         // The insert to `a` should succeed
         cmd.run_on(&mut world);
 
-        assert!(world.satisfies::<&A>(a).unwrap());
+        assert!(world.satisfies::<&A>(a));
     }
 
     #[test]
@@ -347,7 +347,7 @@ mod tests {
         cmd.insert_one(a, 42i32);
         cmd.remove_one::<i32>(a);
         cmd.run_on(&mut world);
-        assert!(!world.satisfies::<&i32>(a).unwrap());
+        assert!(!world.satisfies::<&i32>(a));
     }
 
     #[test]
