@@ -522,8 +522,10 @@ impl World {
     }
 
     /// Short-hand for [`entity`](Self::entity) followed by [`EntityRef::satisfies`]
-    pub fn satisfies<Q: Query>(&self, entity: Entity) -> Result<bool, NoSuchEntity> {
-        Ok(self.entity(entity)?.satisfies::<Q>())
+    ///
+    /// Returns `false` if `entity` does satisfy the query `Q` or not exist.
+    pub fn satisfies<Q: Query>(&self, entity: Entity) -> bool {
+        self.entity(entity).map_or(false, |e| e.satisfies::<Q>())
     }
 
     /// Access an entity regardless of its component types
