@@ -260,7 +260,7 @@ impl Drop for RecordedEntity<'_> {
     }
 }
 
-/// Data required to store components and their offset  
+/// Data required to store components and their offset
 struct ComponentInfo {
     ty: TypeInfo,
     // Position in 'storage'
