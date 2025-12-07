@@ -17,9 +17,9 @@ use crate::{Component, Entity, PreparedQuery, With, Without, World};
 /// multiple trackers of the same `T` on the same world, or using the same tracker across multiple
 /// worlds, will produce unpredictable results.
 pub struct ChangeTracker<T: Component> {
-    added: PreparedQuery<Without<&'static T, &'static Previous<T>>>,
-    changed: PreparedQuery<(&'static T, &'static mut Previous<T>)>,
-    removed: PreparedQuery<Without<With<(), &'static Previous<T>>, &'static T>>,
+    added: PreparedQuery<Without<(Entity, &'static T), &'static Previous<T>>>,
+    changed: PreparedQuery<(Entity, &'static T, &'static mut Previous<T>)>,
+    removed: PreparedQuery<Without<With<Entity, &'static Previous<T>>, &'static T>>,
 
     added_components: Vec<(Entity, T)>,
     removed_components: Vec<Entity>,
@@ -98,7 +98,7 @@ where
             self.tracker
                 .changed
                 .query_mut(self.world)
-                .filter_map(|(e, (new, old))| {
+                .filter_map(|(e, new, old)| {
                     (*new != old.0).then(|| {
                         let old = mem::replace(&mut old.0, new.clone());
                         (e, old, new)
@@ -116,7 +116,7 @@ where
         // take ownership of components directly.
         self.tracker
             .removed_components
-            .extend(self.tracker.removed.query_mut(self.world).map(|(e, ())| e));
+            .extend(self.tracker.removed.query_mut(self.world));
         DrainOnDrop(
             self.tracker
                 .removed_components

@@ -165,10 +165,10 @@ fn main() {
             println!("Loaded world \'{}\' from disk.", path.display());
             print!("Validating world data... ");
             assert_eq!(world.len(), 2);
-            for (_, t) in &mut world.query::<&ComponentA>() {
+            for t in &mut world.query::<&ComponentA>() {
                 assert_eq!(t, &input_data1);
             }
-            for (_, t) in &mut world.query::<&ComponentB>() {
+            for t in &mut world.query::<&ComponentB>() {
                 assert_eq!(t, &input_data2);
             }
             println!("Ok!");

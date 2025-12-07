@@ -1,9 +1,9 @@
 #[cfg(feature = "std")]
 use core::any::Any;
-use core::any::TypeId;
 use core::marker::PhantomData;
 use core::ptr::NonNull;
 use core::slice::Iter as SliceIter;
+use core::{any::TypeId, num::NonZeroU32};
 #[cfg(feature = "std")]
 use std::sync::{Arc, RwLock};
 
@@ -30,14 +30,14 @@ pub trait Query {
     type Fetch: Fetch;
 
     #[doc(hidden)]
-    /// Access the `n`th item in this archetype without bounds checking
+    /// Access the `n`th item in this archetype, an entity with generation `generation`, without bounds checking
     ///
     /// # Safety
     /// - Must only be called after [`Fetch::borrow`] or with exclusive access to the archetype
     /// - [`Fetch::release`] must not be called while `'a` is still live
     /// - Bounds-checking must be performed externally
     /// - Any resulting borrows must be legal (e.g. no &mut to something another iterator might access)
-    unsafe fn get<'a>(fetch: &Self::Fetch, n: usize) -> Self::Item<'a>;
+    unsafe fn get<'a>(generation: NonZeroU32, fetch: &Self::Fetch, n: usize) -> Self::Item<'a>;
 }
 
 /// Marker trait indicating whether a given [`Query`] will not produce unique references
@@ -81,12 +81,54 @@ pub enum Access {
     Write,
 }
 
+impl Query for Entity {
+    type Item<'q> = Entity;
+    type Fetch = FetchEntity;
+
+    unsafe fn get<'q>(generation: NonZeroU32, fetch: &Self::Fetch, n: usize) -> Self::Item<'q> {
+        Entity {
+            id: fetch.0.as_ptr().add(n).read(),
+            generation,
+        }
+    }
+}
+
+#[doc(hidden)]
+#[derive(Clone)]
+pub struct FetchEntity(NonNull<u32>);
+
+unsafe impl Fetch for FetchEntity {
+    type State = ();
+
+    fn dangling() -> Self {
+        Self(NonNull::dangling())
+    }
+
+    fn access(_: &Archetype) -> Option<Access> {
+        Some(Access::Iterate)
+    }
+
+    fn borrow(_: &Archetype, (): Self::State) {}
+
+    fn prepare(_: &Archetype) -> Option<Self::State> {
+        Some(())
+    }
+
+    fn execute(archetype: &Archetype, (): Self::State) -> Self {
+        Self(archetype.entities())
+    }
+
+    fn release(_: &Archetype, (): Self::State) {}
+
+    fn for_each_borrow(_: impl FnMut(TypeId, bool)) {}
+}
+
 impl<T: Component> Query for &'_ T {
     type Item<'q> = &'q T;
 
     type Fetch = FetchRead<T>;
 
-    unsafe fn get<'q>(fetch: &FetchRead<T>, n: usize) -> &'q T {
+    unsafe fn get<'q>(_: NonZeroU32, fetch: &FetchRead<T>, n: usize) -> &'q T {
         &*fetch.0.as_ptr().add(n)
     }
 }
@@ -141,7 +183,7 @@ impl<T: Component> Query for &'_ mut T {
 
     type Fetch = FetchWrite<T>;
 
-    unsafe fn get<'q>(fetch: &FetchWrite<T>, n: usize) -> &'q mut T {
+    unsafe fn get<'q>(_: NonZeroU32, fetch: &FetchWrite<T>, n: usize) -> &'q mut T {
         &mut *fetch.0.as_ptr().add(n)
     }
 }
@@ -195,8 +237,12 @@ impl<T: Query> Query for Option<T> {
 
     type Fetch = TryFetch<T::Fetch>;
 
-    unsafe fn get<'q>(fetch: &TryFetch<T::Fetch>, n: usize) -> Option<T::Item<'q>> {
-        Some(T::get(fetch.0.as_ref()?, n))
+    unsafe fn get<'q>(
+        generation: NonZeroU32,
+        fetch: &TryFetch<T::Fetch>,
+        n: usize,
+    ) -> Option<T::Item<'q>> {
+        Some(T::get(generation, fetch.0.as_ref()?, n))
     }
 }
 
@@ -336,8 +382,11 @@ impl<L: Query, R: Query> Query for Or<L, R> {
 
     type Fetch = FetchOr<L::Fetch, R::Fetch>;
 
-    unsafe fn get<'q>(fetch: &Self::Fetch, n: usize) -> Self::Item<'q> {
-        fetch.0.as_ref().map(|l| L::get(l, n), |r| R::get(r, n))
+    unsafe fn get<'q>(generation: NonZeroU32, fetch: &Self::Fetch, n: usize) -> Self::Item<'q> {
+        fetch
+            .0
+            .as_ref()
+            .map(|l| L::get(generation, l, n), |r| R::get(generation, r, n))
     }
 }
 
@@ -391,7 +440,7 @@ unsafe impl<L: Fetch, R: Fetch> Fetch for FetchOr<L, R> {
 /// let a = world.spawn((123, true, "abc"));
 /// let b = world.spawn((456, false));
 /// let c = world.spawn((42, "def"));
-/// let entities = world.query::<Without<&i32, &bool>>()
+/// let entities = world.query::<Without<(Entity, &i32), &bool>>()
 ///     .iter()
 ///     .map(|(e, &i)| (e, i))
 ///     .collect::<Vec<_>>();
@@ -404,8 +453,8 @@ impl<Q: Query, R: Query> Query for Without<Q, R> {
 
     type Fetch = FetchWithout<Q::Fetch, R::Fetch>;
 
-    unsafe fn get<'q>(fetch: &Self::Fetch, n: usize) -> Self::Item<'q> {
-        Q::get(&fetch.0, n)
+    unsafe fn get<'q>(generation: NonZeroU32, fetch: &Self::Fetch, n: usize) -> Self::Item<'q> {
+        Q::get(generation, &fetch.0, n)
     }
 }
 
@@ -468,7 +517,7 @@ impl<F: Clone, G> Clone for FetchWithout<F, G> {
 /// let a = world.spawn((123, true, "abc"));
 /// let b = world.spawn((456, false));
 /// let c = world.spawn((42, "def"));
-/// let entities = world.query::<With<&i32, &bool>>()
+/// let entities = world.query::<With<(Entity, &i32), &bool>>()
 ///     .iter()
 ///     .map(|(e, &i)| (e, i))
 ///     .collect::<Vec<_>>();
@@ -483,8 +532,8 @@ impl<Q: Query, R: Query> Query for With<Q, R> {
 
     type Fetch = FetchWith<Q::Fetch, R::Fetch>;
 
-    unsafe fn get<'q>(fetch: &Self::Fetch, n: usize) -> Self::Item<'q> {
-        Q::get(&fetch.0, n)
+    unsafe fn get<'q>(generation: NonZeroU32, fetch: &Self::Fetch, n: usize) -> Self::Item<'q> {
+        Q::get(generation, &fetch.0, n)
     }
 }
 
@@ -545,9 +594,8 @@ impl<F: Clone, G> Clone for FetchWith<F, G> {
 /// let a = world.spawn((123, true, "abc"));
 /// let b = world.spawn((456, false));
 /// let c = world.spawn((42, "def"));
-/// let entities = world.query::<Satisfies<&bool>>()
+/// let entities = world.query::<(Entity, Satisfies<&bool>)>()
 ///     .iter()
-///     .map(|(e, x)| (e, x))
 ///     .collect::<Vec<_>>();
 /// assert_eq!(entities.len(), 3);
 /// assert!(entities.contains(&(a, true)));
@@ -561,7 +609,7 @@ impl<Q: Query> Query for Satisfies<Q> {
 
     type Fetch = FetchSatisfies<Q::Fetch>;
 
-    unsafe fn get<'q>(fetch: &Self::Fetch, _: usize) -> Self::Item<'q> {
+    unsafe fn get<'q>(_: NonZeroU32, fetch: &Self::Fetch, _: usize) -> Self::Item<'q> {
         fetch.0
     }
 }
@@ -670,7 +718,7 @@ impl<'w, Q: Query> QueryBorrow<'w, Q> {
     /// let a = world.spawn((123, true, "abc"));
     /// let b = world.spawn((456, false));
     /// let c = world.spawn((42, "def"));
-    /// let entities = world.query::<&i32>()
+    /// let entities = world.query::<(Entity, &i32)>()
     ///     .with::<&bool>()
     ///     .iter()
     ///     .map(|(e, &i)| (e, i)) // Copy out of the world
@@ -694,7 +742,7 @@ impl<'w, Q: Query> QueryBorrow<'w, Q> {
     /// let a = world.spawn((123, true, "abc"));
     /// let b = world.spawn((456, false));
     /// let c = world.spawn((42, "def"));
-    /// let entities = world.query::<&i32>()
+    /// let entities = world.query::<(Entity, &i32)>()
     ///     .without::<&bool>()
     ///     .iter()
     ///     .map(|(e, &i)| (e, i)) // Copy out of the world
@@ -726,7 +774,7 @@ impl<Q: Query> Drop for QueryBorrow<'_, Q> {
 }
 
 impl<'q, Q: Query> IntoIterator for &'q mut QueryBorrow<'_, Q> {
-    type Item = (Entity, Q::Item<'q>);
+    type Item = Q::Item<'q>;
     type IntoIter = QueryIter<'q, Q>;
 
     fn into_iter(self) -> Self::IntoIter {
@@ -760,12 +808,12 @@ unsafe impl<Q: Query> Send for QueryIter<'_, Q> where for<'a> Q::Item<'a>: Send 
 unsafe impl<Q: Query> Sync for QueryIter<'_, Q> where for<'a> Q::Item<'a>: Send {}
 
 impl<'q, Q: Query> Iterator for QueryIter<'q, Q> {
-    type Item = (Entity, Q::Item<'q>);
+    type Item = Q::Item<'q>;
 
     #[inline(always)]
     fn next(&mut self) -> Option<Self::Item> {
         loop {
-            match unsafe { self.iter.next() } {
+            match unsafe { self.iter.next(self.world.entities_meta()) } {
                 None => {
                     // Safety: `self.world` is the same one we passed to `ArchetypeIter::new` just above
                     unsafe {
@@ -773,19 +821,8 @@ impl<'q, Q: Query> Iterator for QueryIter<'q, Q> {
                     }
                     continue;
                 }
-                Some((id, components)) => {
-                    return Some((
-                        Entity {
-                            id,
-                            generation: unsafe {
-                                self.world
-                                    .entities_meta()
-                                    .get_unchecked(id as usize)
-                                    .generation
-                            },
-                        },
-                        components,
-                    ));
+                Some(components) => {
+                    return Some(components);
                 }
             }
         }
@@ -899,7 +936,6 @@ pub(crate) fn assert_borrow<Q: Query>() {
 }
 
 struct ChunkIter<Q: Query> {
-    entities: NonNull<u32>,
     fetch: Q::Fetch,
     position: usize,
     len: usize,
@@ -908,7 +944,6 @@ struct ChunkIter<Q: Query> {
 impl<Q: Query> ChunkIter<Q> {
     fn new(archetype: &Archetype, fetch: Q::Fetch) -> Self {
         Self {
-            entities: archetype.entities(),
             fetch,
             position: 0,
             len: archetype.len() as usize,
@@ -917,7 +952,6 @@ impl<Q: Query> ChunkIter<Q> {
 
     fn empty() -> Self {
         Self {
-            entities: NonNull::dangling(),
             fetch: Q::Fetch::dangling(),
             position: 0,
             len: 0,
@@ -925,14 +959,17 @@ impl<Q: Query> ChunkIter<Q> {
     }
 
     #[inline]
-    unsafe fn next<'a>(&mut self) -> Option<(u32, Q::Item<'a>)> {
+    unsafe fn next<'a>(&mut self, meta: &[EntityMeta]) -> Option<Q::Item<'a>> {
         if self.position == self.len {
             return None;
         }
-        let entity = self.entities.as_ptr().add(self.position);
-        let item = Q::get(&self.fetch, self.position);
+        let item = Q::get(
+            meta.get_unchecked(self.position).generation,
+            &self.fetch,
+            self.position,
+        );
         self.position += 1;
-        Some((*entity, item))
+        Some(item)
     }
 
     fn remaining(&self) -> usize {
@@ -1018,17 +1055,10 @@ pub struct Batch<'q, Q: Query> {
 }
 
 impl<'q, Q: Query> Iterator for Batch<'q, Q> {
-    type Item = (Entity, Q::Item<'q>);
+    type Item = Q::Item<'q>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let (id, components) = unsafe { self.state.next()? };
-        Some((
-            Entity {
-                id,
-                generation: self.meta[id as usize].generation,
-            },
-            components,
-        ))
+        unsafe { self.state.next(self.meta) }
     }
 }
 
@@ -1088,10 +1118,10 @@ macro_rules! tuple_impl {
             type Fetch = ($($name::Fetch,)*);
 
             #[allow(unused_variables, clippy::unused_unit)]
-            unsafe fn get<'q>(fetch: &Self::Fetch, n: usize) -> Self::Item<'q> {
+            unsafe fn get<'q>(generation: NonZeroU32, fetch: &Self::Fetch, n: usize) -> Self::Item<'q> {
                 #[allow(non_snake_case)]
                 let ($(ref $name,)*) = *fetch;
-                ($($name::get($name, n),)*)
+                ($($name::get(generation, $name, n),)*)
             }
         }
 
@@ -1276,26 +1306,20 @@ unsafe impl<Q: Query> Send for PreparedQueryIter<'_, Q> where for<'a> Q::Item<'a
 unsafe impl<Q: Query> Sync for PreparedQueryIter<'_, Q> where for<'a> Q::Item<'a>: Send {}
 
 impl<'q, Q: Query> Iterator for PreparedQueryIter<'q, Q> {
-    type Item = (Entity, Q::Item<'q>);
+    type Item = Q::Item<'q>;
 
     #[inline(always)]
     fn next(&mut self) -> Option<Self::Item> {
         loop {
-            match unsafe { self.iter.next() } {
+            match unsafe { self.iter.next(self.meta) } {
                 None => {
                     let (idx, state) = self.state.next()?;
                     let archetype = &self.archetypes[*idx];
                     self.iter = ChunkIter::new(archetype, Q::Fetch::execute(archetype, *state));
                     continue;
                 }
-                Some((id, components)) => {
-                    return Some((
-                        Entity {
-                            id,
-                            generation: unsafe { self.meta.get_unchecked(id as usize).generation },
-                        },
-                        components,
-                    ));
+                Some(components) => {
+                    return Some(components);
                 }
             }
         }
@@ -1364,7 +1388,7 @@ impl<'q, Q: Query> View<'q, Q> {
 
         self.fetch[meta.location.archetype as usize]
             .as_ref()
-            .map(|fetch| unsafe { Q::get(fetch, meta.location.index as usize) })
+            .map(|fetch| unsafe { Q::get(entity.generation, fetch, meta.location.index as usize) })
     }
 
     /// Retrieve the query results corresponding to `entity`
@@ -1398,7 +1422,7 @@ impl<'q, Q: Query> View<'q, Q> {
 
         self.fetch[meta.location.archetype as usize]
             .as_ref()
-            .map(|fetch| Q::get(fetch, meta.location.index as usize))
+            .map(|fetch| Q::get(entity.generation, fetch, meta.location.index as usize))
     }
 
     /// Like `get_mut`, but allows checked simultaneous access to multiple entities
@@ -1461,7 +1485,7 @@ impl<'q, Q: Query> View<'q, Q> {
 
 impl<'a, Q: Query> IntoIterator for &'a mut View<'_, Q> {
     type IntoIter = ViewIter<'a, Q>;
-    type Item = (Entity, Q::Item<'a>);
+    type Item = Q::Item<'a>;
 
     #[inline]
     fn into_iter(self) -> Self::IntoIter {
@@ -1477,12 +1501,12 @@ pub struct ViewIter<'a, Q: Query> {
 }
 
 impl<'a, Q: Query> Iterator for ViewIter<'a, Q> {
-    type Item = (Entity, Q::Item<'a>);
+    type Item = Q::Item<'a>;
 
     #[inline(always)]
     fn next(&mut self) -> Option<Self::Item> {
         loop {
-            match unsafe { self.iter.next() } {
+            match unsafe { self.iter.next(self.meta) } {
                 None => {
                     let archetype = self.archetypes.next()?;
                     let fetch = self.fetches.next()?;
@@ -1491,14 +1515,8 @@ impl<'a, Q: Query> Iterator for ViewIter<'a, Q> {
                         .map_or(ChunkIter::empty(), |fetch| ChunkIter::new(archetype, fetch));
                     continue;
                 }
-                Some((id, components)) => {
-                    return Some((
-                        Entity {
-                            id,
-                            generation: unsafe { self.meta.get_unchecked(id as usize).generation },
-                        },
-                        components,
-                    ));
+                Some(components) => {
+                    return Some(components);
                 }
             }
         }
@@ -1556,7 +1574,7 @@ impl<'q, Q: Query> PreparedView<'q, Q> {
 
         self.fetch[meta.location.archetype as usize]
             .as_ref()
-            .map(|fetch| unsafe { Q::get(fetch, meta.location.index as usize) })
+            .map(|fetch| unsafe { Q::get(entity.generation, fetch, meta.location.index as usize) })
     }
 
     /// Retrieve the query results corresponding to `entity`
@@ -1590,7 +1608,7 @@ impl<'q, Q: Query> PreparedView<'q, Q> {
 
         self.fetch[meta.location.archetype as usize]
             .as_ref()
-            .map(|fetch| Q::get(fetch, meta.location.index as usize))
+            .map(|fetch| Q::get(entity.generation, fetch, meta.location.index as usize))
     }
 
     /// Like `get_mut`, but allows checked simultaneous access to multiple entities
@@ -1634,7 +1652,7 @@ impl<'q, Q: Query> PreparedView<'q, Q> {
 
 impl<'a, Q: Query> IntoIterator for &'a mut PreparedView<'_, Q> {
     type IntoIter = ViewIter<'a, Q>;
-    type Item = (Entity, Q::Item<'a>);
+    type Item = Q::Item<'a>;
 
     #[inline]
     fn into_iter(self) -> Self::IntoIter {
@@ -1754,7 +1772,7 @@ impl<Q: Query> Drop for ViewBorrow<'_, Q> {
 
 impl<'a, Q: Query> IntoIterator for &'a mut ViewBorrow<'_, Q> {
     type IntoIter = ViewIter<'a, Q>;
-    type Item = (Entity, Q::Item<'a>);
+    type Item = Q::Item<'a>;
 
     #[inline]
     fn into_iter(self) -> Self::IntoIter {

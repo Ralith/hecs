@@ -357,11 +357,11 @@ impl World {
     ///
     /// Prefer [`query_mut`](Self::query_mut) when concurrent access to the [`World`] is not required.
     ///
-    /// Calling `iter` on the returned value yields `(Entity, Q)` tuples, where `Q` is some query
-    /// type. A query type is any type for which an implementation of [`Query`] exists, e.g. `&T`,
-    /// `&mut T`, a tuple of query types, or an `Option` wrapping a query type, where `T` is any
-    /// component type. Components queried with `&mut` must only appear once. Entities which do not
-    /// have a component type referenced outside of an `Option` will be skipped.
+    /// Calling `iter` on the returned value yields values of type `Q`, where `Q` is some query
+    /// type. A query type is any type which implements [`Query`], e.g. `Entity`, `&T`, `&mut T`, a
+    /// tuple of query types, or an `Option` wrapping a query type, where `T` is any component type.
+    /// Components queried with `&mut` must only appear once. Entities which do not have a component
+    /// type referenced outside of an `Option` will be skipped.
     ///
     /// Entities are yielded in arbitrary order.
     ///
@@ -385,9 +385,9 @@ impl World {
     /// let a = world.spawn((123, true, "abc"));
     /// let b = world.spawn((456, false));
     /// let c = world.spawn((42, "def"));
-    /// let entities = world.query::<(&i32, &bool)>()
+    /// let entities = world.query::<(Entity, &i32, &bool)>()
     ///     .iter()
-    ///     .map(|(e, (&i, &b))| (e, i, b)) // Copy out of the world
+    ///     .map(|(e, &i, &b)| (e, i, b)) // Copy out of the world
     ///     .collect::<Vec<_>>();
     /// assert_eq!(entities.len(), 2);
     /// assert!(entities.contains(&(a, 123, true)));
@@ -464,6 +464,7 @@ impl World {
         let loc = self.entities.get(entity)?;
         Ok(unsafe {
             QueryOne::new(
+                entity.generation,
                 &self.archetypes.archetypes[loc.archetype as usize],
                 loc.index,
             )
@@ -485,7 +486,7 @@ impl World {
         let archetype = &self.archetypes.archetypes[loc.archetype as usize];
         let state = Q::Fetch::prepare(archetype).ok_or(QueryOneError::Unsatisfied)?;
         let fetch = Q::Fetch::execute(archetype, state);
-        unsafe { Ok(Q::get(&fetch, loc.index as usize)) }
+        unsafe { Ok(Q::get(entity.generation, &fetch, loc.index as usize)) }
     }
 
     /// Query a fixed number of distinct entities in a uniquely borrowed world
@@ -505,7 +506,7 @@ impl World {
             let archetype = &self.archetypes.archetypes[loc.archetype as usize];
             let state = Q::Fetch::prepare(archetype).ok_or(QueryOneError::Unsatisfied)?;
             let fetch = Q::Fetch::execute(archetype, state);
-            unsafe { Ok(Q::get(&fetch, loc.index as usize)) }
+            unsafe { Ok(Q::get(entity.generation, &fetch, loc.index as usize)) }
         })
     }
 

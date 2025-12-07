@@ -79,7 +79,7 @@ fn evaluate_relative_transforms(world: &mut World) {
     // references because the inclusion of `&Parent` in the query, and its exclusion from the view,
     // guarantees that they will never overlap. Similarly, it can coexist with `parents` because
     // that view does not reference `Transform`s at all.
-    for (_entity, (parent, absolute)) in world.query::<(&Parent, &mut Transform)>().iter() {
+    for (parent, absolute) in world.query::<(&Parent, &mut Transform)>().iter() {
         // Walk the hierarchy from this entity to the root, accumulating the entity's absolute
         // transform. This does a small amount of redundant work for intermediate levels of deeper
         // hierarchies, but unlike a top-down traversal, avoids tracking entity child lists and is
