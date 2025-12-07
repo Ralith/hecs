@@ -369,15 +369,14 @@ impl World {
     /// documentation for details.
     ///
     /// Iterating a query will panic if it would violate an existing unique reference or construct
-    /// an invalid unique reference. This occurs when two simultaneously-active queries could expose
-    /// the same entity. Simultaneous queries can access the same component type if and only if the
-    /// world contains no entities that have all components required by both queries, assuming no
-    /// other component borrows are outstanding.
+    /// an invalid unique reference. This occurs when two simultaneously-active queries could alias
+    /// a mutable reference to the same component of the same entity. Simultaneous queries which
+    /// refer to the same component type, where at least one takes a mutable reference, can coexist
+    /// if and only if the world contains no entities that have all components required by both
+    /// queries.
     ///
     /// Iterating a query yields references with lifetimes bound to the [`QueryBorrow`] returned
-    /// here. To ensure those are invalidated, the return value of this method must be dropped for
-    /// its dynamic borrows from the world to be released. Similarly, lifetime rules ensure that
-    /// references obtained from a query cannot outlive the [`QueryBorrow`].
+    /// here. This allows the [`QueryBorrow`] to safely implement dynamic borrow checks.
     ///
     /// # Example
     /// ```
