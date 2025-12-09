@@ -9,6 +9,11 @@
 
 ### Changed
 
+- **Breaking**: Query iterators now yield `Q::Item` instead of `(Entity, Q::Item)`. `Entity` now
+  implements `Query`, allowing it to be requested explicitly when required.
+- **Breaking**: `World::satisfies` now returns `bool` rather than a `Result`.
+- **Breaking**: `World::query_one` no longer returns a `Result`. Errors are instead yielded by
+  `QueryOne::get`.
 - `TypeIdMap` and `TypeInfo` are now public to facilitate easy cloning of `World`
 - `ColumnBatchBuilder::writer` now takes `&self` rather than `&mut self`, allowing columns in a
   single batch to be populated concurrently.
