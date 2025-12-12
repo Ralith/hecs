@@ -1,13 +1,13 @@
 use core::marker::PhantomData;
-use core::num::NonZeroU32;
 
+use crate::entities::EntityMeta;
 use crate::query::{assert_borrow, Fetch, With, Without};
 use crate::QueryOneError;
 use crate::{Archetype, Query};
 
 /// A borrow of a [`World`](crate::World) sufficient to execute the query `Q` on a single entity
 pub struct QueryOne<'a, Q: Query> {
-    generation: NonZeroU32,
+    meta: &'a [EntityMeta],
     archetype: Option<&'a Archetype>,
     index: u32,
     borrowed: bool,
@@ -20,9 +20,9 @@ impl<'a, Q: Query> QueryOne<'a, Q> {
     /// # Safety
     ///
     /// `index` must be in-bounds for `archetype`
-    pub(crate) unsafe fn new(generation: NonZeroU32, archetype: &'a Archetype, index: u32) -> Self {
+    pub(crate) unsafe fn new(meta: &'a [EntityMeta], archetype: &'a Archetype, index: u32) -> Self {
         Self {
-            generation,
+            meta,
             archetype: Some(archetype),
             index,
             borrowed: false,
@@ -47,7 +47,7 @@ impl<'a, Q: Query> QueryOne<'a, Q> {
         Q::Fetch::borrow(archetype, state);
         let fetch = Q::Fetch::execute(archetype, state);
         self.borrowed = true;
-        unsafe { Ok(Q::get(self.generation, &fetch, self.index as usize)) }
+        unsafe { Ok(Q::get(self.meta, &fetch, self.index as usize)) }
     }
 
     /// Transform the query into one that requires another query be satisfied
@@ -67,7 +67,7 @@ impl<'a, Q: Query> QueryOne<'a, Q> {
     /// Helper to change the type of the query
     fn transform<R: Query>(mut self) -> QueryOne<'a, R> {
         let x = QueryOne {
-            generation: self.generation,
+            meta: self.meta,
             archetype: self.archetype,
             index: self.index,
             borrowed: self.borrowed,
@@ -83,7 +83,7 @@ impl<Q: Query> Default for QueryOne<'_, Q> {
     /// Construct a `QueryOne` for which `get` will return `NoSuchEntity`
     fn default() -> Self {
         Self {
-            generation: NonZeroU32::new(1).unwrap(),
+            meta: &[],
             archetype: None,
             index: 0,
             borrowed: false,

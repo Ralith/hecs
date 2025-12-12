@@ -466,7 +466,7 @@ impl World {
         };
         unsafe {
             QueryOne::new(
-                entity.generation,
+                &self.entities.meta,
                 &self.archetypes.archetypes[loc.archetype as usize],
                 loc.index,
             )
@@ -488,7 +488,7 @@ impl World {
         let archetype = &self.archetypes.archetypes[loc.archetype as usize];
         let state = Q::Fetch::prepare(archetype).ok_or(QueryOneError::Unsatisfied)?;
         let fetch = Q::Fetch::execute(archetype, state);
-        unsafe { Ok(Q::get(entity.generation, &fetch, loc.index as usize)) }
+        unsafe { Ok(Q::get(&self.entities.meta, &fetch, loc.index as usize)) }
     }
 
     /// Query a fixed number of distinct entities in a uniquely borrowed world
@@ -508,7 +508,7 @@ impl World {
             let archetype = &self.archetypes.archetypes[loc.archetype as usize];
             let state = Q::Fetch::prepare(archetype).ok_or(QueryOneError::Unsatisfied)?;
             let fetch = Q::Fetch::execute(archetype, state);
-            unsafe { Ok(Q::get(entity.generation, &fetch, loc.index as usize)) }
+            unsafe { Ok(Q::get(&self.entities.meta, &fetch, loc.index as usize)) }
         })
     }
 
@@ -537,6 +537,7 @@ impl World {
         let loc = self.entities.get(entity)?;
         unsafe {
             Ok(EntityRef::new(
+                &self.entities.meta,
                 &self.archetypes.archetypes[loc.archetype as usize],
                 entity,
                 loc.index,
@@ -1084,6 +1085,7 @@ impl<'a> Iterator for Iter<'a> {
                     let id = current.entity_id(index);
                     return Some(unsafe {
                         EntityRef::new(
+                            &self.entities.meta,
                             current,
                             Entity {
                                 id,

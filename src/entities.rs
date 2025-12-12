@@ -573,10 +573,11 @@ impl Entities {
     }
 }
 
+/// ID-indexed entity properties
 #[derive(Copy, Clone)]
-pub(crate) struct EntityMeta {
-    pub generation: NonZeroU32,
-    pub location: Location,
+pub struct EntityMeta {
+    pub(crate) generation: NonZeroU32,
+    pub(crate) location: Location,
 }
 
 impl EntityMeta {
