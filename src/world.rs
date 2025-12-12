@@ -539,7 +539,6 @@ impl World {
             Ok(EntityRef::new(
                 &self.entities.meta,
                 &self.archetypes.archetypes[loc.archetype as usize],
-                entity,
                 loc.index,
             ))
         }
@@ -1082,18 +1081,7 @@ impl<'a> Iterator for Iter<'a> {
                     }
                     let index = self.index;
                     self.index += 1;
-                    let id = current.entity_id(index);
-                    return Some(unsafe {
-                        EntityRef::new(
-                            &self.entities.meta,
-                            current,
-                            Entity {
-                                id,
-                                generation: self.entities.meta[id as usize].generation,
-                            },
-                            index,
-                        )
-                    });
+                    return Some(unsafe { EntityRef::new(&self.entities.meta, current, index) });
                 }
             }
         }

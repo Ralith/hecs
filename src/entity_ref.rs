@@ -16,22 +16,15 @@ use crate::{
 pub struct EntityRef<'a> {
     meta: &'a [EntityMeta],
     archetype: &'a Archetype,
-    entity: Entity,
     /// Position of this entity in `archetype`
     index: u32,
 }
 
 impl<'a> EntityRef<'a> {
-    pub(crate) unsafe fn new(
-        meta: &'a [EntityMeta],
-        archetype: &'a Archetype,
-        entity: Entity,
-        index: u32,
-    ) -> Self {
+    pub(crate) unsafe fn new(meta: &'a [EntityMeta], archetype: &'a Archetype, index: u32) -> Self {
         Self {
             meta,
             archetype,
-            entity,
             index,
         }
     }
@@ -39,7 +32,11 @@ impl<'a> EntityRef<'a> {
     /// Get the [`Entity`] handle associated with this entity
     #[inline]
     pub fn entity(&self) -> Entity {
-        self.entity
+        let id = self.archetype.entity_id(self.index);
+        Entity {
+            id,
+            generation: self.meta[id as usize].generation,
+        }
     }
 
     /// Determine whether this entity would satisfy the query `Q` without borrowing any components
