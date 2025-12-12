@@ -1,9 +1,9 @@
 #[cfg(feature = "std")]
 use core::any::Any;
+use core::any::TypeId;
 use core::marker::PhantomData;
 use core::ptr::NonNull;
 use core::slice::Iter as SliceIter;
-use core::{any::TypeId, num::NonZeroU32};
 #[cfg(feature = "std")]
 use std::sync::{Arc, RwLock};
 
@@ -37,7 +37,7 @@ pub trait Query {
     /// - [`Fetch::release`] must not be called while `'a` is still live
     /// - Bounds-checking must be performed externally
     /// - Any resulting borrows must be legal (e.g. no &mut to something another iterator might access)
-    unsafe fn get<'a>(generation: NonZeroU32, fetch: &Self::Fetch, n: usize) -> Self::Item<'a>;
+    unsafe fn get<'a>(meta: &[EntityMeta], fetch: &Self::Fetch, n: usize) -> Self::Item<'a>;
 }
 
 /// Marker trait indicating whether a given [`Query`] will not produce unique references
@@ -85,10 +85,11 @@ impl Query for Entity {
     type Item<'q> = Entity;
     type Fetch = FetchEntity;
 
-    unsafe fn get<'q>(generation: NonZeroU32, fetch: &Self::Fetch, n: usize) -> Self::Item<'q> {
+    unsafe fn get<'q>(meta: &[EntityMeta], fetch: &Self::Fetch, n: usize) -> Self::Item<'q> {
+        let id = fetch.0.as_ptr().add(n).read();
         Entity {
-            id: fetch.0.as_ptr().add(n).read(),
-            generation,
+            id,
+            generation: meta.get_unchecked(id as usize).generation,
         }
     }
 }
@@ -128,7 +129,7 @@ impl<T: Component> Query for &'_ T {
 
     type Fetch = FetchRead<T>;
 
-    unsafe fn get<'q>(_: NonZeroU32, fetch: &FetchRead<T>, n: usize) -> &'q T {
+    unsafe fn get<'q>(_: &[EntityMeta], fetch: &FetchRead<T>, n: usize) -> &'q T {
         &*fetch.0.as_ptr().add(n)
     }
 }
@@ -183,7 +184,7 @@ impl<T: Component> Query for &'_ mut T {
 
     type Fetch = FetchWrite<T>;
 
-    unsafe fn get<'q>(_: NonZeroU32, fetch: &FetchWrite<T>, n: usize) -> &'q mut T {
+    unsafe fn get<'q>(_: &[EntityMeta], fetch: &FetchWrite<T>, n: usize) -> &'q mut T {
         &mut *fetch.0.as_ptr().add(n)
     }
 }
@@ -238,11 +239,11 @@ impl<T: Query> Query for Option<T> {
     type Fetch = TryFetch<T::Fetch>;
 
     unsafe fn get<'q>(
-        generation: NonZeroU32,
+        meta: &[EntityMeta],
         fetch: &TryFetch<T::Fetch>,
         n: usize,
     ) -> Option<T::Item<'q>> {
-        Some(T::get(generation, fetch.0.as_ref()?, n))
+        Some(T::get(meta, fetch.0.as_ref()?, n))
     }
 }
 
@@ -382,11 +383,11 @@ impl<L: Query, R: Query> Query for Or<L, R> {
 
     type Fetch = FetchOr<L::Fetch, R::Fetch>;
 
-    unsafe fn get<'q>(generation: NonZeroU32, fetch: &Self::Fetch, n: usize) -> Self::Item<'q> {
+    unsafe fn get<'q>(meta: &[EntityMeta], fetch: &Self::Fetch, n: usize) -> Self::Item<'q> {
         fetch
             .0
             .as_ref()
-            .map(|l| L::get(generation, l, n), |r| R::get(generation, r, n))
+            .map(|l| L::get(meta, l, n), |r| R::get(meta, r, n))
     }
 }
 
@@ -453,8 +454,8 @@ impl<Q: Query, R: Query> Query for Without<Q, R> {
 
     type Fetch = FetchWithout<Q::Fetch, R::Fetch>;
 
-    unsafe fn get<'q>(generation: NonZeroU32, fetch: &Self::Fetch, n: usize) -> Self::Item<'q> {
-        Q::get(generation, &fetch.0, n)
+    unsafe fn get<'q>(meta: &[EntityMeta], fetch: &Self::Fetch, n: usize) -> Self::Item<'q> {
+        Q::get(meta, &fetch.0, n)
     }
 }
 
@@ -532,8 +533,8 @@ impl<Q: Query, R: Query> Query for With<Q, R> {
 
     type Fetch = FetchWith<Q::Fetch, R::Fetch>;
 
-    unsafe fn get<'q>(generation: NonZeroU32, fetch: &Self::Fetch, n: usize) -> Self::Item<'q> {
-        Q::get(generation, &fetch.0, n)
+    unsafe fn get<'q>(meta: &[EntityMeta], fetch: &Self::Fetch, n: usize) -> Self::Item<'q> {
+        Q::get(meta, &fetch.0, n)
     }
 }
 
@@ -609,7 +610,7 @@ impl<Q: Query> Query for Satisfies<Q> {
 
     type Fetch = FetchSatisfies<Q::Fetch>;
 
-    unsafe fn get<'q>(_: NonZeroU32, fetch: &Self::Fetch, _: usize) -> Self::Item<'q> {
+    unsafe fn get<'q>(_: &[EntityMeta], fetch: &Self::Fetch, _: usize) -> Self::Item<'q> {
         fetch.0
     }
 }
@@ -963,11 +964,7 @@ impl<Q: Query> ChunkIter<Q> {
         if self.position == self.len {
             return None;
         }
-        let item = Q::get(
-            meta.get_unchecked(self.position).generation,
-            &self.fetch,
-            self.position,
-        );
+        let item = Q::get(meta, &self.fetch, self.position);
         self.position += 1;
         Some(item)
     }
@@ -1118,10 +1115,10 @@ macro_rules! tuple_impl {
             type Fetch = ($($name::Fetch,)*);
 
             #[allow(unused_variables, clippy::unused_unit)]
-            unsafe fn get<'q>(generation: NonZeroU32, fetch: &Self::Fetch, n: usize) -> Self::Item<'q> {
+            unsafe fn get<'q>(meta: &[EntityMeta], fetch: &Self::Fetch, n: usize) -> Self::Item<'q> {
                 #[allow(non_snake_case)]
                 let ($(ref $name,)*) = *fetch;
-                ($($name::get(generation, $name, n),)*)
+                ($($name::get(meta, $name, n),)*)
             }
         }
 
@@ -1388,7 +1385,7 @@ impl<'q, Q: Query> View<'q, Q> {
 
         self.fetch[meta.location.archetype as usize]
             .as_ref()
-            .map(|fetch| unsafe { Q::get(entity.generation, fetch, meta.location.index as usize) })
+            .map(|fetch| unsafe { Q::get(self.meta, fetch, meta.location.index as usize) })
     }
 
     /// Retrieve the query results corresponding to `entity`
@@ -1422,7 +1419,7 @@ impl<'q, Q: Query> View<'q, Q> {
 
         self.fetch[meta.location.archetype as usize]
             .as_ref()
-            .map(|fetch| Q::get(entity.generation, fetch, meta.location.index as usize))
+            .map(|fetch| Q::get(self.meta, fetch, meta.location.index as usize))
     }
 
     /// Like `get_mut`, but allows checked simultaneous access to multiple entities
@@ -1574,7 +1571,7 @@ impl<'q, Q: Query> PreparedView<'q, Q> {
 
         self.fetch[meta.location.archetype as usize]
             .as_ref()
-            .map(|fetch| unsafe { Q::get(entity.generation, fetch, meta.location.index as usize) })
+            .map(|fetch| unsafe { Q::get(self.meta, fetch, meta.location.index as usize) })
     }
 
     /// Retrieve the query results corresponding to `entity`
@@ -1608,7 +1605,7 @@ impl<'q, Q: Query> PreparedView<'q, Q> {
 
         self.fetch[meta.location.archetype as usize]
             .as_ref()
-            .map(|fetch| Q::get(entity.generation, fetch, meta.location.index as usize))
+            .map(|fetch| Q::get(self.meta, fetch, meta.location.index as usize))
     }
 
     /// Like `get_mut`, but allows checked simultaneous access to multiple entities

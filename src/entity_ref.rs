@@ -5,6 +5,7 @@ use core::ops::{Deref, DerefMut, FnOnce};
 use core::ptr::NonNull;
 
 use crate::archetype::Archetype;
+use crate::entities::EntityMeta;
 use crate::{
     ArchetypeColumn, ArchetypeColumnMut, Component, Entity, Fetch, MissingComponent, Query,
     QueryOne,
@@ -13,14 +14,22 @@ use crate::{
 /// Handle to an entity with any component types
 #[derive(Copy, Clone)]
 pub struct EntityRef<'a> {
+    meta: &'a [EntityMeta],
     archetype: &'a Archetype,
     entity: Entity,
+    /// Position of this entity in `archetype`
     index: u32,
 }
 
 impl<'a> EntityRef<'a> {
-    pub(crate) unsafe fn new(archetype: &'a Archetype, entity: Entity, index: u32) -> Self {
+    pub(crate) unsafe fn new(
+        meta: &'a [EntityMeta],
+        archetype: &'a Archetype,
+        entity: Entity,
+        index: u32,
+    ) -> Self {
         Self {
+            meta,
             archetype,
             entity,
             index,
@@ -82,7 +91,7 @@ impl<'a> EntityRef<'a> {
     /// assert_eq!(*number, 246);
     /// ```
     pub fn query<Q: Query>(&self) -> QueryOne<'a, Q> {
-        unsafe { QueryOne::new(self.entity.generation, self.archetype, self.index) }
+        unsafe { QueryOne::new(self.meta, self.archetype, self.index) }
     }
 
     /// Enumerate the types of the entity's components

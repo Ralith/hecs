@@ -1146,3 +1146,21 @@ fn cache_invalidation() {
         &[(a, &42), (b, &17)]
     );
 }
+
+// https://github.com/Ralith/hecs/issues/417
+#[test]
+fn entity_generation_regression() {
+    struct C;
+
+    let mut world = World::new();
+
+    let a = world.spawn((C,));
+    let b = world.spawn((C,));
+    world.despawn(a).unwrap();
+    world.despawn(b).unwrap();
+    let c = world.spawn((C,));
+    world.despawn(c).unwrap();
+    let d = world.spawn((C,));
+    let d2 = world.query::<Entity>().iter().next().unwrap();
+    assert_eq!(d, d2);
+}

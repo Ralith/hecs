@@ -104,6 +104,8 @@ pub use world::{
 #[doc(hidden)]
 pub use bundle::DynamicClone;
 #[doc(hidden)]
+pub use entities::EntityMeta;
+#[doc(hidden)]
 pub use query::Fetch;
 
 #[cfg(feature = "macros")]
