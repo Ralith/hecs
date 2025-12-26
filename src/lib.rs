@@ -33,6 +33,10 @@
 extern crate std;
 
 #[doc(hidden)]
+#[doc = include_str!("../README.md")]
+mod readme_doctest {}
+
+#[doc(hidden)]
 pub extern crate alloc;
 #[doc(hidden)]
 pub extern crate spin;
