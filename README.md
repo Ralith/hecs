@@ -12,6 +12,8 @@ your application however you like!
 ### Example
 
 ```rust
+use hecs::*;
+
 let mut world = World::new();
 // Nearly any type can be used as a component with zero boilerplate
 let a = world.spawn((123, true, "abc"));
@@ -100,8 +102,8 @@ If hecs doesn't suit you, one of those might do the trick!
 
 Licensed under either of
 
- * Apache License, Version 2.0, ([LICENSE-APACHE](LICENSE-APACHE) or http://www.apache.org/licenses/LICENSE-2.0)
- * MIT license ([LICENSE-MIT](LICENSE-MIT) or http://opensource.org/licenses/MIT)
+ * Apache License, Version 2.0, ([LICENSE-APACHE](LICENSE-APACHE) or <http://www.apache.org/licenses/LICENSE-2.0>)
+ * MIT license ([LICENSE-MIT](LICENSE-MIT) or <http://opensource.org/licenses/MIT>)
 
 at your option.
 
