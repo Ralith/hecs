@@ -135,6 +135,7 @@ impl<T: Component> Query for &'_ T {
 }
 
 unsafe impl<T> QueryShared for &'_ T {}
+unsafe impl QueryShared for Entity {}
 
 #[doc(hidden)]
 pub struct FetchRead<T>(NonNull<T>);
