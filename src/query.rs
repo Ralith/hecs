@@ -93,6 +93,7 @@ impl Query for Entity {
         }
     }
 }
+unsafe impl QueryShared for Entity {}
 
 #[doc(hidden)]
 #[derive(Clone)]
