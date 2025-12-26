@@ -12,9 +12,7 @@ your application however you like!
 ### Example
 
 ```rust
-use hecs::*;
-
-let mut world = World::new();
+let mut world = hecs::World::new();
 // Nearly any type can be used as a component with zero boilerplate
 let a = world.spawn((123, true, "abc"));
 let b = world.spawn((42, false));
