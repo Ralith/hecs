@@ -136,7 +136,7 @@ impl<'a, T: Component> Ref<'a, T> {
     }
 }
 
-unsafe impl<T: ?Sized + Sync> Send for Ref<'_, T> {}
+unsafe impl<T: ?Sized + Send> Send for Ref<'_, T> {}
 unsafe impl<T: ?Sized + Sync> Sync for Ref<'_, T> {}
 
 impl<'a, T: ?Sized> Ref<'a, T> {
