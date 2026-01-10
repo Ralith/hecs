@@ -21,6 +21,8 @@
   explicit drops to avoid borrowing `ColumnBatchBuilder` longer than intended.
 - Renamed `{View, PreparedView}::get_many_mut` and `World::query_many_mut` to `..._disjoint_mut` 
   for consistency with the stabilized std methods
+- Set-up work is now automatically cached for most uses of queries, dramatically improving 
+  the performance of small queries in worlds with many archetypes.
 
 # 0.10.5
 
