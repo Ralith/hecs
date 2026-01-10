@@ -496,7 +496,7 @@ impl World {
     /// Like [`query_one_mut`](Self::query_one_mut), but for multiple entities, which would
     /// otherwise be forbidden by the unique borrow. Panics if the same entity occurs more than
     /// once.
-    pub fn query_many_mut<Q: Query, const N: usize>(
+    pub fn query_disjoint_mut<Q: Query, const N: usize>(
         &mut self,
         entities: [Entity; N],
     ) -> [Result<Q::Item<'_>, QueryOneError>; N] {
@@ -510,6 +510,15 @@ impl World {
             let fetch = Q::Fetch::execute(archetype, state);
             unsafe { Ok(Q::get(&self.entities.meta, &fetch, loc.index as usize)) }
         })
+    }
+
+    #[doc(hidden)]
+    #[deprecated(since = "0.11.0", note = "renamed to `query_disjoint_mut`")]
+    pub fn query_many_mut<Q: Query, const N: usize>(
+        &mut self,
+        entities: [Entity; N],
+    ) -> [Result<Q::Item<'_>, QueryOneError>; N] {
+        self.query_disjoint_mut::<Q, _>(entities)
     }
 
     /// Short-hand for [`entity`](Self::entity) followed by [`EntityRef::get`]
