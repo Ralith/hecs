@@ -1438,13 +1438,13 @@ impl<'q, Q: Query> View<'q, Q> {
     ///
     /// let mut query = world.query_mut::<&mut i32>();
     /// let mut view = query.view();
-    /// let [a,b,c] = view.get_mut_n([a, b, c]);
+    /// let [a,b,c] = view.get_disjoint_mut([a, b, c]);
     ///
     /// assert_eq!(*a.unwrap(), 1);
     /// assert_eq!(*b.unwrap(), 2);
     /// assert_eq!(*c.unwrap(), 3);
     /// ```
-    pub fn get_many_mut<const N: usize>(
+    pub fn get_disjoint_mut<const N: usize>(
         &mut self,
         entities: [Entity; N],
     ) -> [Option<Q::Item<'_>>; N] {
@@ -1462,9 +1462,12 @@ impl<'q, Q: Query> View<'q, Q> {
     }
 
     #[doc(hidden)]
-    #[deprecated(since = "0.10.5", note = "renamed to `get_many_mut`")]
-    pub fn get_mut_n<const N: usize>(&mut self, entities: [Entity; N]) -> [Option<Q::Item<'_>>; N] {
-        self.get_many_mut(entities)
+    #[deprecated(since = "0.11.0", note = "renamed to `get_disjoint_mut`")]
+    pub fn get_many_mut<const N: usize>(
+        &mut self,
+        entities: [Entity; N],
+    ) -> [Option<Q::Item<'_>>; N] {
+        self.get_disjoint_mut(entities)
     }
 
     /// Iterate over all entities satisfying `Q`
@@ -1610,8 +1613,8 @@ impl<'q, Q: Query> PreparedView<'q, Q> {
 
     /// Like `get_mut`, but allows checked simultaneous access to multiple entities
     ///
-    /// See [`View::get_many_mut`] for details.
-    pub fn get_many_mut<const N: usize>(
+    /// See [`View::get_disjoint_mut`] for details.
+    pub fn get_disjoint_mut<const N: usize>(
         &mut self,
         entities: [Entity; N],
     ) -> [Option<Q::Item<'_>>; N] {
@@ -1629,9 +1632,12 @@ impl<'q, Q: Query> PreparedView<'q, Q> {
     }
 
     #[doc(hidden)]
-    #[deprecated(since = "0.10.5", note = "renamed to `get_many_mut`")]
-    pub fn get_mut_n<const N: usize>(&mut self, entities: [Entity; N]) -> [Option<Q::Item<'_>>; N] {
-        self.get_many_mut(entities)
+    #[deprecated(since = "0.11.0", note = "renamed to `get_disjoint_mut`")]
+    pub fn get_many_mut<const N: usize>(
+        &mut self,
+        entities: [Entity; N],
+    ) -> [Option<Q::Item<'_>>; N] {
+        self.get_disjoint_mut(entities)
     }
 
     /// Iterate over all entities satisfying `Q`
@@ -1727,7 +1733,7 @@ impl<'w, Q: Query> ViewBorrow<'w, Q> {
     ///
     /// For N > 3, the check for distinct entities will clone the array and take O(N log N) time.
     ///
-    /// See [`View::get_many_mut``].
+    /// See [`View::get_disjoint_mut``].
     ///
     /// # Examples
     ///
@@ -1740,17 +1746,26 @@ impl<'w, Q: Query> ViewBorrow<'w, Q> {
     /// let c = world.spawn((3, 9.0));
     ///
     /// let mut view = world.view_mut::<&mut i32>();
-    /// let [a, b, c] = view.get_mut_n([a, b, c]);
+    /// let [a, b, c] = view.get_disjoint_mut([a, b, c]);
     ///
     /// assert_eq!(*a.unwrap(), 1);
     /// assert_eq!(*b.unwrap(), 2);
     /// assert_eq!(*c.unwrap(), 3);
     /// ```
+    pub fn get_disjoint_mut<const N: usize>(
+        &mut self,
+        entities: [Entity; N],
+    ) -> [Option<Q::Item<'_>>; N] {
+        self.view.get_disjoint_mut(entities)
+    }
+
+    #[doc(hidden)]
+    #[deprecated(since = "0.11.0", note = "renamed to `get_disjoint_mut`")]
     pub fn get_many_mut<const N: usize>(
         &mut self,
         entities: [Entity; N],
     ) -> [Option<Q::Item<'_>>; N] {
-        self.view.get_many_mut(entities)
+        self.view.get_disjoint_mut(entities)
     }
 
     /// Iterate over all entities satisfying `Q`

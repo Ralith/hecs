@@ -402,7 +402,7 @@ fn simultaneous_access_must_be_non_overlapping() {
     let mut query = world.query_mut::<&mut i32>();
     let mut view = query.view();
 
-    view.get_mut_n([a, d, c, b, a]);
+    view.get_disjoint_mut([a, d, c, b, a]);
 }
 
 #[test]

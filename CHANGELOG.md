@@ -19,6 +19,8 @@
   single batch to be populated concurrently.
 - To support the above, `BatchWriter` now implements `Drop`. Existing code may need to introduce
   explicit drops to avoid borrowing `ColumnBatchBuilder` longer than intended.
+- Renamed `{View, PreparedView}::get_many_mut` and `World::query_many_mut` to `..._disjoint_mut` 
+  for consistency with the stabilized std methods
 
 # 0.10.5
 
