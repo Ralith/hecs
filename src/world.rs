@@ -363,6 +363,10 @@ impl World {
     /// Components queried with `&mut` must only appear once. Entities which do not have a component
     /// type referenced outside of an `Option` will be skipped.
     ///
+    /// Note: Since entities can also be queried as compoenets, `&Entity`` and `&mut Entity`` are valid query types.
+    /// However, this means if you want to query for both an entity and its components, 
+    /// you must use `Entity` in the query list.
+    ///
     /// Entities are yielded in arbitrary order.
     ///
     /// The returned [`QueryBorrow`] can be further transformed with combinator methods; see its
