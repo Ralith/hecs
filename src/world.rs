@@ -363,9 +363,10 @@ impl World {
     /// Components queried with `&mut` must only appear once. Entities which do not have a component
     /// type referenced outside of an `Option` will be skipped.
     ///
-    /// Note: Since Entities cannot be borrowed in hecs, you should never query an Entity with
-    /// `&Entity`. This will never result in any results since Entities are not components.
-    /// 
+    /// Note: Since entities can also be queried as compoenets, `&Entity`` and `&mut Entity`` are valid query types.
+    /// However, this means if you want to query for both an entity and its components, 
+    /// you must use `Entity` in the query list.
+    ///
     /// Entities are yielded in arbitrary order.
     ///
     /// The returned [`QueryBorrow`] can be further transformed with combinator methods; see its
