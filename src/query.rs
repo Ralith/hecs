@@ -19,6 +19,8 @@ use crate::{Component, Entity, World};
 
 /// A collection of component types to fetch from a [`World`](crate::World)
 ///
+/// See [`World::query`] for detailed discussion.
+///
 /// The interface of this trait is a private implementation detail.
 pub trait Query {
     /// Type of results yielded by the query
