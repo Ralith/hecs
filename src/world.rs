@@ -538,7 +538,7 @@ impl World {
 
     /// Short-hand for [`entity`](Self::entity) followed by [`EntityRef::satisfies`]
     ///
-    /// Returns `false` if `entity` does satisfy the query `Q` or not exist.
+    /// Returns `true` if `entity` exists and satisfies the query `Q`.
     pub fn satisfies<Q: Query>(&self, entity: Entity) -> bool {
         self.entity(entity).map_or(false, |e| e.satisfies::<Q>())
     }
