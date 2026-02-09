@@ -135,8 +135,7 @@ impl fmt::Display for MissingComponent {
     }
 }
 
-#[cfg(feature = "std")]
-impl std::error::Error for MissingComponent {}
+impl core::error::Error for MissingComponent {}
 
 macro_rules! tuple_impl {
     ($($name: ident),*) => {
