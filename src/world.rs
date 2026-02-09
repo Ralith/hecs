@@ -2,13 +2,10 @@ use crate::alloc::{vec, vec::Vec};
 use core::any::TypeId;
 use core::borrow::Borrow;
 use core::convert::TryFrom;
+use core::error::Error;
 use core::hash::{BuildHasherDefault, Hasher};
-use spin::Mutex;
-
 use core::{fmt, ptr};
-
-#[cfg(feature = "std")]
-use std::error::Error;
+use spin::Mutex;
 
 use hashbrown::hash_map::{Entry, HashMap};
 
@@ -540,7 +537,7 @@ impl World {
     ///
     /// Returns `true` if `entity` exists and satisfies the query `Q`.
     pub fn satisfies<Q: Query>(&self, entity: Entity) -> bool {
-        self.entity(entity).map_or(false, |e| e.satisfies::<Q>())
+        self.entity(entity).is_ok_and(|e| e.satisfies::<Q>())
     }
 
     /// Access an entity regardless of its component types
@@ -996,7 +993,6 @@ pub enum ComponentError {
     MissingComponent(MissingComponent),
 }
 
-#[cfg(feature = "std")]
 impl Error for ComponentError {}
 
 impl fmt::Display for ComponentError {
@@ -1030,7 +1026,6 @@ pub enum QueryOneError {
     Unsatisfied,
 }
 
-#[cfg(feature = "std")]
 impl Error for QueryOneError {}
 
 impl fmt::Display for QueryOneError {

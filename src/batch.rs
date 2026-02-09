@@ -170,8 +170,7 @@ pub struct BatchIncomplete {
     _opaque: (),
 }
 
-#[cfg(feature = "std")]
-impl std::error::Error for BatchIncomplete {}
+impl core::error::Error for BatchIncomplete {}
 
 impl fmt::Display for BatchIncomplete {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

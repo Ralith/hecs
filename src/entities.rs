@@ -1,13 +1,12 @@
 use alloc::vec::Vec;
 use core::cmp;
 use core::convert::TryFrom;
+use core::error::Error;
 use core::iter::ExactSizeIterator;
 use core::num::{NonZeroU32, NonZeroU64};
 use core::ops::Range;
 use core::sync::atomic::{AtomicIsize, Ordering};
 use core::{fmt, mem};
-#[cfg(feature = "std")]
-use std::error::Error;
 
 /// Lightweight unique ID, or handle, of an entity
 ///
@@ -609,7 +608,6 @@ impl fmt::Display for NoSuchEntity {
     }
 }
 
-#[cfg(feature = "std")]
 impl Error for NoSuchEntity {}
 
 #[derive(Clone)]
