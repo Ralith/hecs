@@ -636,7 +636,7 @@ impl AllocManyState {
 mod tests {
     use super::*;
     use hashbrown::{HashMap, HashSet};
-    use rand::{rngs::StdRng, Rng, SeedableRng};
+    use rand::{rngs::StdRng, RngExt, SeedableRng};
 
     #[test]
     fn entity_bits_roundtrip() {
