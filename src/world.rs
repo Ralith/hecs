@@ -701,6 +701,45 @@ impl World {
         self.insert(entity, (component,))
     }
 
+    /// Update `entity`'s `C` component with `f`, or insert `default` if `entity` doesn't have a `C` component
+    ///
+    /// The `default` closure is evaluated only when insertion is needed.
+    pub fn update_or_insert_one<C: Component, F: FnOnce(&mut C), D: FnOnce() -> C>(
+        &mut self,
+        entity: Entity,
+        default: D,
+        f: F,
+    ) -> Result<(), NoSuchEntity> {
+        self.flush();
+        assert_borrow::<&mut C>();
+
+        let loc = self.entities.get(entity)?;
+        self.update_or_insert_one_inner(entity, loc, default, f);
+
+        Ok(())
+    }
+
+    fn update_or_insert_one_inner<C: Component, F: FnOnce(&mut C), D: FnOnce() -> C>(
+        &mut self,
+        entity: Entity,
+        loc: Location,
+        default: D,
+        f: F,
+    ) {
+        let archetype = &self.archetypes.archetypes[loc.archetype as usize];
+        if let Some(state) = archetype.get_state::<C>() {
+            unsafe {
+                let ptr = archetype
+                    .get_base::<C>(state)
+                    .as_ptr()
+                    .add(loc.index as usize);
+                f(&mut *ptr);
+            }
+        } else {
+            self.insert_inner(entity, (default(),), loc.archetype, loc);
+        }
+    }
+
     /// Remove components from `entity`
     ///
     /// Computational cost is proportional to the number of components `entity` has. The entity
@@ -1425,6 +1464,27 @@ mod tests {
     fn bad_insert() {
         let mut world = World::new();
         assert!(world.insert_one(Entity::DANGLING, ()).is_err());
+    }
+
+    #[test]
+    fn update_or_insert_one() {
+        let mut world = World::new();
+        let entity = world.spawn((10_i32,));
+
+        world
+            .update_or_insert_one(entity, || 0_i32, |value| *value += 5)
+            .unwrap();
+        assert_eq!(*world.get::<&i32>(entity).unwrap(), 15);
+
+        let other = world.spawn(());
+        world
+            .update_or_insert_one(other, || 7_i32, |value| *value *= 2)
+            .unwrap();
+        assert_eq!(*world.get::<&i32>(other).unwrap(), 7);
+
+        assert!(world
+            .update_or_insert_one(Entity::DANGLING, || 1_i32, |_| {})
+            .is_err());
     }
 
     #[test]

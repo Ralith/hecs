@@ -4,6 +4,7 @@ use core::ops::Range;
 use core::ptr::{self, NonNull};
 
 use crate::alloc::alloc::{alloc, dealloc, Layout};
+use crate::alloc::boxed::Box;
 use crate::alloc::vec::Vec;
 use crate::archetype::TypeInfo;
 use crate::{align, DynamicBundle};
@@ -94,6 +95,27 @@ impl CommandBuffer {
         self.insert(entity, (component,));
     }
 
+    /// Update `entity`'s `C` component with `f`, or insert `default` if `entity` doesn't have a `C` component
+    ///
+    /// The closures are executed when [`run_on`](Self::run_on) is called, matching
+    /// [`World::update_or_insert_one`](crate::World::update_or_insert_one) semantics.
+    pub fn update_or_insert_one<
+        C: Component,
+        F: FnOnce(&mut C) + Send + Sync + 'static,
+        D: FnOnce() -> C + Send + Sync + 'static,
+    >(
+        &mut self,
+        entity: Entity,
+        default: D,
+        f: F,
+    ) {
+        let op = Box::new(move |world: &mut World| {
+            let _ = world.update_or_insert_one::<C, _, _>(entity, default, f);
+        });
+        self.cmds
+            .push(Cmd::UpdateOrInsertOne(UpdateOrInsertOneCmd { op }));
+    }
+
     /// Remove components from `entity` if they exist
     ///
     /// When removing a single component, see [`remove_one`](Self::remove_one) for convenience.
@@ -150,6 +172,9 @@ impl CommandBuffer {
                             world.spawn(components);
                         }
                     }
+                }
+                Cmd::UpdateOrInsertOne(UpdateOrInsertOneCmd { op }) => {
+                    op(world);
                 }
                 Cmd::Remove(remove) => {
                     (remove.remove)(world, remove.entity);
@@ -277,6 +302,11 @@ struct EntityIndex {
     components: Range<usize>,
 }
 
+/// Data required to update or insert a component
+struct UpdateOrInsertOneCmd {
+    op: Box<dyn FnOnce(&mut World) + Send + Sync + 'static>,
+}
+
 /// Data required to remove components from 'entity'
 struct RemovedComps {
     remove: fn(&mut World, Entity),
@@ -286,6 +316,7 @@ struct RemovedComps {
 /// A buffered command
 enum Cmd {
     SpawnOrInsert(EntityIndex),
+    UpdateOrInsertOne(UpdateOrInsertOneCmd),
     Remove(RemovedComps),
     Despawn(Entity),
 }
@@ -359,5 +390,36 @@ mod tests {
         cmd.insert_one(a, 42i32);
         cmd.run_on(&mut world);
         assert_eq!(*world.get::<&i32>(a).unwrap(), 42);
+    }
+
+    #[test]
+    fn update_or_insert_one_updates_existing() {
+        let mut world = World::new();
+        let entity = world.spawn((10i32,));
+        let mut cmd = CommandBuffer::new();
+        cmd.update_or_insert_one(entity, || 0i32, |value| *value += 5);
+        cmd.run_on(&mut world);
+        assert_eq!(*world.get::<&i32>(entity).unwrap(), 15);
+    }
+
+    #[test]
+    fn update_or_insert_one_inserts_missing() {
+        let mut world = World::new();
+        let entity = world.spawn(());
+        let mut cmd = CommandBuffer::new();
+        cmd.update_or_insert_one(entity, || 7i32, |value| *value *= 2);
+        cmd.run_on(&mut world);
+        assert_eq!(*world.get::<&i32>(entity).unwrap(), 7);
+    }
+
+    #[test]
+    fn update_or_insert_one_multiple_calls() {
+        let mut world = World::new();
+        let entity = world.spawn((10i32,));
+        let mut cmd = CommandBuffer::new();
+        cmd.update_or_insert_one(entity, || 0i32, |value| *value += 5);
+        cmd.update_or_insert_one(entity, || 0i32, |value| *value *= 2);
+        cmd.run_on(&mut world);
+        assert_eq!(*world.get::<&i32>(entity).unwrap(), 30);
     }
 }
