@@ -4,6 +4,7 @@ use core::ops::Range;
 use core::ptr::{self, NonNull};
 
 use crate::alloc::alloc::{alloc, dealloc, Layout};
+use crate::alloc::boxed::Box;
 use crate::alloc::vec::Vec;
 use crate::archetype::TypeInfo;
 use crate::{align, DynamicBundle};
@@ -119,6 +120,11 @@ impl CommandBuffer {
         self.cmds.push(Cmd::Despawn(entity));
     }
 
+    /// Queue an arbitrary operation to be run on a [`World`]
+    pub fn queue(&mut self, f: impl FnOnce(&mut World) + Send + Sync + 'static) {
+        self.cmds.push(Cmd::Run(Box::new(f)));
+    }
+
     /// Spawn a new entity with `components`
     ///
     /// If the [`Entity`] is needed immediately, consider combining [`World::reserve_entity`] with
@@ -156,6 +162,9 @@ impl CommandBuffer {
                 }
                 Cmd::Despawn(entity) => {
                     let _ = world.despawn(entity);
+                }
+                Cmd::Run(f) => {
+                    f(world);
                 }
             }
         }
@@ -288,6 +297,7 @@ enum Cmd {
     SpawnOrInsert(EntityIndex),
     Remove(RemovedComps),
     Despawn(Entity),
+    Run(Box<dyn FnOnce(&mut World) + Send + Sync + 'static>),
 }
 
 #[cfg(test)]
@@ -359,5 +369,19 @@ mod tests {
         cmd.insert_one(a, 42i32);
         cmd.run_on(&mut world);
         assert_eq!(*world.get::<&i32>(a).unwrap(), 42);
+    }
+
+    #[test]
+    fn insert_then_queue() {
+        let mut world = World::new();
+        let a = world.spawn(());
+        let mut cmd = CommandBuffer::new();
+        cmd.insert_one(a, 42i32);
+        cmd.queue(move |world| {
+            let _ = world.insert_one(a, 123i32);
+        });
+        cmd.run_on(&mut world);
+
+        assert_eq!(*world.get::<&i32>(a).unwrap(), 123);
     }
 }
