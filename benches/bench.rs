@@ -158,6 +158,23 @@ fn iterate_mut_100k(c: &mut Criterion) {
     });
 }
 
+fn for_each_100k(c: &mut Criterion) {
+    let mut world = World::new();
+    for i in 0..100_000 {
+        world.spawn((Position(-(i as f32)), Velocity(i as f32)));
+    }
+    c.bench_function("for_each 100k", |b| {
+        b.iter(|| {
+            world
+                .query::<(&mut Position, &Velocity)>()
+                .iter()
+                .for_each(|(pos, vel)| {
+                    pos.0 += vel.0;
+                });
+        })
+    });
+}
+
 fn spawn_100_by_50(world: &mut World) {
     fn spawn_two<const N: usize>(world: &mut World, i: i32) {
         world.spawn((Position(-(i as f32)), Velocity(i as f32), [(); N]));
@@ -323,6 +340,7 @@ criterion_group!(
     exchange,
     iterate_100k,
     iterate_mut_100k,
+    for_each_100k,
     iterate_uncached_100_by_50,
     iterate_uncached_1_of_100_by_50,
     iterate_cached_100_by_50,

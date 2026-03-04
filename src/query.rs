@@ -836,6 +836,32 @@ impl<'q, Q: Query> Iterator for QueryIter<'q, Q> {
         let n = self.len();
         (n, Some(n))
     }
+
+    // We're implementing this because some `Iterator`-consuming methods are
+    // implemented using `Iterator::fold`. With an optmized version implemented
+    // without actually calling `Iterator::next`, they all benefit from
+    // improved performance. See `for_each_100k` bench.
+    //
+    // TODO: Once `Try` is stable, implement `Iterator::try_fold` instead. This
+    // will make *all* `Iterator`-consuming methods rely on that
+    // implementation.
+    fn fold<B, F>(mut self, mut init: B, mut f: F) -> B
+    where
+        Self: Sized,
+        F: FnMut(B, Self::Item) -> B,
+    {
+        loop {
+            while let Some(components) = unsafe { self.iter.next(self.world.entities_meta()) } {
+                init = f(init, components);
+            }
+
+            if let Some(iter) = unsafe { self.archetypes.next(self.world) } {
+                self.iter = iter;
+            } else {
+                break init;
+            }
+        }
+    }
 }
 
 impl<Q: Query> ExactSizeIterator for QueryIter<'_, Q> {
