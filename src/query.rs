@@ -687,9 +687,10 @@ impl<'w, Q: Query> QueryBorrow<'w, Q> {
 
     /// Like `iter`, but returns child iterators of at most `batch_size` elements
     ///
-    /// Useful for distributing work over a threadpool.
+    /// Useful for distributing work over a threadpool. `batch_size` must be greater than 0.
     // The lifetime narrowing here is required for soundness.
     pub fn iter_batched(&mut self, batch_size: u32) -> BatchedIter<'_, Q> {
+        assert!(batch_size > 0, "batch size must be greater than 0");
         let cache = self.borrow().clone();
         unsafe {
             BatchedIter::new(
