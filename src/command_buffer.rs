@@ -384,4 +384,27 @@ mod tests {
 
         assert_eq!(*world.get::<&i32>(a).unwrap(), 123);
     }
+
+    /// Verify that CommandBuffer neither leaks nor double-frees inserted components
+    #[cfg(feature = "std")]
+    #[test]
+    fn ownership_sanity() {
+        use std::sync::Arc;
+
+        let refcount = Arc::new(());
+
+        let mut world = World::new();
+        let entity = world.spawn(());
+
+        {
+            let mut cmd = CommandBuffer::new();
+            cmd.insert_one(entity, refcount.clone());
+            assert_eq!(Arc::strong_count(&refcount), 2);
+            cmd.run_on(&mut world);
+        }
+        assert_eq!(Arc::strong_count(&refcount), 2);
+
+        world.despawn(entity).unwrap();
+        assert_eq!(Arc::strong_count(&refcount), 1);
+    }
 }
