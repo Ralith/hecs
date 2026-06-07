@@ -333,6 +333,7 @@ impl Entities {
     /// This is an awkward separate function to avoid borrowck issues in `SpawnColumnBatchIter`.
     pub fn finish_alloc_many(&mut self, pending_end: usize) {
         self.pending.truncate(pending_end);
+        *self.free_cursor.get_mut() = pending_end as isize;
     }
 
     /// Allocate a specific entity ID, overwriting its generation
@@ -877,5 +878,25 @@ mod tests {
             generation: NonZeroU32::new(1).unwrap(),
             id: 0
         }));
+    }
+
+    #[test]
+    fn alloc_many_updates_pending() {
+        let mut e = Entities::default();
+
+        // Arrange for a single element in pending
+        let x = e.alloc();
+        e.meta[x.id as usize].location.index = 0;
+        e.free(x).unwrap();
+        assert_eq!(*e.free_cursor.get_mut(), 1);
+        assert_eq!(e.pending.len(), 1);
+
+        // Reallocate it
+        let state = e.alloc_many(1, 0, 0);
+        assert_eq!(state.pending_end, 0);
+        e.finish_alloc_many(state.pending_end);
+
+        // Check that we can reserve further entities
+        e.reserve_entity();
     }
 }
