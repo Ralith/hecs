@@ -9,7 +9,7 @@ use core::{
 
 use crate::{
     archetype::{TypeIdMap, TypeInfo},
-    Archetype, Component,
+    Archetype, Bundle, Component,
 };
 
 /// A collection of component types
@@ -33,6 +33,14 @@ impl ColumnBatchType {
     /// [Self::add()] but using type information determined at runtime via [TypeInfo::of()]
     pub fn add_dynamic(&mut self, id: TypeInfo) -> &mut Self {
         self.types.push(id);
+        self
+    }
+
+    /// Update to include all the components in bundle `T`
+    pub fn add_bundle<T: Bundle>(&mut self) -> &mut Self {
+        T::with_static_type_info(|type_infos| {
+            type_infos.iter().for_each(|info| self.types.push(*info))
+        });
         self
     }
 
