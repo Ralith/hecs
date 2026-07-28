@@ -1,3 +1,11 @@
+# 0.11.1
+
+### Fixed
+
+- `World::spawn_column_batch_at` could execute an out-of-bounds write when the same entity was
+  updated twice
+- `ColumnBatchBuilder` leaked components when `build` was not called
+
 # 0.11.0
 
 ### Added
