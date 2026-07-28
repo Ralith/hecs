@@ -254,12 +254,15 @@ impl World {
         for &handle in handles {
             let loc = self.entities.alloc_at(handle);
             if let Some(loc) = loc {
-                if let Some(moved) = unsafe {
-                    self.archetypes.archetypes[loc.archetype as usize].remove(loc.index, true)
-                } {
-                    self.entities.meta[moved as usize].location.index = loc.index;
+                if loc.archetype != u32::MAX {
+                    if let Some(moved) = unsafe {
+                        self.archetypes.archetypes[loc.archetype as usize].remove(loc.index, true)
+                    } {
+                        self.entities.meta[moved as usize].location.index = loc.index;
+                    }
                 }
             }
+            self.entities.meta[handle.id as usize].location.archetype = u32::MAX;
         }
 
         // Store components
@@ -1227,6 +1230,7 @@ impl Drop for SpawnColumnBatchIter<'_> {
 struct ArchetypeSet {
     /// Maps sorted component type sets to archetypes
     index: HashMap<Box<[TypeId]>, u32>,
+    /// Length must never exceed `u32::MAX`
     archetypes: Vec<Archetype>,
 }
 
@@ -1253,6 +1257,9 @@ impl ArchetypeSet {
 
     fn insert(&mut self, components: Box<[TypeId]>, info: Vec<TypeInfo>) -> u32 {
         let x = self.archetypes.len() as u32;
+        if x == u32::MAX {
+            panic!("too many archetypes");
+        }
         self.archetypes.push(Archetype::new(info));
         let old = self.index.insert(components, x);
         debug_assert!(old.is_none(), "inserted duplicate archetype");
@@ -1280,6 +1287,9 @@ impl ArchetypeSet {
             Entry::Vacant(x) => {
                 // Brand new archetype
                 let id = self.archetypes.len() as u32;
+                if id == u32::MAX {
+                    panic!("too many archetypes");
+                }
                 self.archetypes.push(archetype);
                 x.insert(id);
                 (id, 0)
@@ -1465,5 +1475,15 @@ mod tests {
 
         let mut world2 = World::new();
         world2.set_freelist(&freelist);
+    }
+
+    #[test]
+    fn spawn_column_batch_at_redundant() {
+        let mut world = World::new();
+        // A column batch of two entities in the unit (no-component) archetype.
+        let batch = crate::ColumnBatchType::new().into_batch(2).build().unwrap();
+
+        let e = Entity::from_bits(1 << 32).unwrap(); // id 0, generation 1
+        world.spawn_column_batch_at(&[e, e], batch); // the same handle twice
     }
 }
