@@ -1,4 +1,7 @@
-use crate::alloc::collections::BinaryHeap;
+use crate::alloc::{
+    alloc::{alloc, dealloc},
+    collections::BinaryHeap,
+};
 use core::{
     any::{type_name, TypeId},
     fmt,
@@ -124,10 +127,16 @@ impl Drop for ColumnBatchBuilder {
             for ty in archetype.types() {
                 let fill = *self.fill.get_mut(&ty.id()).unwrap().get_mut();
                 unsafe {
+                    let scratch = alloc(ty.layout());
                     let base = archetype.get_dynamic(ty.id(), 0, 0).unwrap();
                     for i in 0..fill {
-                        base.as_ptr().add(i as usize).drop_in_place()
+                        scratch.copy_from_nonoverlapping(
+                            base.as_ptr().add(i as usize),
+                            ty.layout().size(),
+                        );
+                        ty.drop(scratch);
                     }
+                    dealloc(scratch, ty.layout());
                 }
             }
         }
@@ -240,5 +249,24 @@ mod tests {
         let builder = types.into_batch(2);
         let _a = builder.writer::<usize>().unwrap();
         let _b = builder.writer::<usize>().unwrap();
+    }
+
+    #[test]
+    #[cfg(feature = "std")]
+    fn dropping_builder_drops_elements() {
+        use std::sync::Arc;
+
+        let mut types = ColumnBatchType::new();
+        types.add::<Arc<()>>();
+        let builder = types.into_batch(1);
+        let value = Arc::new(());
+        builder
+            .writer::<Arc<()>>()
+            .unwrap()
+            .push(value.clone())
+            .unwrap();
+        assert_eq!(Arc::strong_count(&value), 2);
+        drop(builder);
+        assert_eq!(Arc::strong_count(&value), 1);
     }
 }
