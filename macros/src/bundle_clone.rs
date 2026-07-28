@@ -49,8 +49,9 @@ fn gen_dynamic_bundle_impl(
 fn make_component_trait_bound() -> syn::TraitBound {
     syn::TraitBound {
         paren_token: None,
-        modifier: syn::TraitBoundModifier::None,
+        modifiers: syn::TraitBoundModifiers::default(),
         lifetimes: None,
+        maybe: None,
         path: syn::parse_quote!(::core::clone::Clone),
     }
 }
