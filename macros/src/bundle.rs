@@ -94,7 +94,7 @@ fn gen_bundle_impl(
     };
     let with_static_ids_body = if generics.params.is_empty() {
         quote! {
-            static ELEMENTS: ::hecs::spin::lazy::Lazy<[::core::any::TypeId; #num_tys]> = ::hecs::spin::lazy::Lazy::new(|| {
+            static ELEMENTS: ::hecs::spin::Lazy<[::core::any::TypeId; #num_tys]> = ::hecs::spin::Lazy::new(|| {
                 #with_static_ids_inner
             });
             f(&*ELEMENTS)
