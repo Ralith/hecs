@@ -1,10 +1,24 @@
 # 0.11.1
 
+### Added
+
+- `CommandBuffer::queue` to schedule arbitrary operations on a `World` in sequence with other
+  commands (thanks @K-Adam!)
+- `core::error::Error` implementations for relevant types when the `std` feature is disabled (thanks @djsell!)
+
+### Changed
+
+- Optimized `QueryIter::fold`, dramatically improving performance for many iterator methods (thanks
+  @dragostis!)
+- MSRV raised to 1.81
+
 ### Fixed
 
 - `World::spawn_column_batch_at` could execute an out-of-bounds write when the same entity was
   updated twice
 - `ColumnBatchBuilder` leaked components when `build` was not called
+- `World::spawn_column_batch` could panic on worlds which had despawned entities
+- `BatchedIter` with a 0 batch size would spin forever; it now panics instead
 
 # 0.11.0
 
