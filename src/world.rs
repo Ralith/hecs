@@ -423,6 +423,15 @@ impl World {
         QueryMut::new(self)
     }
 
+    /// Query a world without dynamic borrow checks
+    ///
+    /// # Safety
+    ///
+    /// Caller must guarantee that no other live borrow conflicts with `Q`.
+    pub unsafe fn query_unchecked<Q: Query>(&self) -> QueryMut<'_, Q> {
+        QueryMut::new(self)
+    }
+
     pub(crate) fn memo(&self) -> (u64, u32) {
         (self.id, self.archetypes.generation())
     }
