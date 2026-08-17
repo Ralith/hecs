@@ -1047,11 +1047,13 @@ impl From<NoSuchEntity> for QueryOneError {
     }
 }
 
-/// Types that can be components, implemented automatically for all `Send + Sync + 'static` types
+/// Types that can be components.
 ///
-/// This is just a convenient shorthand for `Send + Sync + 'static`, and never needs to be
-/// implemented manually.
+/// With the default features enabled, Component is implemented for all `Send + Sync + 'static` types.
+/// Otherwise, users must implement component for each type on their own.
 pub trait Component: Send + Sync + 'static {}
+
+#[cfg(feature = "blanket-component")]
 impl<T: Send + Sync + 'static> Component for T {}
 
 /// Iterator over all of a world's entities
