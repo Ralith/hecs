@@ -1002,7 +1002,11 @@ impl<Q: Query> ChunkIter<Q> {
     where
         F: FnMut(B, Q::Item<'a>) -> B,
     {
-        for i in self.position..self.len {
+        let start = self.position;
+        // Fold should consume the iterator, even if F panics.
+        self.position = self.len;
+
+        for i in start..self.len {
             let components = unsafe { Q::get(meta, &self.fetch, i) };
 
             init = f(init, components);
