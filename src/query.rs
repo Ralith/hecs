@@ -852,9 +852,7 @@ impl<'q, Q: Query> Iterator for QueryIter<'q, Q> {
         F: FnMut(B, Self::Item) -> B,
     {
         loop {
-            while let Some(components) = unsafe { self.iter.next(self.world.entities_meta()) } {
-                init = f(init, components);
-            }
+            init = unsafe { self.iter.fold(self.world.entities_meta(), init, &mut f) };
 
             if let Some(iter) = unsafe { self.archetypes.next(self.world) } {
                 self.iter = iter;
@@ -997,6 +995,20 @@ impl<Q: Query> ChunkIter<Q> {
         let item = Q::get(meta, &self.fetch, self.position);
         self.position += 1;
         Some(item)
+    }
+
+    #[inline]
+    unsafe fn fold<'a, B, F>(&mut self, meta: &[EntityMeta], mut init: B, mut f: F) -> B
+    where
+        F: FnMut(B, Q::Item<'a>) -> B,
+    {
+        for i in self.position..self.len {
+            let components = unsafe { Q::get(meta, &self.fetch, i) };
+
+            init = f(init, components);
+        }
+
+        init
     }
 
     fn remaining(&self) -> usize {
