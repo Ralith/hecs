@@ -268,9 +268,24 @@ impl World {
         // Store components
         let (archetype_id, base) = self.archetypes.insert_batch(archetype);
 
-        // Fix up entity IDs
+        // Fix up entity IDs and drop duplicates, working backwards so we can remove duplicate
+        // entities we just inserted
         let archetype = &mut self.archetypes.archetypes[archetype_id as usize];
-        for (&handle, index) in handles.iter().zip(base as usize..) {
+        for (&handle, index) in handles
+            .iter()
+            .zip(base as usize..base as usize + handles.len())
+            .rev()
+        {
+            if self.entities.meta[handle.id() as usize].location.archetype != u32::MAX {
+                // This entity ID was already assigned
+                unsafe {
+                    if let Some(moved) = archetype.remove(index as u32, true) {
+                        self.entities.meta[moved as usize].location.index = moved;
+                    }
+                }
+                continue;
+            }
+
             archetype.set_entity_id(index, handle.id());
             self.entities.meta[handle.id() as usize].location = Location {
                 archetype: archetype_id,
@@ -1479,11 +1494,23 @@ mod tests {
 
     #[test]
     fn spawn_column_batch_at_redundant() {
+        use alloc::string::String;
+
         let mut world = World::new();
         // A column batch of two entities in the unit (no-component) archetype.
-        let batch = crate::ColumnBatchType::new().into_batch(2).build().unwrap();
+        let mut batch = crate::ColumnBatchType::new();
+        batch.add::<String>();
+        let batch = batch.into_batch(2);
+        {
+            let mut writer = batch.writer::<String>().unwrap();
+            writer.push("a".into()).unwrap();
+            writer.push("b".into()).unwrap();
+        }
+        let batch = batch.build().unwrap();
 
         let e = Entity::from_bits(1 << 32).unwrap(); // id 0, generation 1
         world.spawn_column_batch_at(&[e, e], batch); // the same handle twice
+        assert_eq!(world.iter().count(), 1);
+        assert_eq!(&*world.get::<&String>(e).unwrap(), "b");
     }
 }
