@@ -845,7 +845,7 @@ impl<'q, Q: Query> Iterator for QueryIter<'q, Q> {
     //
     // TODO: Once `Try` is stable, implement `Iterator::try_fold` instead. This
     // will make *all* `Iterator`-consuming methods rely on that
-    // implementation.
+    // implementation. Also implement it for `PreparedQueryIter` and `Batch`
     fn fold<B, F>(mut self, mut init: B, mut f: F) -> B
     where
         Self: Sized,
@@ -1102,6 +1102,14 @@ impl<'q, Q: Query> Iterator for Batch<'q, Q> {
 
     fn next(&mut self) -> Option<Self::Item> {
         unsafe { self.state.next(self.meta) }
+    }
+
+    fn fold<B, F>(mut self, init: B, f: F) -> B
+    where
+        Self: Sized,
+        F: FnMut(B, Self::Item) -> B,
+    {
+        unsafe { self.state.fold(self.meta, init, f) }
     }
 }
 
@@ -1371,6 +1379,23 @@ impl<'q, Q: Query> Iterator for PreparedQueryIter<'q, Q> {
     fn size_hint(&self) -> (usize, Option<usize>) {
         let n = self.len();
         (n, Some(n))
+    }
+
+    fn fold<B, F>(mut self, mut init: B, mut f: F) -> B
+    where
+        Self: Sized,
+        F: FnMut(B, Self::Item) -> B,
+    {
+        loop {
+            init = unsafe { self.iter.fold(self.meta, init, &mut f) };
+
+            if let Some((idx, state)) = self.state.next() {
+                let archetype = &self.archetypes[*idx];
+                self.iter = ChunkIter::new(archetype, Q::Fetch::execute(archetype, *state));
+            } else {
+                break init;
+            }
+        }
     }
 }
 
