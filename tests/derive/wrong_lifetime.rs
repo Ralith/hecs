@@ -1,15 +1,21 @@
-use hecs::Query;
+use hecs::{Component, Query};
+
+struct A(i32);
+impl Component for A {}
+
+struct B(bool);
+impl Component for B {}
 
 #[derive(Query)]
 struct Foo<'a> {
-    foo: &'a i32,
-    bar: &'static mut bool,
+    foo: &'a A,
+    bar: &'static mut B,
 }
 
 #[derive(Query)]
 enum Bar<'a> {
-    Foo(&'a i32),
-    Bar(&'static mut bool)
+    Foo(&'a A),
+    Bar(&'static mut B),
 }
 
 fn main() {}

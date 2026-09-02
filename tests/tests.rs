@@ -4,47 +4,88 @@ use std::borrow::Cow;
 
 use hecs::*;
 
+// Component types used throughout these tests
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Int(i32);
+impl Component for Int {}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Count(usize);
+impl Component for Count {}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Bool(bool);
+impl Component for Bool {}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Char(char);
+impl Component for Char {}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Str(&'static str);
+impl Component for Str {}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Bytes([u8; 1024]);
+impl Component for Bytes {}
+
+#[derive(Clone, Debug, PartialEq)]
+struct Label(String);
+impl Component for Label {}
+
+#[derive(Clone, Debug, PartialEq)]
+struct Text(Cow<'static, str>);
+impl Component for Text {}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Float(f64);
+impl Component for Float {}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct F32(f32);
+impl Component for F32 {}
+
 #[test]
 fn random_access() {
     let mut world = World::new();
-    let e = world.spawn(("abc", 123));
-    let f = world.spawn(("def", 456, true));
-    assert_eq!(*world.get::<&&str>(e).unwrap(), "abc");
-    assert_eq!(*world.get::<&i32>(e).unwrap(), 123);
-    assert_eq!(*world.get::<&&str>(f).unwrap(), "def");
-    assert_eq!(*world.get::<&i32>(f).unwrap(), 456);
-    *world.get::<&mut i32>(f).unwrap() = 42;
-    assert_eq!(*world.get::<&i32>(f).unwrap(), 42);
+    let e = world.spawn((Str("abc"), Int(123)));
+    let f = world.spawn((Str("def"), Int(456), Bool(true)));
+    assert_eq!(world.get::<&Str>(e).unwrap().0, "abc");
+    assert_eq!(world.get::<&Int>(e).unwrap().0, 123);
+    assert_eq!(world.get::<&Str>(f).unwrap().0, "def");
+    assert_eq!(world.get::<&Int>(f).unwrap().0, 456);
+    world.get::<&mut Int>(f).unwrap().0 = 42;
+    assert_eq!(world.get::<&Int>(f).unwrap().0, 42);
 }
 
 #[test]
 fn despawn() {
     let mut world = World::new();
-    let e = world.spawn(("abc", 123));
-    let f = world.spawn(("def", 456));
+    let e = world.spawn((Str("abc"), Int(123)));
+    let f = world.spawn((Str("def"), Int(456)));
     assert_eq!(world.query::<()>().iter().count(), 2);
     world.despawn(e).unwrap();
     assert_eq!(world.query::<()>().iter().count(), 1);
-    assert!(world.get::<&&str>(e).is_err());
-    assert!(world.get::<&i32>(e).is_err());
-    assert_eq!(*world.get::<&&str>(f).unwrap(), "def");
-    assert_eq!(*world.get::<&i32>(f).unwrap(), 456);
+    assert!(world.get::<&Str>(e).is_err());
+    assert!(world.get::<&Int>(e).is_err());
+    assert_eq!(world.get::<&Str>(f).unwrap().0, "def");
+    assert_eq!(world.get::<&Int>(f).unwrap().0, 456);
 }
 
 #[test]
 fn query_all() {
     let mut world = World::new();
-    let e = world.spawn(("abc", 123));
-    let f = world.spawn(("def", 456));
+    let e = world.spawn((Str("abc"), Int(123)));
+    let f = world.spawn((Str("def"), Int(456)));
 
     let ents = world
-        .query::<(Entity, &i32, &&str)>()
+        .query::<(Entity, &Int, &Str)>()
         .iter()
-        .map(|(e, &i, &s)| (e, i, s))
+        .map(|(e, i, s)| (e, *i, *s))
         .collect::<Vec<_>>();
     assert_eq!(ents.len(), 2);
-    assert!(ents.contains(&(e, 123, "abc")));
-    assert!(ents.contains(&(f, 456, "def")));
+    assert!(ents.contains(&(e, Int(123), Str("abc"))));
+    assert!(ents.contains(&(f, Int(456), Str("def"))));
 
     let ents = world.query::<Entity>().iter().collect::<Vec<_>>();
     assert_eq!(ents.len(), 2);
@@ -57,17 +98,17 @@ fn query_all() {
 fn derived_query() {
     #[derive(Query, Debug, PartialEq)]
     struct Foo<'a> {
-        x: &'a i32,
-        y: &'a mut bool,
+        x: &'a Int,
+        y: &'a mut Bool,
     }
 
     let mut world = World::new();
-    let e = world.spawn((42, false));
+    let e = world.spawn((Int(42), Bool(false)));
     assert_eq!(
         world.query_one_mut::<Foo>(e).unwrap(),
         Foo {
-            x: &42,
-            y: &mut false
+            x: &Int(42),
+            y: &mut Bool(false)
         }
     );
 }
@@ -77,31 +118,34 @@ fn derived_query() {
 fn derived_enum_query() {
     #[derive(Query, Debug, PartialEq)]
     enum Foo<'a> {
-        NumberAndString(&'a i32, &'a String),
-        Number(&'a i32),
-        Boolean(&'a mut bool),
+        NumberAndString(&'a Int, &'a Label),
+        Number(&'a Int),
+        Boolean(&'a mut Bool),
     }
 
     let mut world = World::new();
-    let e1 = world.spawn((42, false));
+    let e1 = world.spawn((Int(42), Bool(false)));
 
-    assert_eq!(world.query_one_mut::<Foo>(e1).unwrap(), Foo::Number(&42));
+    assert_eq!(
+        world.query_one_mut::<Foo>(e1).unwrap(),
+        Foo::Number(&Int(42))
+    );
 
-    let e2 = world.spawn((String::from("Hello"), false));
+    let e2 = world.spawn((Label(String::from("Hello")), Bool(false)));
 
     assert_eq!(
         world.query_one_mut::<Foo>(e2).unwrap(),
-        Foo::Boolean(&mut false)
+        Foo::Boolean(&mut Bool(false))
     );
 
-    let e3 = world.spawn((String::from("Hello"), 42));
+    let e3 = world.spawn((Label(String::from("Hello")), Int(42)));
 
     assert_eq!(
         world.query_one_mut::<Foo>(e3).unwrap(),
-        Foo::NumberAndString(&42, &String::from("Hello"))
+        Foo::NumberAndString(&Int(42), &Label(String::from("Hello")))
     );
 
-    let e4 = world.spawn((String::from("Hello"), 0_usize));
+    let e4 = world.spawn((Label(String::from("Hello")), Count(0)));
 
     assert_eq!(
         world.query_one_mut::<Foo>(e4),
@@ -114,21 +158,24 @@ fn derived_enum_query() {
 fn derived_enum_query_with_empty() {
     #[derive(Query, Debug, PartialEq)]
     enum Foo<'a> {
-        Number(&'a i32),
+        Number(&'a Int),
         Empty,
-        Impossible(&'a String),
+        Impossible(&'a Label),
     }
 
     let mut world = World::new();
-    let e1 = world.spawn((42, false));
+    let e1 = world.spawn((Int(42), Bool(false)));
 
-    assert_eq!(world.query_one_mut::<Foo>(e1).unwrap(), Foo::Number(&42));
+    assert_eq!(
+        world.query_one_mut::<Foo>(e1).unwrap(),
+        Foo::Number(&Int(42))
+    );
 
-    let e2 = world.spawn((false, 0_usize));
+    let e2 = world.spawn((Bool(false), Count(0)));
 
     assert_eq!(world.query_one_mut::<Foo>(e2).unwrap(), Foo::Empty);
 
-    let e3 = world.spawn((String::from("Hello"), false));
+    let e3 = world.spawn((Label(String::from("Hello")), Bool(false)));
 
     assert_eq!(world.query_one_mut::<Foo>(e3).unwrap(), Foo::Empty);
 }
@@ -138,24 +185,24 @@ fn derived_enum_query_with_empty() {
 fn derived_bundle_clone() {
     #[derive(Bundle, DynamicBundleClone)]
     struct Foo<T: Clone + Component> {
-        x: i32,
-        y: bool,
+        x: Int,
+        y: Bool,
         z: T,
     }
 
     #[derive(PartialEq, Debug, Query)]
     struct FooQuery<'a> {
-        x: &'a i32,
-        y: &'a bool,
-        z: &'a String,
+        x: &'a Int,
+        y: &'a Bool,
+        z: &'a Label,
     }
 
     let mut world = World::new();
     let mut builder = EntityBuilderClone::new();
     builder.add_bundle(Foo {
-        x: 42,
-        y: false,
-        z: String::from("Foo"),
+        x: Int(42),
+        y: Bool(false),
+        z: Label(String::from("Foo")),
     });
 
     let entity = builder.build();
@@ -163,9 +210,9 @@ fn derived_bundle_clone() {
     assert_eq!(
         world.query_one_mut::<FooQuery>(e).unwrap(),
         FooQuery {
-            x: &42,
-            y: &false,
-            z: &String::from("Foo"),
+            x: &Int(42),
+            y: &Bool(false),
+            z: &Label(String::from("Foo")),
         }
     );
 }
@@ -173,123 +220,123 @@ fn derived_bundle_clone() {
 #[test]
 fn query_single_component() {
     let mut world = World::new();
-    let e = world.spawn(("abc", 123));
-    let f = world.spawn(("def", 456, true));
+    let e = world.spawn((Str("abc"), Int(123)));
+    let f = world.spawn((Str("def"), Int(456), Bool(true)));
     let ents = world
-        .query::<(Entity, &i32)>()
+        .query::<(Entity, &Int)>()
         .iter()
-        .map(|(e, &i)| (e, i))
+        .map(|(e, i)| (e, *i))
         .collect::<Vec<_>>();
     assert_eq!(ents.len(), 2);
-    assert!(ents.contains(&(e, 123)));
-    assert!(ents.contains(&(f, 456)));
+    assert!(ents.contains(&(e, Int(123))));
+    assert!(ents.contains(&(f, Int(456))));
 }
 
 #[test]
 fn query_missing_component() {
     let mut world = World::new();
-    world.spawn(("abc", 123));
-    world.spawn(("def", 456));
-    assert!(world.query::<(&bool, &i32)>().iter().next().is_none());
+    world.spawn((Str("abc"), Int(123)));
+    world.spawn((Str("def"), Int(456)));
+    assert!(world.query::<(&Bool, &Int)>().iter().next().is_none());
 }
 
 #[test]
 fn query_sparse_component() {
     let mut world = World::new();
-    world.spawn(("abc", 123));
-    let f = world.spawn(("def", 456, true));
+    world.spawn((Str("abc"), Int(123)));
+    let f = world.spawn((Str("def"), Int(456), Bool(true)));
     let ents = world
-        .query::<(Entity, &bool)>()
+        .query::<(Entity, &Bool)>()
         .iter()
-        .map(|(e, &b)| (e, b))
+        .map(|(e, b)| (e, *b))
         .collect::<Vec<_>>();
-    assert_eq!(ents, &[(f, true)]);
+    assert_eq!(ents, &[(f, Bool(true))]);
 }
 
 #[test]
 fn query_optional_component() {
     let mut world = World::new();
-    let e = world.spawn(("abc", 123));
-    let f = world.spawn(("def", 456, true));
+    let e = world.spawn((Str("abc"), Int(123)));
+    let f = world.spawn((Str("def"), Int(456), Bool(true)));
     let ents = world
-        .query::<(Entity, Option<&bool>, &i32)>()
+        .query::<(Entity, Option<&Bool>, &Int)>()
         .iter()
-        .map(|(e, b, &i)| (e, b.copied(), i))
+        .map(|(e, b, i)| (e, b.copied(), *i))
         .collect::<Vec<_>>();
     assert_eq!(ents.len(), 2);
-    assert!(ents.contains(&(e, None, 123)));
-    assert!(ents.contains(&(f, Some(true), 456)));
+    assert!(ents.contains(&(e, None, Int(123))));
+    assert!(ents.contains(&(f, Some(Bool(true)), Int(456))));
 }
 
 #[test]
 fn prepare_query() {
     let mut world = World::new();
-    let e = world.spawn(("abc", 123));
-    let f = world.spawn(("def", 456));
+    let e = world.spawn((Str("abc"), Int(123)));
+    let f = world.spawn((Str("def"), Int(456)));
 
-    let mut query = PreparedQuery::<(Entity, &i32, &&str)>::default();
+    let mut query = PreparedQuery::<(Entity, &Int, &Str)>::default();
 
     let ents = query
         .query(&world)
         .iter()
-        .map(|(e, &i, &s)| (e, i, s))
+        .map(|(e, i, s)| (e, *i, *s))
         .collect::<Vec<_>>();
     assert_eq!(ents.len(), 2);
-    assert!(ents.contains(&(e, 123, "abc")));
-    assert!(ents.contains(&(f, 456, "def")));
+    assert!(ents.contains(&(e, Int(123), Str("abc"))));
+    assert!(ents.contains(&(f, Int(456), Str("def"))));
 
     let ents = query
         .query_mut(&mut world)
-        .map(|(e, &i, &s)| (e, i, s))
+        .map(|(e, i, s)| (e, *i, *s))
         .collect::<Vec<_>>();
     assert_eq!(ents.len(), 2);
-    assert!(ents.contains(&(e, 123, "abc")));
-    assert!(ents.contains(&(f, 456, "def")));
+    assert!(ents.contains(&(e, Int(123), Str("abc"))));
+    assert!(ents.contains(&(f, Int(456), Str("def"))));
 }
 
 #[test]
 fn invalidate_prepared_query() {
     let mut world = World::new();
-    let e = world.spawn(("abc", 123));
-    let f = world.spawn(("def", 456));
+    let e = world.spawn((Str("abc"), Int(123)));
+    let f = world.spawn((Str("def"), Int(456)));
 
-    let mut query = PreparedQuery::<(Entity, &i32, &&str)>::default();
+    let mut query = PreparedQuery::<(Entity, &Int, &Str)>::default();
 
     let ents = query
         .query(&world)
         .iter()
-        .map(|(e, &i, &s)| (e, i, s))
+        .map(|(e, i, s)| (e, *i, *s))
         .collect::<Vec<_>>();
     assert_eq!(ents.len(), 2);
-    assert!(ents.contains(&(e, 123, "abc")));
-    assert!(ents.contains(&(f, 456, "def")));
+    assert!(ents.contains(&(e, Int(123), Str("abc"))));
+    assert!(ents.contains(&(f, Int(456), Str("def"))));
 
-    world.spawn((true,));
-    let g = world.spawn(("ghi", 789));
+    world.spawn((Bool(true),));
+    let g = world.spawn((Str("ghi"), Int(789)));
 
     let ents = query
         .query_mut(&mut world)
-        .map(|(e, &i, &s)| (e, i, s))
+        .map(|(e, i, s)| (e, *i, *s))
         .collect::<Vec<_>>();
     assert_eq!(ents.len(), 3);
-    assert!(ents.contains(&(e, 123, "abc")));
-    assert!(ents.contains(&(f, 456, "def")));
-    assert!(ents.contains(&(g, 789, "ghi")));
+    assert!(ents.contains(&(e, Int(123), Str("abc"))));
+    assert!(ents.contains(&(f, Int(456), Str("def"))));
+    assert!(ents.contains(&(g, Int(789), Str("ghi"))));
 }
 
 #[test]
 fn random_access_via_view() {
     let mut world = World::new();
-    let e = world.spawn(("abc", 123));
-    let f = world.spawn(("def",));
+    let e = world.spawn((Str("abc"), Int(123)));
+    let f = world.spawn((Str("def"),));
 
-    let mut query = PreparedQuery::<(&i32, &&str)>::default();
+    let mut query = PreparedQuery::<(&Int, &Str)>::default();
     let mut query = query.query(&world);
     let mut view = query.view();
 
     let (i, s) = view.get(e).unwrap();
-    assert_eq!(*i, 123);
-    assert_eq!(*s, "abc");
+    assert_eq!(*i, Int(123));
+    assert_eq!(*s, Str("abc"));
 
     assert!(view.get_mut(f).is_none());
 }
@@ -297,15 +344,15 @@ fn random_access_via_view() {
 #[test]
 fn random_access_via_view_mut() {
     let mut world = World::new();
-    let e = world.spawn(("abc", 123));
-    let f = world.spawn(("def",));
+    let e = world.spawn((Str("abc"), Int(123)));
+    let f = world.spawn((Str("def"),));
 
-    let mut query = PreparedQuery::<(&i32, &&str)>::default();
+    let mut query = PreparedQuery::<(&Int, &Str)>::default();
     let mut view = query.view_mut(&mut world);
 
     let (i, s) = view.get(e).unwrap();
-    assert_eq!(*i, 123);
-    assert_eq!(*s, "abc");
+    assert_eq!(*i, Int(123));
+    assert_eq!(*s, Str("abc"));
 
     assert!(view.get_mut(f).is_none());
 
@@ -316,33 +363,33 @@ fn random_access_via_view_mut() {
 #[test]
 fn view_borrow_on_world() {
     let mut world = World::new();
-    let e0 = world.spawn((3, "hello"));
-    let e1 = world.spawn((6.0, "world"));
-    let e2 = world.spawn((12,));
+    let e0 = world.spawn((Int(3), Str("hello")));
+    let e1 = world.spawn((Float(6.0), Str("world")));
+    let e2 = world.spawn((Int(12),));
 
     {
-        let str_view = world.view::<&&str>();
+        let str_view = world.view::<&Str>();
 
-        assert_eq!(*str_view.get(e0).unwrap(), "hello");
-        assert_eq!(*str_view.get(e1).unwrap(), "world");
+        assert_eq!(str_view.get(e0).unwrap().0, "hello");
+        assert_eq!(str_view.get(e1).unwrap().0, "world");
         assert_eq!(str_view.get(e2), None);
     }
 
     {
-        let mut int_view = world.view::<&mut i32>();
-        assert_eq!(*int_view.get_mut(e0).unwrap(), 3);
+        let mut int_view = world.view::<&mut Int>();
+        assert_eq!(int_view.get_mut(e0).unwrap().0, 3);
         assert_eq!(int_view.get_mut(e1), None);
-        assert_eq!(*int_view.get_mut(e2).unwrap(), 12);
+        assert_eq!(int_view.get_mut(e2).unwrap().0, 12);
 
         // edit some value
-        *int_view.get_mut(e0).unwrap() = 100;
+        int_view.get_mut(e0).unwrap().0 = 100;
     }
 
     {
-        let mut int_str_view = world.view::<(&&str, &mut i32)>();
+        let mut int_str_view = world.view::<(&Str, &mut Int)>();
         let (s, i) = int_str_view.get_mut(e0).unwrap();
-        assert_eq!(*s, "hello");
-        assert_eq!(*i, 100);
+        assert_eq!(s.0, "hello");
+        assert_eq!(i.0, 100);
         assert_eq!(int_str_view.get_mut(e1), None);
         assert_eq!(int_str_view.get_mut(e2), None);
     }
@@ -351,27 +398,27 @@ fn view_borrow_on_world() {
 #[test]
 fn view_mut_on_world() {
     let mut world = World::new();
-    let e0 = world.spawn((3, "hello"));
-    let e1 = world.spawn((6.0, "world"));
-    let e2 = world.spawn((12,));
+    let e0 = world.spawn((Int(3), Str("hello")));
+    let e1 = world.spawn((Float(6.0), Str("world")));
+    let e2 = world.spawn((Int(12),));
 
-    let str_view = world.view_mut::<&&str>();
-    assert_eq!(*str_view.get(e0).unwrap(), "hello");
-    assert_eq!(*str_view.get(e1).unwrap(), "world");
+    let str_view = world.view_mut::<&Str>();
+    assert_eq!(str_view.get(e0).unwrap().0, "hello");
+    assert_eq!(str_view.get(e1).unwrap().0, "world");
     assert_eq!(str_view.get(e2), None);
 
-    let mut int_view = world.view_mut::<&mut i32>();
-    assert_eq!(*int_view.get_mut(e0).unwrap(), 3);
+    let mut int_view = world.view_mut::<&mut Int>();
+    assert_eq!(int_view.get_mut(e0).unwrap().0, 3);
     assert_eq!(int_view.get_mut(e1), None);
-    assert_eq!(*int_view.get_mut(e2).unwrap(), 12);
+    assert_eq!(int_view.get_mut(e2).unwrap().0, 12);
 
     // edit some value
-    *int_view.get_mut(e0).unwrap() = 100;
+    int_view.get_mut(e0).unwrap().0 = 100;
 
-    let mut int_str_view = world.view_mut::<(&&str, &mut i32)>();
+    let mut int_str_view = world.view_mut::<(&Str, &mut Int)>();
     let (s, i) = int_str_view.get_mut(e0).unwrap();
-    assert_eq!(*s, "hello");
-    assert_eq!(*i, 100);
+    assert_eq!(s.0, "hello");
+    assert_eq!(i.0, 100);
     assert_eq!(int_str_view.get_mut(e1), None);
     assert_eq!(int_str_view.get_mut(e2), None);
 }
@@ -380,11 +427,11 @@ fn view_mut_on_world() {
 #[test]
 fn view_mut_panic() {
     let mut world = World::new();
-    let e = world.spawn(('a',));
+    let e = world.spawn((Char('a'),));
 
     // we should panic since we have two overlapping views:
-    let mut first_view = world.view::<&mut char>();
-    let mut second_view = world.view::<&mut char>();
+    let mut first_view = world.view::<&mut Char>();
+    let mut second_view = world.view::<&mut Char>();
 
     first_view.get_mut(e).unwrap();
     second_view.get_mut(e).unwrap();
@@ -394,12 +441,12 @@ fn view_mut_panic() {
 #[should_panic]
 fn simultaneous_access_must_be_non_overlapping() {
     let mut world = World::new();
-    let a = world.spawn((1,));
-    let b = world.spawn((2,));
-    let c = world.spawn((3,));
-    let d = world.spawn((4,));
+    let a = world.spawn((Int(1),));
+    let b = world.spawn((Int(2),));
+    let c = world.spawn((Int(3),));
+    let d = world.spawn((Int(4),));
 
-    let mut query = world.query_mut::<&mut i32>();
+    let mut query = world.query_mut::<&mut Int>();
     let mut view = query.view();
 
     view.get_disjoint_mut([a, d, c, b, a]);
@@ -409,72 +456,72 @@ fn simultaneous_access_must_be_non_overlapping() {
 fn build_entity() {
     let mut world = World::new();
     let mut entity = EntityBuilder::new();
-    entity.add("abc");
-    entity.add(123);
+    entity.add(Str("abc"));
+    entity.add(Int(123));
     let e = world.spawn(entity.build());
-    entity.add("def");
-    entity.add([0u8; 1024]);
-    entity.add(456);
-    entity.add(789);
+    entity.add(Str("def"));
+    entity.add(Bytes([0u8; 1024]));
+    entity.add(Int(456));
+    entity.add(Int(789));
     let f = world.spawn(entity.build());
-    assert_eq!(*world.get::<&&str>(e).unwrap(), "abc");
-    assert_eq!(*world.get::<&i32>(e).unwrap(), 123);
-    assert_eq!(*world.get::<&&str>(f).unwrap(), "def");
-    assert_eq!(*world.get::<&i32>(f).unwrap(), 789);
+    assert_eq!(world.get::<&Str>(e).unwrap().0, "abc");
+    assert_eq!(world.get::<&Int>(e).unwrap().0, 123);
+    assert_eq!(world.get::<&Str>(f).unwrap().0, "def");
+    assert_eq!(world.get::<&Int>(f).unwrap().0, 789);
 }
 
 #[test]
 fn build_entity_clone() {
     let mut world = World::new();
     let mut entity = EntityBuilderClone::new();
-    entity.add("def");
-    entity.add([0u8; 1024]);
-    entity.add(456);
-    entity.add(789);
-    entity.add_bundle(("yup", 67_usize));
-    entity.add_bundle((5.0_f32, String::from("Foo")));
-    entity.add_bundle((7.0_f32, String::from("Bar"), 42_usize));
+    entity.add(Str("def"));
+    entity.add(Bytes([0u8; 1024]));
+    entity.add(Int(456));
+    entity.add(Int(789));
+    entity.add_bundle((Str("yup"), Count(67)));
+    entity.add_bundle((F32(5.0), Label(String::from("Foo"))));
+    entity.add_bundle((F32(7.0), Label(String::from("Bar")), Count(42)));
     let entity = entity.build();
     let e = world.spawn(&entity);
     let f = world.spawn(&entity);
     let g = world.spawn(&entity);
     world
-        .insert_one(g, Cow::<'static, str>::from("after"))
+        .insert_one(g, Text(Cow::<'static, str>::from("after")))
         .unwrap();
 
     for e in [e, f, g] {
-        assert_eq!(*world.get::<&&str>(e).unwrap(), "yup");
-        assert_eq!(*world.get::<&i32>(e).unwrap(), 789);
-        assert_eq!(*world.get::<&usize>(e).unwrap(), 42);
-        assert_eq!(*world.get::<&f32>(e).unwrap(), 7.0);
-        assert_eq!(*world.get::<&String>(e).unwrap(), "Bar");
+        assert_eq!(world.get::<&Str>(e).unwrap().0, "yup");
+        assert_eq!(world.get::<&Int>(e).unwrap().0, 789);
+        assert_eq!(world.get::<&Count>(e).unwrap().0, 42);
+        assert_eq!(world.get::<&F32>(e).unwrap().0, 7.0);
+        assert_eq!(world.get::<&Label>(e).unwrap().0, "Bar");
     }
 
-    assert_eq!(*world.get::<&Cow<'static, str>>(g).unwrap(), "after");
+    assert_eq!(world.get::<&Text>(g).unwrap().0, "after");
 }
 
 #[test]
 fn build_builder_clone() {
     let mut a = EntityBuilderClone::new();
-    a.add(String::from("abc"));
-    a.add(123);
+    a.add(Label(String::from("abc")));
+    a.add(Int(123));
     let mut b = EntityBuilderClone::new();
-    b.add(String::from("def"));
+    b.add(Label(String::from("def")));
     b.add_bundle(&a.build());
-    assert_eq!(b.get::<&String>(), Some(&String::from("abc")));
-    assert_eq!(b.get::<&i32>(), Some(&123));
+    assert_eq!(b.get::<&Label>(), Some(&Label(String::from("abc"))));
+    assert_eq!(b.get::<&Int>(), Some(&Int(123)));
 }
 
 #[test]
 #[allow(clippy::redundant_clone)]
 fn cloned_builder() {
     let mut builder = EntityBuilderClone::new();
-    builder.add(String::from("abc")).add(123);
+    builder.add(Label(String::from("abc"))).add(Int(123));
 
     let mut world = World::new();
     let e = world.spawn(&builder.build().clone());
-    assert_eq!(*world.get::<&String>(e).unwrap(), "abc");
-    assert_eq!(*world.get::<&i32>(e).unwrap(), 123);
+    assert_eq!(world.get::<&Label>(e).unwrap().0, "abc");
+    assert_eq!(world.get::<&Int>(e).unwrap().0, 123);
 }
 
 #[test]
@@ -482,32 +529,35 @@ fn cloned_builder() {
 fn build_dynamic_bundle() {
     #[derive(Bundle, DynamicBundleClone)]
     struct Foo {
-        x: i32,
-        y: char,
+        x: Int,
+        y: Char,
     }
 
     let mut world = World::new();
     let mut entity = EntityBuilderClone::new();
-    entity.add_bundle(Foo { x: 5, y: 'c' });
-    entity.add_bundle((String::from("Bar"), 6.0_f32));
-    entity.add('a');
+    entity.add_bundle(Foo {
+        x: Int(5),
+        y: Char('c'),
+    });
+    entity.add_bundle((Label(String::from("Bar")), F32(6.0)));
+    entity.add(Char('a'));
     let entity = entity.build();
     let e = world.spawn(&entity);
     let f = world.spawn(&entity);
     let g = world.spawn(&entity);
 
     world
-        .insert_one(g, Cow::<'static, str>::from("after"))
+        .insert_one(g, Text(Cow::<'static, str>::from("after")))
         .unwrap();
 
     for e in [e, f, g] {
-        assert_eq!(*world.get::<&i32>(e).unwrap(), 5);
-        assert_eq!(*world.get::<&char>(e).unwrap(), 'a');
-        assert_eq!(*world.get::<&String>(e).unwrap(), "Bar");
-        assert_eq!(*world.get::<&f32>(e).unwrap(), 6.0);
+        assert_eq!(world.get::<&Int>(e).unwrap().0, 5);
+        assert_eq!(world.get::<&Char>(e).unwrap().0, 'a');
+        assert_eq!(world.get::<&Label>(e).unwrap().0, "Bar");
+        assert_eq!(world.get::<&F32>(e).unwrap().0, 6.0);
     }
 
-    assert_eq!(*world.get::<&Cow<'static, str>>(g).unwrap(), "after");
+    assert_eq!(world.get::<&Text>(g).unwrap().0, "after");
 }
 
 #[test]
@@ -515,70 +565,70 @@ fn access_builder_components() {
     let mut world = World::new();
     let mut entity = EntityBuilder::new();
 
-    entity.add("abc");
-    entity.add(123);
+    entity.add(Str("abc"));
+    entity.add(Int(123));
 
-    assert!(entity.has::<&str>());
-    assert!(entity.has::<i32>());
-    assert!(!entity.has::<usize>());
+    assert!(entity.has::<Str>());
+    assert!(entity.has::<Int>());
+    assert!(!entity.has::<Count>());
 
-    assert_eq!(*entity.get::<&&str>().unwrap(), "abc");
-    assert_eq!(*entity.get::<&i32>().unwrap(), 123);
-    assert_eq!(entity.get::<&usize>(), None);
+    assert_eq!(entity.get::<&Str>().unwrap().0, "abc");
+    assert_eq!(entity.get::<&Int>().unwrap().0, 123);
+    assert_eq!(entity.get::<&Count>(), None);
 
-    *entity.get_mut::<&mut i32>().unwrap() = 456;
-    assert_eq!(*entity.get::<&i32>().unwrap(), 456);
+    entity.get_mut::<&mut Int>().unwrap().0 = 456;
+    assert_eq!(entity.get::<&Int>().unwrap().0, 456);
 
     let g = world.spawn(entity.build());
 
-    assert_eq!(*world.get::<&&str>(g).unwrap(), "abc");
-    assert_eq!(*world.get::<&i32>(g).unwrap(), 456);
+    assert_eq!(world.get::<&Str>(g).unwrap().0, "abc");
+    assert_eq!(world.get::<&Int>(g).unwrap().0, 456);
 }
 
 #[test]
 fn build_entity_bundle() {
     let mut world = World::new();
     let mut entity = EntityBuilder::new();
-    entity.add_bundle(("abc", 123));
+    entity.add_bundle((Str("abc"), Int(123)));
     let e = world.spawn(entity.build());
-    entity.add(456);
-    entity.add_bundle(("def", [0u8; 1024], 789));
+    entity.add(Int(456));
+    entity.add_bundle((Str("def"), Bytes([0u8; 1024]), Int(789)));
     let f = world.spawn(entity.build());
-    assert_eq!(*world.get::<&&str>(e).unwrap(), "abc");
-    assert_eq!(*world.get::<&i32>(e).unwrap(), 123);
-    assert_eq!(*world.get::<&&str>(f).unwrap(), "def");
-    assert_eq!(*world.get::<&i32>(f).unwrap(), 789);
+    assert_eq!(world.get::<&Str>(e).unwrap().0, "abc");
+    assert_eq!(world.get::<&Int>(e).unwrap().0, 123);
+    assert_eq!(world.get::<&Str>(f).unwrap().0, "def");
+    assert_eq!(world.get::<&Int>(f).unwrap().0, 789);
 }
 
 #[test]
 fn dynamic_components() {
     let mut world = World::new();
-    let e = world.spawn((42,));
-    world.insert(e, (true, "abc")).unwrap();
+    let e = world.spawn((Int(42),));
+    world.insert(e, (Bool(true), Str("abc"))).unwrap();
     assert_eq!(
         world
-            .query::<(Entity, &i32, &bool)>()
+            .query::<(Entity, &Int, &Bool)>()
             .iter()
-            .map(|(e, &i, &b)| (e, i, b))
+            .map(|(e, i, b)| (e, *i, *b))
             .collect::<Vec<_>>(),
-        &[(e, 42, true)]
+        &[(e, Int(42), Bool(true))]
     );
-    assert_eq!(world.remove_one::<i32>(e), Ok(42));
+    assert_eq!(world.remove_one::<Int>(e), Ok(Int(42)));
     assert_eq!(
         world
-            .query::<(Entity, &i32, &bool)>()
+            .query::<(Entity, &Int, &Bool)>()
             .iter()
-            .map(|(e, &i, &b)| (e, i, b))
+            .map(|(e, i, b)| (e, *i, *b))
             .collect::<Vec<_>>(),
         &[]
     );
     assert_eq!(
         world
-            .query::<(Entity, &bool, &&str)>()
+            .query::<(Entity, &Bool, &Str)>()
             .iter()
-            .map(|(e, &b, &s)| (e, b, s))
+            .map(|(e, b, s)| (e, *b, *s))
             .collect::<Vec<_>>(),
-        &[(e, true, "abc")]
+        &[(e, Bool(true), Str("abc"))]
     );
 }
 
@@ -591,26 +641,26 @@ fn spawn_buffered_entity() {
     let ent2 = world.reserve_entity();
     let ent3 = world.reserve_entity();
 
-    buffer.insert(ent, (1, true));
-    buffer.insert(ent1, (13, 7.11, "hecs"));
-    buffer.insert(ent2, (17i8, false, 'o'));
-    buffer.insert(ent3, (2u8, "qwe", 101.103, false));
+    buffer.insert(ent, (Int(1), Bool(true)));
+    buffer.insert(ent1, (Int(13), Float(7.11), Str("hecs")));
+    buffer.insert(ent2, (Int(17), Bool(false), Char('o')));
+    buffer.insert(ent3, (Int(2), Str("qwe"), Float(101.103), Bool(false)));
 
     buffer.run_on(&mut world);
 
-    assert!(*world.get::<&bool>(ent).unwrap());
-    assert!(!*world.get::<&bool>(ent2).unwrap());
+    assert!(world.get::<&Bool>(ent).unwrap().0);
+    assert!(!world.get::<&Bool>(ent2).unwrap().0);
 
-    assert_eq!(*world.get::<&&str>(ent1).unwrap(), "hecs");
-    assert_eq!(*world.get::<&i32>(ent1).unwrap(), 13);
-    assert_eq!(*world.get::<&u8>(ent3).unwrap(), 2);
+    assert_eq!(world.get::<&Str>(ent1).unwrap().0, "hecs");
+    assert_eq!(world.get::<&Int>(ent1).unwrap().0, 13);
+    assert_eq!(world.get::<&Int>(ent3).unwrap().0, 2);
 }
 
 #[test]
 fn despawn_buffered_entity() {
     let mut world = World::new();
     let mut buffer = CommandBuffer::new();
-    let ent = world.spawn((1, true));
+    let ent = world.spawn((Int(1), Bool(true)));
     buffer.despawn(ent);
 
     buffer.run_on(&mut world);
@@ -621,62 +671,62 @@ fn despawn_buffered_entity() {
 fn remove_buffered_component() {
     let mut world = World::new();
     let mut buffer = CommandBuffer::new();
-    let ent = world.spawn((7, true, "hecs"));
+    let ent = world.spawn((Int(7), Bool(true), Str("hecs")));
 
-    buffer.remove::<(i32, &str)>(ent);
+    buffer.remove::<(Int, Str)>(ent);
     buffer.run_on(&mut world);
 
-    assert!(world.get::<&&str>(ent).is_err());
-    assert!(world.get::<&i32>(ent).is_err());
+    assert!(world.get::<&Str>(ent).is_err());
+    assert!(world.get::<&Int>(ent).is_err());
 }
 
 #[test]
 #[should_panic(expected = "already borrowed")]
 fn illegal_borrow() {
     let mut world = World::new();
-    world.spawn(("abc", 123));
-    world.spawn(("def", 456));
+    world.spawn((Str("abc"), Int(123)));
+    world.spawn((Str("def"), Int(456)));
 
-    world.query::<(&mut i32, &i32)>().iter();
+    world.query::<(&mut Int, &Int)>().iter();
 }
 
 #[test]
 #[should_panic(expected = "already borrowed")]
 fn illegal_borrow_2() {
     let mut world = World::new();
-    world.spawn(("abc", 123));
-    world.spawn(("def", 456));
+    world.spawn((Str("abc"), Int(123)));
+    world.spawn((Str("def"), Int(456)));
 
-    world.query::<(&mut i32, &mut i32)>().iter();
+    world.query::<(&mut Int, &mut Int)>().iter();
 }
 
 #[test]
 #[should_panic(expected = "query violates a unique borrow")]
 fn illegal_query_mut_borrow() {
     let mut world = World::new();
-    world.spawn(("abc", 123));
-    world.spawn(("def", 456));
+    world.spawn((Str("abc"), Int(123)));
+    world.spawn((Str("def"), Int(456)));
 
-    world.query_mut::<(&i32, &mut i32)>();
+    world.query_mut::<(&Int, &mut Int)>();
 }
 
 #[test]
 #[should_panic(expected = "query violates a unique borrow")]
 fn illegal_query_one_borrow() {
     let mut world = World::new();
-    let entity = world.spawn(("abc", 123));
+    let entity = world.spawn((Str("abc"), Int(123)));
 
-    world.query_one::<(&mut i32, &i32)>(entity).get().unwrap();
+    world.query_one::<(&mut Int, &Int)>(entity).get().unwrap();
 }
 
 #[test]
 #[should_panic(expected = "query violates a unique borrow")]
 fn illegal_query_one_borrow_2() {
     let mut world = World::new();
-    let entity = world.spawn(("abc", 123));
+    let entity = world.spawn((Str("abc"), Int(123)));
 
     world
-        .query_one::<(&mut i32, &mut i32)>(entity)
+        .query_one::<(&mut Int, &mut Int)>(entity)
         .get()
         .unwrap();
 }
@@ -685,46 +735,46 @@ fn illegal_query_one_borrow_2() {
 #[should_panic(expected = "query violates a unique borrow")]
 fn illegal_query_one_mut_borrow() {
     let mut world = World::new();
-    let entity = world.spawn(("abc", 123));
+    let entity = world.spawn((Str("abc"), Int(123)));
 
-    world.query_one_mut::<(&mut i32, &i32)>(entity).unwrap();
+    world.query_one_mut::<(&mut Int, &Int)>(entity).unwrap();
 }
 
 #[test]
 #[should_panic(expected = "query violates a unique borrow")]
 fn illegal_query_one_mut_borrow_2() {
     let mut world = World::new();
-    let entity = world.spawn(("abc", 123));
+    let entity = world.spawn((Str("abc"), Int(123)));
 
-    world.query_one_mut::<(&mut i32, &mut i32)>(entity).unwrap();
+    world.query_one_mut::<(&mut Int, &mut Int)>(entity).unwrap();
 }
 
 #[test]
 fn disjoint_queries() {
     let mut world = World::new();
-    world.spawn(("abc", true));
-    world.spawn(("def", 456));
+    world.spawn((Str("abc"), Bool(true)));
+    world.spawn((Str("def"), Int(456)));
 
-    let _a = world.query::<(&mut &str, &bool)>();
-    let _b = world.query::<(&mut &str, &i32)>();
+    let _a = world.query::<(&mut Str, &Bool)>();
+    let _b = world.query::<(&mut Str, &Int)>();
 }
 
 #[test]
 fn shared_borrow() {
     let mut world = World::new();
-    world.spawn(("abc", 123));
-    world.spawn(("def", 456));
+    world.spawn((Str("abc"), Int(123)));
+    world.spawn((Str("def"), Int(456)));
 
-    world.query::<(&i32, &i32)>();
+    world.query::<(&Int, &Int)>();
 }
 
 #[test]
 #[should_panic(expected = "already borrowed")]
 fn illegal_random_access() {
     let mut world = World::new();
-    let e = world.spawn(("abc", 123));
-    let _borrow = world.get::<&mut i32>(e).unwrap();
-    world.get::<&i32>(e).unwrap();
+    let e = world.spawn((Str("abc"), Int(123)));
+    let _borrow = world.get::<&mut Int>(e).unwrap();
+    world.get::<&Int>(e).unwrap();
 }
 
 #[test]
@@ -732,14 +782,17 @@ fn illegal_random_access() {
 fn derived_bundle() {
     #[derive(Bundle)]
     struct Foo {
-        x: i32,
-        y: char,
+        x: Int,
+        y: Char,
     }
 
     let mut world = World::new();
-    let e = world.spawn(Foo { x: 42, y: 'a' });
-    assert_eq!(*world.get::<&i32>(e).unwrap(), 42);
-    assert_eq!(*world.get::<&char>(e).unwrap(), 'a');
+    let e = world.spawn(Foo {
+        x: Int(42),
+        y: Char('a'),
+    });
+    assert_eq!(world.get::<&Int>(e).unwrap().0, 42);
+    assert_eq!(world.get::<&Char>(e).unwrap().0, 'a');
 }
 
 #[test]
@@ -747,24 +800,27 @@ fn derived_bundle() {
 #[cfg_attr(
     debug_assertions,
     should_panic(
-        expected = "attempted to allocate entity with duplicate i32 components; each type must occur at most once!"
+        expected = "attempted to allocate entity with duplicate tests::Int components; \
+                    each type must occur at most once!"
     )
 )]
 #[cfg_attr(
     not(debug_assertions),
-    should_panic(
-        expected = "attempted to allocate entity with duplicate components; each type must occur at most once!"
-    )
+    should_panic(expected = "attempted to allocate entity with duplicate components; \
+                    each type must occur at most once!")
 )]
 fn bad_bundle_derive() {
     #[derive(Bundle)]
     struct Foo {
-        x: i32,
-        y: i32,
+        x: Int,
+        y: Int,
     }
 
     let mut world = World::new();
-    world.spawn(Foo { x: 42, y: 42 });
+    world.spawn(Foo {
+        x: Int(42),
+        y: Int(42),
+    });
 }
 
 #[test]
@@ -773,7 +829,7 @@ fn spawn_many() {
     let mut world = World::new();
     const N: usize = 100_000;
     for _ in 0..N {
-        world.spawn((42u128,));
+        world.spawn((Int(42),));
     }
     assert_eq!(world.iter().count(), N);
 }
@@ -781,8 +837,8 @@ fn spawn_many() {
 #[test]
 fn clear() {
     let mut world = World::new();
-    world.spawn(("abc", 123));
-    world.spawn(("def", 456, true));
+    world.spawn((Str("abc"), Int(123)));
+    world.spawn((Str("def"), Int(456), Bool(true)));
     world.clear();
     assert_eq!(world.iter().count(), 0);
 }
@@ -790,23 +846,23 @@ fn clear() {
 #[test]
 fn remove_missing() {
     let mut world = World::new();
-    let e = world.spawn(("abc", 123));
-    assert!(world.remove_one::<bool>(e).is_err());
+    let e = world.spawn((Str("abc"), Int(123)));
+    assert!(world.remove_one::<Bool>(e).is_err());
 }
 
 #[test]
 fn exchange_components() {
     let mut world = World::new();
 
-    let entity = world.spawn(("abc".to_owned(), 123));
-    assert!(world.get::<&String>(entity).is_ok());
-    assert!(world.get::<&i32>(entity).is_ok());
-    assert!(world.get::<&bool>(entity).is_err());
+    let entity = world.spawn((Label("abc".to_owned()), Int(123)));
+    assert!(world.get::<&Label>(entity).is_ok());
+    assert!(world.get::<&Int>(entity).is_ok());
+    assert!(world.get::<&Bool>(entity).is_err());
 
-    world.exchange_one::<String, _>(entity, true).unwrap();
-    assert!(world.get::<&String>(entity).is_err());
-    assert!(world.get::<&i32>(entity).is_ok());
-    assert!(world.get::<&bool>(entity).is_ok());
+    world.exchange_one::<Label, _>(entity, Bool(true)).unwrap();
+    assert!(world.get::<&Label>(entity).is_err());
+    assert!(world.get::<&Int>(entity).is_ok());
+    assert!(world.get::<&Bool>(entity).is_ok());
 }
 
 #[test]
@@ -831,7 +887,7 @@ fn query_batched() {
     let mut world = World::new();
     let a = world.spawn(());
     let b = world.spawn(());
-    let c = world.spawn((42,));
+    let c = world.spawn((Int(42),));
     assert_eq!(world.query::<()>().iter_batched(1).count(), 3);
     assert_eq!(world.query::<()>().iter_batched(2).count(), 2);
     assert_eq!(world.query::<()>().iter_batched(2).flatten().count(), 3);
@@ -844,7 +900,6 @@ fn query_batched() {
         .iter_batched(1)
         .flatten()
         .collect::<Vec<_>>();
-    dbg!(&entities);
     assert_eq!(entities.len(), 3);
     assert!(entities.contains(&a));
     assert!(entities.contains(&b));
@@ -853,11 +908,11 @@ fn query_batched() {
     // Batched queries filter like usual
     assert_eq!(
         world
-            .query::<(Entity, &i32)>()
+            .query::<(Entity, &Int)>()
             .iter_batched(1)
             .flatten()
             .collect::<Vec<_>>(),
-        &[(c, &42)]
+        &[(c, &Int(42))]
     );
 }
 
@@ -866,7 +921,7 @@ fn query_mut_batched() {
     let mut world = World::new();
     let a = world.spawn(());
     let b = world.spawn(());
-    let c = world.spawn((42,));
+    let c = world.spawn((Int(42),));
     assert_eq!(world.query_mut::<()>().into_iter_batched(1).count(), 3);
     assert_eq!(world.query_mut::<()>().into_iter_batched(2).count(), 2);
     assert_eq!(
@@ -893,7 +948,6 @@ fn query_mut_batched() {
         .into_iter_batched(1)
         .flatten()
         .collect::<Vec<_>>();
-    dbg!(&entities);
     assert_eq!(entities.len(), 3);
     assert!(entities.contains(&a));
     assert!(entities.contains(&b));
@@ -903,27 +957,30 @@ fn query_mut_batched() {
 #[test]
 fn spawn_batch() {
     let mut world = World::new();
-    world.spawn_batch((0..10).map(|x| (x, "abc")));
-    let entity_count = world.query::<&i32>().iter().count();
+    world.spawn_batch((0..10).map(|x| (Int(x), Str("abc"))));
+    let entity_count = world.query::<&Int>().iter().count();
     assert_eq!(entity_count, 10);
 }
 
 #[test]
 fn query_one() {
     let mut world = World::new();
-    let a = world.spawn(("abc", 123));
-    let b = world.spawn(("def", 456));
-    let c = world.spawn(("ghi", 789, true));
-    assert_eq!(world.query_one::<&i32>(a).get(), Ok(&123));
-    assert_eq!(world.query_one::<&i32>(b).get(), Ok(&456));
+    let a = world.spawn((Str("abc"), Int(123)));
+    let b = world.spawn((Str("def"), Int(456)));
+    let c = world.spawn((Str("ghi"), Int(789), Bool(true)));
+    assert_eq!(world.query_one::<&Int>(a).get(), Ok(&Int(123)));
+    assert_eq!(world.query_one::<&Int>(b).get(), Ok(&Int(456)));
     assert_eq!(
-        world.query_one::<(&i32, &bool)>(a).get(),
+        world.query_one::<(&Int, &Bool)>(a).get(),
         Err(QueryOneError::Unsatisfied)
     );
-    assert_eq!(world.query_one::<(&i32, &bool)>(c).get(), Ok((&789, &true)));
+    assert_eq!(
+        world.query_one::<(&Int, &Bool)>(c).get(),
+        Ok((&Int(789), &Bool(true)))
+    );
     world.despawn(a).unwrap();
     assert_eq!(
-        world.query_one::<&i32>(a).get(),
+        world.query_one::<&Int>(a).get(),
         Err(QueryOneError::NoSuchEntity)
     );
 }
@@ -932,49 +989,49 @@ fn query_one() {
 #[cfg_attr(
     debug_assertions,
     should_panic(
-        expected = "attempted to allocate entity with duplicate f32 components; each type must occur at most once!"
+        expected = "attempted to allocate entity with duplicate tests::F32 components; \
+                    each type must occur at most once!"
     )
 )]
 #[cfg_attr(
     not(debug_assertions),
-    should_panic(
-        expected = "attempted to allocate entity with duplicate components; each type must occur at most once!"
-    )
+    should_panic(expected = "attempted to allocate entity with duplicate components; \
+                    each type must occur at most once!")
 )]
 fn duplicate_components_panic() {
     let mut world = World::new();
-    world.reserve::<(f32, i64, f32)>(1);
+    world.reserve::<(F32, Int, F32)>(1);
 }
 
 #[test]
 fn spawn_column_batch() {
     let mut world = World::new();
     let mut batch_ty = ColumnBatchType::new();
-    batch_ty.add::<i32>().add::<bool>();
+    batch_ty.add::<Int>().add::<Bool>();
 
     // Unique archetype
     let b;
     {
         let batch = batch_ty.clone().into_batch(2);
         {
-            let mut bs = batch.writer::<bool>().unwrap();
-            bs.push(true).unwrap();
-            bs.push(false).unwrap();
-            let mut is = batch.writer::<i32>().unwrap();
-            is.push(42).unwrap();
-            is.push(43).unwrap();
+            let mut bs = batch.writer::<Bool>().unwrap();
+            bs.push(Bool(true)).unwrap();
+            bs.push(Bool(false)).unwrap();
+            let mut is = batch.writer::<Int>().unwrap();
+            is.push(Int(42)).unwrap();
+            is.push(Int(43)).unwrap();
         }
         let entities = world
             .spawn_column_batch(batch.build().unwrap())
             .collect::<Vec<_>>();
         assert_eq!(entities.len(), 2);
         assert_eq!(
-            world.query_one_mut::<(&i32, &bool)>(entities[0]).unwrap(),
-            (&42, &true)
+            world.query_one_mut::<(&Int, &Bool)>(entities[0]).unwrap(),
+            (&Int(42), &Bool(true))
         );
         assert_eq!(
-            world.query_one_mut::<(&i32, &bool)>(entities[1]).unwrap(),
-            (&43, &false)
+            world.query_one_mut::<(&Int, &Bool)>(entities[1]).unwrap(),
+            (&Int(43), &Bool(false))
         );
         world.despawn(entities[0]).unwrap();
         b = entities[1];
@@ -984,38 +1041,38 @@ fn spawn_column_batch() {
     {
         let batch = batch_ty.clone().into_batch(2);
         {
-            let mut bs = batch.writer::<bool>().unwrap();
-            bs.push(true).unwrap();
-            bs.push(false).unwrap();
-            let mut is = batch.writer::<i32>().unwrap();
-            is.push(44).unwrap();
-            is.push(45).unwrap();
+            let mut bs = batch.writer::<Bool>().unwrap();
+            bs.push(Bool(true)).unwrap();
+            bs.push(Bool(false)).unwrap();
+            let mut is = batch.writer::<Int>().unwrap();
+            is.push(Int(44)).unwrap();
+            is.push(Int(45)).unwrap();
         }
         let entities = world
             .spawn_column_batch(batch.build().unwrap())
             .collect::<Vec<_>>();
         assert_eq!(entities.len(), 2);
-        assert_eq!(*world.get::<&i32>(b).unwrap(), 43);
-        assert_eq!(*world.get::<&i32>(entities[0]).unwrap(), 44);
-        assert_eq!(*world.get::<&i32>(entities[1]).unwrap(), 45);
+        assert_eq!(world.get::<&Int>(b).unwrap().0, 43);
+        assert_eq!(world.get::<&Int>(entities[0]).unwrap().0, 44);
+        assert_eq!(world.get::<&Int>(entities[1]).unwrap().0, 45);
     }
 }
 
 #[test]
 fn columnar_access() {
     let mut world = World::new();
-    let e = world.spawn(("abc", 123));
-    let f = world.spawn(("def", 456, true));
-    let g = world.spawn(("ghi", 789, false));
+    let e = world.spawn((Str("abc"), Int(123)));
+    let f = world.spawn((Str("def"), Int(456), Bool(true)));
+    let g = world.spawn((Str("ghi"), Int(789), Bool(false)));
     let mut archetypes = world.archetypes();
     let _empty = archetypes.next().unwrap();
     let a = archetypes.next().unwrap();
     assert_eq!(a.ids(), &[e.id()]);
-    assert_eq!(*a.get::<&i32>().unwrap(), [123]);
-    assert!(a.get::<&bool>().is_none());
+    assert_eq!(*a.get::<&Int>().unwrap(), [Int(123)]);
+    assert!(a.get::<&Bool>().is_none());
     let b = archetypes.next().unwrap();
     assert_eq!(b.ids(), &[f.id(), g.id()]);
-    assert_eq!(*b.get::<&i32>().unwrap(), [456, 789]);
+    assert_eq!(*b.get::<&Int>().unwrap(), [Int(456), Int(789)]);
 }
 
 #[test]
@@ -1029,19 +1086,19 @@ fn empty_entity_ref() {
 #[test]
 fn query_or() {
     let mut world = World::new();
-    let e = world.spawn(("abc", 123));
-    let _ = world.spawn(("def",));
-    let f = world.spawn(("ghi", true));
-    let g = world.spawn(("jkl", 456, false));
+    let e = world.spawn((Str("abc"), Int(123)));
+    let _ = world.spawn((Str("def"),));
+    let f = world.spawn((Str("ghi"), Bool(true)));
+    let g = world.spawn((Str("jkl"), Int(456), Bool(false)));
     let results = world
-        .query::<(Entity, &&str, Or<&i32, &bool>)>()
+        .query::<(Entity, &Str, Or<&Int, &Bool>)>()
         .iter()
-        .map(|(handle, &s, value)| (handle, s, value.cloned()))
+        .map(|(handle, s, value)| (handle, *s, value.cloned()))
         .collect::<Vec<_>>();
     assert_eq!(results.len(), 3);
-    assert!(results.contains(&(e, "abc", Or::Left(123))));
-    assert!(results.contains(&(f, "ghi", Or::Right(true))));
-    assert!(results.contains(&(g, "jkl", Or::Both(456, false))));
+    assert!(results.contains(&(e, Str("abc"), Or::Left(Int(123)))));
+    assert!(results.contains(&(f, Str("ghi"), Or::Right(Bool(true)))));
+    assert!(results.contains(&(g, Str("jkl"), Or::Both(Int(456), Bool(false)))));
 }
 
 #[test]
@@ -1060,15 +1117,15 @@ fn len() {
 #[test]
 fn take() {
     let mut world_a = World::new();
-    let e = world_a.spawn(("abc".to_string(), 42));
-    let f = world_a.spawn(("def".to_string(), 17));
+    let e = world_a.spawn((Label("abc".to_string()), Int(42)));
+    let f = world_a.spawn((Label("def".to_string()), Int(17)));
     let mut world_b = World::new();
     let e2 = world_b.spawn(world_a.take(e).unwrap());
     assert!(!world_a.contains(e));
-    assert_eq!(*world_b.get::<&String>(e2).unwrap(), "abc");
-    assert_eq!(*world_b.get::<&i32>(e2).unwrap(), 42);
-    assert_eq!(*world_a.get::<&String>(f).unwrap(), "def");
-    assert_eq!(*world_a.get::<&i32>(f).unwrap(), 17);
+    assert_eq!(world_b.get::<&Label>(e2).unwrap().0, "abc");
+    assert_eq!(world_b.get::<&Int>(e2).unwrap().0, 42);
+    assert_eq!(world_a.get::<&Label>(f).unwrap().0, "def");
+    assert_eq!(world_a.get::<&Int>(f).unwrap().0, 17);
     world_b.take(e2).unwrap();
     assert!(!world_b.contains(e2));
 }
@@ -1076,12 +1133,12 @@ fn take() {
 #[test]
 fn empty_archetype_conflict() {
     let mut world = World::new();
-    let _ = world.spawn((42, true));
-    let _ = world.spawn((17, "abc"));
-    let e = world.spawn((12, false, "def"));
+    let _ = world.spawn((Int(42), Bool(true)));
+    let _ = world.spawn((Int(17), Str("abc")));
+    let e = world.spawn((Int(12), Bool(false), Str("def")));
     world.despawn(e).unwrap();
-    for _ in world.query::<(&mut i32, &&str)>().iter() {
-        for _ in world.query::<(&mut i32, &bool)>().iter() {}
+    for _ in world.query::<(&mut Int, &Str)>().iter() {
+        for _ in world.query::<(&mut Int, &Bool)>().iter() {}
     }
 }
 
@@ -1090,6 +1147,7 @@ fn component_ref_map() {
     struct TestComponent {
         id: i32,
     }
+    impl Component for TestComponent {}
 
     let mut world = World::new();
     let e = world.spawn((TestComponent { id: 21 },));
@@ -1119,9 +1177,12 @@ fn component_ref_map() {
 #[test]
 fn query_many() {
     let mut world = World::new();
-    let a = world.spawn((42, true));
-    let b = world.spawn((17,));
-    assert_eq!(world.query_many_mut::<&i32, 2>([a, b]), [Ok(&42), Ok(&17)]);
+    let a = world.spawn((Int(42), Bool(true)));
+    let b = world.spawn((Int(17),));
+    assert_eq!(
+        world.query_many_mut::<&Int, 2>([a, b]),
+        [Ok(&Int(42)), Ok(&Int(17))]
+    );
 }
 
 #[test]
@@ -1136,14 +1197,14 @@ fn query_many_duplicate() {
 fn cache_invalidation() {
     let mut world = World::new();
     assert_eq!(
-        world.query::<(Entity, &i32)>().iter().collect::<Vec<_>>(),
+        world.query::<(Entity, &Int)>().iter().collect::<Vec<_>>(),
         []
     );
-    let a = world.spawn((42, true));
-    let b = world.spawn((17,));
+    let a = world.spawn((Int(42), Bool(true)));
+    let b = world.spawn((Int(17),));
     assert_eq!(
-        world.query::<(Entity, &i32)>().iter().collect::<Vec<_>>(),
-        &[(a, &42), (b, &17)]
+        world.query::<(Entity, &Int)>().iter().collect::<Vec<_>>(),
+        &[(a, &Int(42)), (b, &Int(17))]
     );
 }
 
@@ -1151,6 +1212,7 @@ fn cache_invalidation() {
 #[test]
 fn entity_generation_regression() {
     struct C;
+    impl Component for C {}
 
     let mut world = World::new();
 

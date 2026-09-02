@@ -60,6 +60,7 @@ impl<T: Component> Default for ChangeTracker<T> {
 }
 
 struct Previous<T>(T);
+impl<T: Component> Component for Previous<T> {}
 
 /// Collection of iterators over changes in `T` components
 pub struct Changes<'a, T>
@@ -174,33 +175,39 @@ impl<T: Iterator> Drop for DrainOnDrop<T> {
 mod tests {
     use super::*;
 
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    struct I(i32);
+    impl Component for I {}
+    struct B;
+    impl Component for B {}
+
     #[test]
     fn smoke() {
         let mut world = World::new();
 
-        let a = world.spawn((42,));
-        let b = world.spawn((17, false));
-        let c = world.spawn((true,));
+        let a = world.spawn((I(42),));
+        let b = world.spawn((I(17), B));
+        let c = world.spawn((B,));
 
-        let mut tracker = ChangeTracker::<i32>::new();
+        let mut tracker = ChangeTracker::<I>::new();
         {
             let mut changes = tracker.track(&mut world);
             let added = changes.added().collect::<Vec<_>>();
             assert_eq!(added.len(), 2);
-            assert!(added.contains(&(a, &42)));
-            assert!(added.contains(&(b, &17)));
+            assert!(added.contains(&(a, &I(42))));
+            assert!(added.contains(&(b, &I(17))));
             assert_eq!(changes.changed().count(), 0);
             assert_eq!(changes.removed().count(), 0);
         }
 
-        world.remove_one::<i32>(a).unwrap();
-        *world.get::<&mut i32>(b).unwrap() = 26;
-        world.insert_one(c, 74).unwrap();
+        world.remove_one::<I>(a).unwrap();
+        *world.get::<&mut I>(b).unwrap() = I(26);
+        world.insert_one(c, I(74)).unwrap();
         {
             let mut changes = tracker.track(&mut world);
-            assert_eq!(changes.removed().collect::<Vec<_>>(), [(a, 42)]);
-            assert_eq!(changes.changed().collect::<Vec<_>>(), [(b, 17, &26)]);
-            assert_eq!(changes.added().collect::<Vec<_>>(), [(c, &74)]);
+            assert_eq!(changes.removed().collect::<Vec<_>>(), [(a, I(42))]);
+            assert_eq!(changes.changed().collect::<Vec<_>>(), [(b, I(17), &I(26))]);
+            assert_eq!(changes.added().collect::<Vec<_>>(), [(c, &I(74))]);
         }
         {
             let mut changes = tracker.track(&mut world);

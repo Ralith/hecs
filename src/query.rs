@@ -440,15 +440,21 @@ unsafe impl<L: Fetch, R: Fetch> Fetch for FetchOr<L, R> {
 /// # Example
 /// ```
 /// # use hecs::*;
+/// #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// struct Idx(i32);
+/// impl Component for Idx {}
+/// struct Flag(bool);
+/// impl Component for Flag {}
+///
 /// let mut world = World::new();
-/// let a = world.spawn((123, true, "abc"));
-/// let b = world.spawn((456, false));
-/// let c = world.spawn((42, "def"));
-/// let entities = world.query::<Without<(Entity, &i32), &bool>>()
+/// let a = world.spawn((Idx(123), Flag(true)));
+/// let b = world.spawn((Idx(456), Flag(false)));
+/// let c = world.spawn((Idx(42),));
+/// let entities = world.query::<Without<(Entity, &Idx), &Flag>>()
 ///     .iter()
-///     .map(|(e, &i)| (e, i))
+///     .map(|(e, i)| (e, *i))
 ///     .collect::<Vec<_>>();
-/// assert_eq!(entities, &[(c, 42)]);
+/// assert_eq!(entities, &[(c, Idx(42))]);
 /// ```
 pub struct Without<Q, R>(PhantomData<(Q, fn(R))>);
 
@@ -517,17 +523,23 @@ impl<F: Clone, G> Clone for FetchWithout<F, G> {
 /// # Example
 /// ```
 /// # use hecs::*;
+/// #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// struct Idx(i32);
+/// impl Component for Idx {}
+/// struct Flag(bool);
+/// impl Component for Flag {}
+///
 /// let mut world = World::new();
-/// let a = world.spawn((123, true, "abc"));
-/// let b = world.spawn((456, false));
-/// let c = world.spawn((42, "def"));
-/// let entities = world.query::<With<(Entity, &i32), &bool>>()
+/// let a = world.spawn((Idx(123), Flag(true)));
+/// let b = world.spawn((Idx(456), Flag(false)));
+/// let c = world.spawn((Idx(42),));
+/// let entities = world.query::<With<(Entity, &Idx), &Flag>>()
 ///     .iter()
-///     .map(|(e, &i)| (e, i))
+///     .map(|(e, i)| (e, *i))
 ///     .collect::<Vec<_>>();
 /// assert_eq!(entities.len(), 2);
-/// assert!(entities.contains(&(a, 123)));
-/// assert!(entities.contains(&(b, 456)));
+/// assert!(entities.contains(&(a, Idx(123))));
+/// assert!(entities.contains(&(b, Idx(456))));
 /// ```
 pub struct With<Q, R>(PhantomData<(Q, fn(R))>);
 
@@ -594,11 +606,16 @@ impl<F: Clone, G> Clone for FetchWith<F, G> {
 /// # Example
 /// ```
 /// # use hecs::*;
+/// struct Idx(i32);
+/// impl Component for Idx {}
+/// struct Flag(bool);
+/// impl Component for Flag {}
+///
 /// let mut world = World::new();
-/// let a = world.spawn((123, true, "abc"));
-/// let b = world.spawn((456, false));
-/// let c = world.spawn((42, "def"));
-/// let entities = world.query::<(Entity, Satisfies<&bool>)>()
+/// let a = world.spawn((Idx(123), Flag(true)));
+/// let b = world.spawn((Idx(456), Flag(false)));
+/// let c = world.spawn((Idx(42),));
+/// let entities = world.query::<(Entity, Satisfies<&Flag>)>()
 ///     .iter()
 ///     .collect::<Vec<_>>();
 /// assert_eq!(entities.len(), 3);
@@ -719,18 +736,24 @@ impl<'w, Q: Query> QueryBorrow<'w, Q> {
     /// # Example
     /// ```
     /// # use hecs::*;
+    /// #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    /// struct Idx(i32);
+    /// impl Component for Idx {}
+    /// struct Flag(bool);
+    /// impl Component for Flag {}
+    ///
     /// let mut world = World::new();
-    /// let a = world.spawn((123, true, "abc"));
-    /// let b = world.spawn((456, false));
-    /// let c = world.spawn((42, "def"));
-    /// let entities = world.query::<(Entity, &i32)>()
-    ///     .with::<&bool>()
+    /// let a = world.spawn((Idx(123), Flag(true)));
+    /// let b = world.spawn((Idx(456), Flag(false)));
+    /// let c = world.spawn((Idx(42),));
+    /// let entities = world.query::<(Entity, &Idx)>()
+    ///     .with::<&Flag>()
     ///     .iter()
-    ///     .map(|(e, &i)| (e, i)) // Copy out of the world
+    ///     .map(|(e, i)| (e, *i)) // Copy out of the world
     ///     .collect::<Vec<_>>();
     /// assert_eq!(entities.len(), 2);
-    /// assert!(entities.contains(&(a, 123)));
-    /// assert!(entities.contains(&(b, 456)));
+    /// assert!(entities.contains(&(a, Idx(123))));
+    /// assert!(entities.contains(&(b, Idx(456))));
     /// ```
     pub fn with<R: Query>(self) -> QueryBorrow<'w, With<Q, R>> {
         self.transform()
@@ -743,16 +766,22 @@ impl<'w, Q: Query> QueryBorrow<'w, Q> {
     /// # Example
     /// ```
     /// # use hecs::*;
+    /// #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    /// struct Idx(i32);
+    /// impl Component for Idx {}
+    /// struct Flag(bool);
+    /// impl Component for Flag {}
+    ///
     /// let mut world = World::new();
-    /// let a = world.spawn((123, true, "abc"));
-    /// let b = world.spawn((456, false));
-    /// let c = world.spawn((42, "def"));
-    /// let entities = world.query::<(Entity, &i32)>()
-    ///     .without::<&bool>()
+    /// let a = world.spawn((Idx(123), Flag(true)));
+    /// let b = world.spawn((Idx(456), Flag(false)));
+    /// let c = world.spawn((Idx(42),));
+    /// let entities = world.query::<(Entity, &Idx)>()
+    ///     .without::<&Flag>()
     ///     .iter()
-    ///     .map(|(e, &i)| (e, i)) // Copy out of the world
+    ///     .map(|(e, i)| (e, *i)) // Copy out of the world
     ///     .collect::<Vec<_>>();
-    /// assert_eq!(entities, &[(c, 42)]);
+    /// assert_eq!(entities, &[(c, Idx(42))]);
     /// ```
     pub fn without<R: Query>(self) -> QueryBorrow<'w, Without<Q, R>> {
         self.transform()
@@ -1500,20 +1529,23 @@ impl<'q, Q: Query> View<'q, Q> {
     /// # Examples
     ///
     /// ```
-    /// # use hecs::World;
+    /// # use hecs::{Component, World};
+    /// struct Idx(i32);
+    /// impl Component for Idx {}
+    ///
     /// let mut world = World::new();
     ///
-    /// let a = world.spawn((1, 1.0));
-    /// let b = world.spawn((2, 4.0));
-    /// let c = world.spawn((3, 9.0));
+    /// let a = world.spawn((Idx(1),));
+    /// let b = world.spawn((Idx(2),));
+    /// let c = world.spawn((Idx(3),));
     ///
-    /// let mut query = world.query_mut::<&mut i32>();
+    /// let mut query = world.query_mut::<&mut Idx>();
     /// let mut view = query.view();
-    /// let [a,b,c] = view.get_disjoint_mut([a, b, c]);
+    /// let [a, b, c] = view.get_disjoint_mut([a, b, c]);
     ///
-    /// assert_eq!(*a.unwrap(), 1);
-    /// assert_eq!(*b.unwrap(), 2);
-    /// assert_eq!(*c.unwrap(), 3);
+    /// assert_eq!(a.unwrap().0, 1);
+    /// assert_eq!(b.unwrap().0, 2);
+    /// assert_eq!(c.unwrap().0, 3);
     /// ```
     pub fn get_disjoint_mut<const N: usize>(
         &mut self,
@@ -1809,19 +1841,22 @@ impl<'w, Q: Query> ViewBorrow<'w, Q> {
     /// # Examples
     ///
     /// ```
-    /// # use hecs::World;
+    /// # use hecs::{Component, World};
+    /// struct Idx(i32);
+    /// impl Component for Idx {}
+    ///
     /// let mut world = World::new();
     ///
-    /// let a = world.spawn((1, 1.0));
-    /// let b = world.spawn((2, 4.0));
-    /// let c = world.spawn((3, 9.0));
+    /// let a = world.spawn((Idx(1),));
+    /// let b = world.spawn((Idx(2),));
+    /// let c = world.spawn((Idx(3),));
     ///
-    /// let mut view = world.view_mut::<&mut i32>();
+    /// let mut view = world.view_mut::<&mut Idx>();
     /// let [a, b, c] = view.get_disjoint_mut([a, b, c]);
     ///
-    /// assert_eq!(*a.unwrap(), 1);
-    /// assert_eq!(*b.unwrap(), 2);
-    /// assert_eq!(*c.unwrap(), 3);
+    /// assert_eq!(a.unwrap().0, 1);
+    /// assert_eq!(b.unwrap().0, 2);
+    /// assert_eq!(c.unwrap().0, 3);
     /// ```
     pub fn get_disjoint_mut<const N: usize>(
         &mut self,

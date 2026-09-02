@@ -15,12 +15,17 @@ use crate::{align, Component, ComponentRef, ComponentRefShared, DynamicBundle};
 ///
 /// ```
 /// # use hecs::*;
+/// struct Idx(i32);
+/// impl Component for Idx {}
+/// struct Name(&'static str);
+/// impl Component for Name {}
+///
 /// let mut world = World::new();
 /// let mut builder = EntityBuilder::new();
-/// builder.add(123).add("abc");
+/// builder.add(Idx(123)).add(Name("abc"));
 /// let e = world.spawn(builder.build()); // builder can now be reused
-/// assert_eq!(*world.get::<&i32>(e).unwrap(), 123);
-/// assert_eq!(*world.get::<&&str>(e).unwrap(), "abc");
+/// assert_eq!(world.get::<&Idx>(e).unwrap().0, 123);
+/// assert_eq!(world.get::<&Name>(e).unwrap().0, "abc");
 /// ```
 #[derive(Default)]
 pub struct EntityBuilder {
@@ -137,16 +142,23 @@ impl Drop for BuiltEntity<'_> {
 ///
 /// ```
 /// # use hecs::*;
+/// #[derive(Clone)]
+/// struct Idx(i32);
+/// impl Component for Idx {}
+/// #[derive(Clone)]
+/// struct Name(&'static str);
+/// impl Component for Name {}
+///
 /// let mut world = World::new();
 /// let mut builder = EntityBuilderClone::new();
-/// builder.add(123).add("abc");
+/// builder.add(Idx(123)).add(Name("abc"));
 /// let bundle = builder.build();
 /// let e = world.spawn(&bundle);
 /// let f = world.spawn(&bundle); // `&bundle` can be used many times
-/// assert_eq!(*world.get::<&i32>(e).unwrap(), 123);
-/// assert_eq!(*world.get::<&&str>(e).unwrap(), "abc");
-/// assert_eq!(*world.get::<&i32>(f).unwrap(), 123);
-/// assert_eq!(*world.get::<&&str>(f).unwrap(), "abc");
+/// assert_eq!(world.get::<&Idx>(e).unwrap().0, 123);
+/// assert_eq!(world.get::<&Name>(e).unwrap().0, "abc");
+/// assert_eq!(world.get::<&Idx>(f).unwrap().0, 123);
+/// assert_eq!(world.get::<&Name>(f).unwrap().0, "abc");
 /// ```
 #[derive(Clone, Default)]
 pub struct EntityBuilderClone {

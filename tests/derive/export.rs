@@ -1,12 +1,15 @@
 mod inner {
-    use hecs::{Bundle, Query};
+    use hecs::{Bundle, Component, Query};
+
+    struct A(i32);
+    impl Component for A {}
 
     #[derive(Bundle)]
     pub struct Foo;
 
     #[derive(Query)]
     pub struct Bar<'a> {
-        foo: &'a i32,
+        foo: &'a A,
     }
 }
 

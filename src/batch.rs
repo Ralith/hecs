@@ -199,43 +199,55 @@ impl fmt::Display for BatchIncomplete {
 mod tests {
     use super::*;
 
+    #[derive(Debug, PartialEq)]
+    struct Idx(usize);
+    impl Component for Idx {}
+    #[derive(Debug)]
+    struct Flag;
+    impl Component for Flag {}
+    #[cfg(feature = "std")]
+    #[derive(Debug)]
+    struct Counted(#[allow(dead_code)] std::sync::Arc<()>);
+    #[cfg(feature = "std")]
+    impl Component for Counted {}
+
     #[test]
     fn empty_batch() {
         let mut types = ColumnBatchType::new();
-        types.add::<usize>();
+        types.add::<Idx>();
         let builder = types.into_batch(0);
-        let mut writer = builder.writer::<usize>().unwrap();
-        assert!(writer.push(42).is_err());
+        let mut writer = builder.writer::<Idx>().unwrap();
+        assert!(writer.push(Idx(42)).is_err());
     }
 
     #[test]
     fn writer_continues_from_last_fill() {
         let mut types = ColumnBatchType::new();
-        types.add::<usize>();
+        types.add::<Idx>();
         let builder = types.into_batch(2);
         {
-            let mut writer = builder.writer::<usize>().unwrap();
-            writer.push(42).unwrap();
+            let mut writer = builder.writer::<Idx>().unwrap();
+            writer.push(Idx(42)).unwrap();
         }
 
-        let mut writer = builder.writer::<usize>().unwrap();
+        let mut writer = builder.writer::<Idx>().unwrap();
 
-        assert_eq!(writer.push(42), Ok(()));
-        assert_eq!(writer.push(42), Err(42));
+        assert_eq!(writer.push(Idx(42)), Ok(()));
+        assert_eq!(writer.push(Idx(42)), Err(Idx(42)));
     }
 
     #[test]
     fn concurrent_writers() {
         let mut types = ColumnBatchType::new();
-        types.add::<usize>();
-        types.add::<u32>();
+        types.add::<Idx>();
+        types.add::<Flag>();
         let builder = types.into_batch(2);
         {
-            let mut a = builder.writer::<usize>().unwrap();
-            let mut b = builder.writer::<u32>().unwrap();
+            let mut a = builder.writer::<Idx>().unwrap();
+            let mut b = builder.writer::<Flag>().unwrap();
             for i in 0..2 {
-                a.push(i as usize).unwrap();
-                b.push(i).unwrap();
+                a.push(Idx(i)).unwrap();
+                b.push(Flag).unwrap();
             }
         }
         builder.build().unwrap();
@@ -245,10 +257,10 @@ mod tests {
     #[should_panic(expected = "writer still exists")]
     fn aliasing_writers() {
         let mut types = ColumnBatchType::new();
-        types.add::<usize>();
+        types.add::<Idx>();
         let builder = types.into_batch(2);
-        let _a = builder.writer::<usize>().unwrap();
-        let _b = builder.writer::<usize>().unwrap();
+        let _a = builder.writer::<Idx>().unwrap();
+        let _b = builder.writer::<Idx>().unwrap();
     }
 
     #[test]
@@ -257,13 +269,13 @@ mod tests {
         use std::sync::Arc;
 
         let mut types = ColumnBatchType::new();
-        types.add::<Arc<()>>();
+        types.add::<Counted>();
         let builder = types.into_batch(1);
         let value = Arc::new(());
         builder
-            .writer::<Arc<()>>()
+            .writer::<Counted>()
             .unwrap()
-            .push(value.clone())
+            .push(Counted(value.clone()))
             .unwrap();
         assert_eq!(Arc::strong_count(&value), 2);
         drop(builder);

@@ -1,3 +1,13 @@
+# Unreleased
+
+### Changed
+
+- `Component` is no longer automatically implemented for all `Send + Sync + 'static` types. Types
+  must now implement it explicitly, either by hand (`impl Component for Position {}`) or with the
+  new `#[derive(Component)]` macro from the `hecs-macros` crate (enabled by the `macros` feature).
+  This rules out accidental use of third-party types as components and leaves the door open for
+  future trait extensions.
+
 # 0.11.1
 
 ### Added
