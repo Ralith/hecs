@@ -1,4 +1,7 @@
-use hecs::Bundle;
+use hecs::{Bundle, Component};
+
+struct A(i32);
+impl Component for A {}
 
 #[derive(Bundle)]
 struct Foo<T> {
@@ -7,7 +10,7 @@ struct Foo<T> {
 
 #[derive(Bundle)]
 struct Bar<T> {
-    foo: i32,
+    foo: A,
     bar: T,
 }
 

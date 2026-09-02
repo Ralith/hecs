@@ -35,16 +35,19 @@ struct SaveContextDeserialize {
 }
 
 // Components of our world.
-// Only Serialize and Deserialize derives are necessary.
+// In addition to implementing `Component`, types need Serialize and Deserialize derives to be
+// included in the serialization process.
 #[derive(Serialize, Deserialize, Eq, PartialEq, Debug, Clone)]
 struct ComponentA {
     data: usize,
 }
+impl hecs::Component for ComponentA {}
 
 #[derive(Serialize, Deserialize, Eq, PartialEq, Debug, Clone)]
 struct ComponentB {
     some_other_data: String,
 }
+impl hecs::Component for ComponentB {}
 
 impl DeserializeContext for SaveContextDeserialize {
     fn deserialize_component_ids<'de, A>(&mut self, mut seq: A) -> Result<ColumnBatchType, A::Error>

@@ -15,12 +15,17 @@ use crate::{align, Component, ComponentRef, ComponentRefShared, DynamicBundle};
 ///
 /// ```
 /// # use hecs::*;
+/// struct Idx(i32);
+/// impl Component for Idx {}
+/// struct Name(&'static str);
+/// impl Component for Name {}
+///
 /// let mut world = World::new();
 /// let mut builder = EntityBuilder::new();
-/// builder.add(123).add("abc");
+/// builder.add(Idx(123)).add(Name("abc"));
 /// let e = world.spawn(builder.build()); // builder can now be reused
-/// assert_eq!(*world.get::<&i32>(e).unwrap(), 123);
-/// assert_eq!(*world.get::<&&str>(e).unwrap(), "abc");
+/// assert_eq!(world.get::<&Idx>(e).unwrap().0, 123);
+/// assert_eq!(world.get::<&Name>(e).unwrap().0, "abc");
 /// ```
 #[derive(Default)]
 pub struct EntityBuilder {
@@ -103,10 +108,15 @@ impl<B: DynamicBundle> From<B> for EntityBuilder {
     ///
     /// ```
     /// # use hecs::*;
-    /// let mut builder: EntityBuilder = (123, "abc").into();
+    /// struct Idx(i32);
+    /// impl Component for Idx {}
+    /// struct Name(&'static str);
+    /// impl Component for Name {}
+    ///
+    /// let mut builder: EntityBuilder = (Idx(123), Name("abc")).into();
     /// let mut world = World::new();
     /// let e = world.spawn(builder.build());
-    /// assert_eq!(*world.get::<&i32>(e).unwrap(), 123);
+    /// assert_eq!(world.get::<&Idx>(e).unwrap().0, 123);
     /// ```
     fn from(bundle: B) -> Self {
         let mut builder = Self::new();
@@ -155,16 +165,23 @@ impl Drop for BuiltEntity<'_> {
 ///
 /// ```
 /// # use hecs::*;
+/// #[derive(Clone)]
+/// struct Idx(i32);
+/// impl Component for Idx {}
+/// #[derive(Clone)]
+/// struct Name(&'static str);
+/// impl Component for Name {}
+///
 /// let mut world = World::new();
 /// let mut builder = EntityBuilderClone::new();
-/// builder.add(123).add("abc");
+/// builder.add(Idx(123)).add(Name("abc"));
 /// let bundle = builder.build();
 /// let e = world.spawn(&bundle);
 /// let f = world.spawn(&bundle); // `&bundle` can be used many times
-/// assert_eq!(*world.get::<&i32>(e).unwrap(), 123);
-/// assert_eq!(*world.get::<&&str>(e).unwrap(), "abc");
-/// assert_eq!(*world.get::<&i32>(f).unwrap(), 123);
-/// assert_eq!(*world.get::<&&str>(f).unwrap(), "abc");
+/// assert_eq!(world.get::<&Idx>(e).unwrap().0, 123);
+/// assert_eq!(world.get::<&Name>(e).unwrap().0, "abc");
+/// assert_eq!(world.get::<&Idx>(f).unwrap().0, 123);
+/// assert_eq!(world.get::<&Name>(f).unwrap().0, "abc");
 /// ```
 #[derive(Clone, Default)]
 pub struct EntityBuilderClone {
@@ -250,11 +267,18 @@ impl<B: DynamicBundleClone> From<B> for EntityBuilderClone {
     ///
     /// ```
     /// # use hecs::*;
-    /// let builder: EntityBuilderClone = (123, "abc").into();
+    /// #[derive(Clone)]
+    /// struct Idx(i32);
+    /// impl Component for Idx {}
+    /// #[derive(Clone)]
+    /// struct Name(&'static str);
+    /// impl Component for Name {}
+    ///
+    /// let builder: EntityBuilderClone = (Idx(123), Name("abc")).into();
     /// let bundle = builder.build();
     /// let mut world = World::new();
     /// let e = world.spawn(&bundle);
-    /// assert_eq!(*world.get::<&i32>(e).unwrap(), 123);
+    /// assert_eq!(world.get::<&Idx>(e).unwrap().0, 123);
     /// ```
     fn from(bundle: B) -> Self {
         let mut builder = Self::new();
@@ -482,6 +506,14 @@ impl Clone for Common<DynamicClone> {
 mod tests {
     use super::*;
 
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    struct Int(i32);
+    impl Component for Int {}
+
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    struct Str(&'static str);
+    impl Component for Str {}
+
     #[test]
     fn empty_clone() {
         let ebc = EntityBuilderClone::new();
@@ -492,33 +524,36 @@ mod tests {
     fn builder_from_bundle() {
         use crate::World;
 
-        let mut builder: EntityBuilder = (123, "abc").into();
+        let mut builder: EntityBuilder = (Int(123), Str("abc")).into();
         let mut world = World::new();
         let e = world.spawn(builder.build());
-        assert_eq!(*world.get::<&i32>(e).unwrap(), 123);
-        assert_eq!(*world.get::<&&str>(e).unwrap(), "abc");
+        assert_eq!(*world.get::<&Int>(e).unwrap(), Int(123));
+        assert_eq!(*world.get::<&Str>(e).unwrap(), Str("abc"));
     }
 
     #[test]
     fn clone_builder_from_bundle() {
         use crate::World;
 
-        let builder: EntityBuilderClone = (123, "abc").into();
+        let builder: EntityBuilderClone = (Int(123), Str("abc")).into();
         let bundle = builder.build();
         let mut world = World::new();
         let e = world.spawn(&bundle);
         let f = world.spawn(&bundle);
-        assert_eq!(*world.get::<&i32>(f).unwrap(), 123);
-        assert_eq!(*world.get::<&&str>(f).unwrap(), "abc");
-        assert_eq!(*world.get::<&i32>(e).unwrap(), 123);
+        assert_eq!(*world.get::<&Int>(f).unwrap(), Int(123));
+        assert_eq!(*world.get::<&Str>(f).unwrap(), Str("abc"));
+        assert_eq!(*world.get::<&Int>(e).unwrap(), Int(123));
     }
 
     #[test]
     fn unbuild_clone() {
         #[derive(Clone, Debug, Eq, PartialEq)]
         struct Small(u8);
+        impl Component for Small {}
+
         #[derive(Clone)]
         struct Big(#[expect(dead_code)] u64);
+        impl Component for Big {}
 
         let mut b = EntityBuilderClone::new();
         b.add(Small(7));

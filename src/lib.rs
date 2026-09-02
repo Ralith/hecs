@@ -13,16 +13,21 @@
 //! ```
 //! # use hecs::*;
 //! let mut world = World::new();
-//! // Nearly any type can be used as a component with zero boilerplate
-//! let a = world.spawn((123, true, "abc"));
-//! let b = world.spawn((42, false));
+//! // Component types can be defined with minimal boilerplate
+//! struct Weight(u32);
+//! impl Component for Weight {}
+//! struct Price(u32);
+//! impl Component for Price {}
+//!
+//! let a = world.spawn((Weight(12), Price(123)));
+//! let b = world.spawn((Weight(38), Price(42)));
 //! // Systems can be simple for loops
-//! for (number, &flag) in world.query_mut::<(&mut i32, &bool)>() {
-//!   if flag { *number *= 2; }
+//! for (price, weight) in world.query_mut::<(&mut Price, &Weight)>() {
+//!   if weight.0 < 20 { price.0 *= 2; }
 //! }
 //! // Random access is simple and safe
-//! assert_eq!(*world.get::<&i32>(a).unwrap(), 246);
-//! assert_eq!(*world.get::<&i32>(b).unwrap(), 42);
+//! assert_eq!(world.get::<&Price>(a).unwrap().0, 246);
+//! assert_eq!(world.get::<&Price>(b).unwrap().0, 42);
 //! ```
 
 #![warn(missing_docs)]
@@ -113,7 +118,7 @@ pub use entities::EntityMeta;
 pub use query::Fetch;
 
 #[cfg(feature = "macros")]
-pub use hecs_macros::{Bundle, DynamicBundleClone, Query};
+pub use hecs_macros::{Bundle, Component, DynamicBundleClone, Query};
 
 fn align(x: usize, alignment: usize) -> usize {
     debug_assert!(alignment.is_power_of_two());
