@@ -383,7 +383,7 @@ fn archetype_columns_agree_with_per_entity_reads(tc: hegel::TestCase) {
 /// `Big`; `add` on such a builder reads out of bounds (Miri confirms).
 /// Reproduces on hecs 0.11.1 (issue #460).
 #[test]
-#[ignore = "hecs bug: BuiltEntityClone -> EntityBuilderClone leaves a stale component index"]
+#[ignore = "hecs#460: BuiltEntityClone -> EntityBuilderClone leaves a stale component index"]
 fn builder_clone_roundtrip_preserves_component_lookup() {
     #[derive(Clone)]
     struct Small(u8);
@@ -429,7 +429,7 @@ fn builder_clone_roundtrip_preserves_component_lookup() {
 /// the test passes under a normal `cargo test`. Reproduces on hecs 0.11.1
 /// (issue #461).
 #[test]
-#[ignore = "hecs bug: cloning an empty EntityBuilderClone allocates a zero-size layout"]
+#[ignore = "hecs#461: cloning an empty EntityBuilderClone allocates a zero-size layout"]
 fn cloning_an_empty_clone_builder_is_sound() {
     #[derive(Clone)]
     struct Marker;
