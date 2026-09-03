@@ -238,20 +238,12 @@ fn add_bundle_matches_individual_adds(tc: hegel::TestCase) {
 
 /// A cloned `EntityBuilderClone` spawns the same entity as the original, and
 /// the original still spawns correctly afterwards.
-///
-/// The spec is forced to contain a sized component: cloning a builder whose
-/// storage layout is zero-sized calls `alloc` with a zero-size layout, which
-/// is undefined behaviour and would make this test fail under Miri. See the
-/// ignored `cloning_an_empty_clone_builder_is_sound` below.
 #[hegel::test(settings())]
 fn a_cloned_builder_spawns_the_same_entity(tc: hegel::TestCase) {
-    let mut s = Spec {
+    let s = Spec {
         d: None,
         ..tc.draw(specs())
     };
-    if s.a.is_none() && s.b.is_none() {
-        s.a = Some(tc.draw(val()));
-    }
     let mut world = World::new();
 
     let mut original = EntityBuilderClone::new();
@@ -376,14 +368,11 @@ fn archetype_columns_agree_with_per_entity_reads(tc: hegel::TestCase) {
     }
 }
 
-/// `build()` sorts the builder's component info by descending alignment but
-/// does not rebuild the `TypeId -> slot` map, so after the documented
-/// `BuiltEntityClone -> EntityBuilderClone` round trip, `get`/`get_mut`/`add`
-/// resolve to the wrong slot. Here `get::<&Small>()` returns the first byte of
-/// `Big`; `add` on such a builder reads out of bounds (Miri confirms).
-/// Reproduces on hecs 0.11.1 (issue #460).
+/// `build()` used to sort the component info by alignment without rebuilding
+/// the `TypeId -> slot` map, so after the documented `BuiltEntityClone ->
+/// EntityBuilderClone` round trip `get` read the wrong slot. Reproduces on
+/// hecs 0.11.1 (issue #460).
 #[test]
-#[ignore = "hecs#460: BuiltEntityClone -> EntityBuilderClone leaves a stale component index"]
 fn builder_clone_roundtrip_preserves_component_lookup() {
     #[derive(Clone)]
     struct Small(u8);
@@ -420,16 +409,10 @@ fn builder_clone_roundtrip_preserves_component_lookup() {
     );
 }
 
-/// `Clone for EntityBuilderClone` calls `alloc` with the builder's layout
-/// unconditionally, and a builder holding nothing (or only zero-sized
-/// components) has a zero-size layout — undefined behaviour per
-/// `GlobalAlloc::alloc`, and `NonNull::new_unchecked` on the result is
-/// unsound in its own right. `Common::drop` and `Common::grow` both guard
-/// against a zero-size layout; `clone` does not. Only Miri observes this, so
-/// the test passes under a normal `cargo test`. Reproduces on hecs 0.11.1
-/// (issue #461).
+/// `Clone for EntityBuilderClone` used to call `alloc` with a zero-size layout
+/// for a builder holding nothing, or only zero-sized components. Only Miri
+/// observes it. Reproduces on hecs 0.11.1 (issue #461).
 #[test]
-#[ignore = "hecs#461: cloning an empty EntityBuilderClone allocates a zero-size layout"]
 fn cloning_an_empty_clone_builder_is_sound() {
     #[derive(Clone)]
     struct Marker;

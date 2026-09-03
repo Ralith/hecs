@@ -317,17 +317,17 @@ fn the_ways_of_declaring_a_batch_type_agree(tc: hegel::TestCase) {
     }
 }
 
-/// A builder with an underfilled column refuses to build. All the components
-/// here are `Copy`, so this checks only the `Err` half of the contract; the
-/// drop half is `a_refused_build_drops_the_written_components` below.
+/// A builder with an underfilled column refuses to build, and the values
+/// already written into it are dropped.
 #[hegel::test(settings())]
 fn an_underfilled_batch_is_refused(tc: hegel::TestCase) {
+    assert_d_balanced_at_start();
     let capacity = tc.draw(gs::integers::<u32>().min_value(1).max_value(8));
     let written = tc.draw(gs::integers::<u32>().min_value(0).max_value(capacity - 1));
 
     let mut types = ColumnBatchType::new();
     types.add::<A>();
-    types.add::<B>();
+    types.add::<D>();
     let builder = types.into_batch(capacity);
     {
         let mut writer = builder.writer::<A>().expect("A is in the batch type");
@@ -336,11 +336,16 @@ fn an_underfilled_batch_is_refused(tc: hegel::TestCase) {
         }
     }
     {
-        let mut writer = builder.writer::<B>().expect("B is in the batch type");
+        let mut writer = builder.writer::<D>().expect("D is in the batch type");
         for _ in 0..written {
-            writer.push(B(0)).expect("push within capacity");
+            writer.push(D::new(0)).expect("push within capacity");
         }
     }
+    assert_eq!(
+        d_live(),
+        written as i64,
+        "the builder is not holding what was written"
+    );
     let Err(error) = builder.build() else {
         panic!("build accepted an underfilled column");
     };
@@ -348,6 +353,7 @@ fn an_underfilled_batch_is_refused(tc: hegel::TestCase) {
         !error.to_string().is_empty(),
         "BatchIncomplete has no message"
     );
+    assert_eq!(d_live(), 0, "a refused build leaked the written components");
 }
 
 /// Dropping a `ColumnBatchBuilder` without building drops whatever was written
@@ -385,16 +391,10 @@ fn dropping_an_unbuilt_batch_drops_its_components(tc: hegel::TestCase) {
     );
 }
 
-/// A builder with an underfilled column must refuse to build, and the values
-/// already written into it must still be dropped.
-///
-/// `build` moves the archetype out with its length still zero and only then
-/// checks completeness, so the components written so far are leaked. The `Err`
-/// half of the contract holds; the drop half does not. Reproduces on hecs
-/// 0.11.1 — the same defect as issue #450, on the path its fix did not cover
-/// (issue #459).
+/// `build` used to move the archetype out before checking completeness, so a
+/// refused build leaked the components written so far. Reproduces on hecs
+/// 0.11.1 (issue #459).
 #[test]
-#[ignore = "hecs#459: ColumnBatchBuilder::build() -> Err leaks the written components"]
 fn a_refused_build_drops_the_written_components() {
     assert_d_balanced_at_start();
     let mut types = ColumnBatchType::new();
