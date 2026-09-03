@@ -66,39 +66,6 @@ fn spawn_incrementally(world: &mut World, cs: Components, ds: &DropTracker) -> E
     e
 }
 
-#[derive(Clone, Copy, Debug, hegel::PrettyPrintable)]
-enum Mutation {
-    InsertOne(Kind, i32),
-    RemoveOne(Kind),
-    InsertBundle(Components),
-    RemoveAB,
-    Despawn,
-    ExchangeAToB(i32),
-}
-
-#[hegel::composite]
-fn mutations(tc: &hegel::TestCase) -> Mutation {
-    tc.draw(hegel::one_of!(
-        hegel::compose!(|tc| { Mutation::InsertOne(tc.draw(kinds()), tc.draw(val())) }),
-        hegel::compose!(|tc| { Mutation::RemoveOne(tc.draw(kinds())) }),
-        hegel::compose!(|tc| { Mutation::InsertBundle(tc.draw(components())) }),
-        gs::just(Mutation::RemoveAB),
-        gs::just(Mutation::Despawn),
-        hegel::compose!(|tc| { Mutation::ExchangeAToB(tc.draw(val())) }),
-    ))
-}
-
-fn apply(world: &mut World, e: Entity, m: Mutation, ds: &DropTracker) -> bool {
-    match m {
-        Mutation::InsertOne(kind, v) => kind.insert_one(world, e, v, ds).is_ok(),
-        Mutation::RemoveOne(kind) => kind.remove_one(world, e).is_ok(),
-        Mutation::InsertBundle(cs) => world.insert(e, cs.builder(ds).build()).is_ok(),
-        Mutation::RemoveAB => world.remove::<(A, B)>(e).is_ok(),
-        Mutation::Despawn => world.despawn(e).is_ok(),
-        Mutation::ExchangeAToB(v) => world.exchange_one::<A, B>(e, B(v)).is_ok(),
-    }
-}
-
 /// The same entities built through `EntityBuilder`, static tuple bundles,
 /// `reserve_entity` + `insert`, `CommandBuffer::spawn`, and a chain of
 /// `insert_one` calls are observationally identical, and stay identical under
@@ -186,7 +153,7 @@ fn construction_routes_are_observationally_equal(tc: hegel::TestCase) {
     let steps = tc.draw(gs::integers::<u32>().min_value(0).max_value(MAX_ENTITIES));
     for _ in 0..steps {
         let e = tc.draw(handle_from(&pool));
-        let m = tc.draw(mutations());
+        let m = tc.draw(ops());
         let mut results = worlds.iter_mut().map(|w| apply(w, e, m, &ds));
         let first = results.next().expect("at least one world");
         for (i, r) in results.enumerate() {

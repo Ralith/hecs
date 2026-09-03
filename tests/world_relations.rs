@@ -10,60 +10,6 @@ use fixtures::*;
 use hecs::{Entity, World};
 use hegel::generators as gs;
 
-/// A single-entity operation. Spawning operations are excluded: allocation
-/// order is observable through the handles they return, so they do not commute.
-#[derive(Clone, Copy, Debug, hegel::PrettyPrintable)]
-enum Op {
-    InsertOne(Kind, i32),
-    RemoveOne(Kind),
-    InsertBundle(Components),
-    RemoveAB,
-    RemoveCD,
-    Despawn,
-    Take,
-    MutateA(i32),
-    ExchangeAToB(i32),
-    ExchangeDToA(i32),
-}
-
-#[hegel::composite]
-fn ops(tc: &hegel::TestCase) -> Op {
-    tc.draw(hegel::one_of!(
-        hegel::compose!(|tc| { Op::InsertOne(tc.draw(kinds()), tc.draw(val())) }),
-        hegel::compose!(|tc| { Op::RemoveOne(tc.draw(kinds())) }),
-        hegel::compose!(|tc| { Op::InsertBundle(tc.draw(components())) }),
-        gs::just(Op::RemoveAB),
-        gs::just(Op::RemoveCD),
-        gs::just(Op::Despawn),
-        gs::just(Op::Take),
-        hegel::compose!(|tc| { Op::MutateA(tc.draw(val())) }),
-        hegel::compose!(|tc| { Op::ExchangeAToB(tc.draw(val())) }),
-        hegel::compose!(|tc| { Op::ExchangeDToA(tc.draw(val())) }),
-    ))
-}
-
-/// Apply `op` to `e` and report whether it succeeded.
-fn apply(world: &mut World, e: Entity, op: Op, ds: &DropTracker) -> bool {
-    match op {
-        Op::InsertOne(kind, v) => kind.insert_one(world, e, v, ds).is_ok(),
-        Op::RemoveOne(kind) => kind.remove_one(world, e).is_ok(),
-        Op::InsertBundle(cs) => world.insert(e, cs.builder(ds).build()).is_ok(),
-        Op::RemoveAB => world.remove::<(A, B)>(e).is_ok(),
-        Op::RemoveCD => world.remove::<(C, D)>(e).is_ok(),
-        Op::Despawn => world.despawn(e).is_ok(),
-        Op::Take => world.take(e).is_ok(),
-        Op::MutateA(v) => match world.get::<&mut A>(e) {
-            Ok(mut a) => {
-                a.0 = v;
-                true
-            }
-            Err(_) => false,
-        },
-        Op::ExchangeAToB(v) => world.exchange_one::<A, B>(e, B(v)).is_ok(),
-        Op::ExchangeDToA(v) => world.exchange_one::<D, A>(e, A(v)).is_ok(),
-    }
-}
-
 /// Operations on two different entities commute: neither their results nor the
 /// resulting world depend on the order they run in. This is the observable form
 /// of hecs storing each entity's components independently of every other's.
