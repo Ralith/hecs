@@ -49,8 +49,12 @@ fn bundle_satisfaction_agrees_with_world_satisfies(tc: hegel::TestCase) {
         predicted, actual,
         "dynamic_bundle_satisfies_query disagreed with satisfies"
     );
+}
 
-    // The static form answers the same question from the bundle's type alone.
+/// The static form answers the same question from the bundle's type alone.
+#[test]
+fn static_bundle_satisfaction_agrees_with_world_satisfies() {
+    let mut world = World::new();
     let tuple = world.spawn((A(1), B(2)));
     assert_eq!(
         (
