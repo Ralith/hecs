@@ -408,7 +408,10 @@ impl Clone for Common<DynamicClone> {
     fn clone(&self) -> Self {
         unsafe {
             let result = Common {
-                storage: NonNull::new_unchecked(alloc(self.layout)),
+                storage: match self.layout.size() {
+                    0 => NonNull::dangling(),
+                    _ => NonNull::new_unchecked(alloc(self.layout)),
+                },
                 layout: self.layout,
                 cursor: self.cursor,
                 info: self.info.clone(),
@@ -426,5 +429,16 @@ impl Clone for Common<DynamicClone> {
             }
             result
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn empty_clone() {
+        let ebc = EntityBuilderClone::new();
+        _ = ebc.clone();
     }
 }
