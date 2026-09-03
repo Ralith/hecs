@@ -20,10 +20,7 @@ use hegel::generators::{self as gs, Generator};
 use hegel::stateful::{pool, Pool};
 use hegel::TestCase;
 
-#[cfg(miri)]
-const STEPS: i64 = 8;
-#[cfg(not(miri))]
-const STEPS: i64 = 150;
+const STEPS: i64 = if cfg!(miri) { 8 } else { 150 };
 
 struct WorldModel {
     world: World,

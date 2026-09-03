@@ -79,37 +79,29 @@ impl<'de> DeserializeSeed<'de> for DSeed<'_> {
     }
 }
 
-/// Under Miri each operation is interpreted, so these tests run four fixed
+/// Under Miri each operation is interpreted, so the tests run four fixed
 /// cases each and serve as a UB oracle for hecs's unsafe component moves
 /// rather than as a search for logic bugs. Miri's isolation denies the file
-/// and random-device access hegel uses for a fresh seed and for saving
-/// failures, and hegel's check that ten cases arrive within thirty seconds
-/// would report on the interpreter, so all three are turned off.
-#[cfg(miri)]
+/// and random-device access behind hegel's fresh seeds and failure database,
+/// and its slow-test health check would report on the interpreter, so those
+/// are turned off. Outside Miri each property runs 250 cases.
 pub fn settings() -> hegel::Settings {
-    hegel::Settings::new()
-        .test_cases(4)
-        .derandomize(true)
-        .database(None)
-        .suppress_health_check([hegel::HealthCheck::TooSlow])
-}
-
-/// 250 cases per property. Outside CI hegel seeds each run afresh and saves
-/// any failing case under `.hegel/` (gitignored) so the next run replays it
-/// first. When `CI` or `GITHUB_ACTIONS` is set the seed is fixed per test and
-/// nothing is saved, so a failure there reproduces locally with `CI=1`.
-#[cfg(not(miri))]
-pub fn settings() -> hegel::Settings {
-    hegel::Settings::new().test_cases(250)
+    let settings = hegel::Settings::new();
+    if cfg!(miri) {
+        settings
+            .test_cases(4)
+            .derandomize(true)
+            .database(None)
+            .suppress_health_check([hegel::HealthCheck::TooSlow])
+    } else {
+        settings.test_cases(250)
+    }
 }
 
 /// Worlds are kept small so that handle collisions, empty archetypes and
 /// stale handles all occur often; the bound protects the tests' runtime, not
 /// any hecs contract.
-#[cfg(miri)]
-pub const MAX_ENTITIES: u32 = 4;
-#[cfg(not(miri))]
-pub const MAX_ENTITIES: u32 = 8;
+pub const MAX_ENTITIES: u32 = if cfg!(miri) { 4 } else { 8 };
 
 /// Component payloads are small so that distinct values recur across entities,
 /// which is what makes a swapped or stale component visible. Bounds are

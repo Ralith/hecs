@@ -280,10 +280,7 @@ fn encode<T: Serialize>(value: &T) -> Vec<u8> {
 /// the serde machinery is by far the slowest thing in this suite, so the bound
 /// there drops to the smallest size that still makes the handle-preservation
 /// claim non-trivial.
-#[cfg(miri)]
-const WORLD_SIZE: u32 = 3;
-#[cfg(not(miri))]
-const WORLD_SIZE: u32 = 24;
+const WORLD_SIZE: u32 = if cfg!(miri) { 3 } else { 24 };
 
 #[hegel::test(settings())]
 fn row_format_roundtrips(tc: hegel::TestCase) {
