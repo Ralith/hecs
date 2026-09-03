@@ -285,7 +285,9 @@ fn the_ways_of_declaring_a_batch_type_agree(tc: hegel::TestCase) {
 fn an_underfilled_batch_is_refused(tc: hegel::TestCase) {
     let ds = DropTracker::new();
     let capacity = tc.draw(gs::integers::<u32>().min_value(1).max_value(8));
-    let written = tc.draw(gs::integers::<u32>().min_value(0).max_value(capacity - 1));
+    let a_written = tc.draw(gs::integers::<u32>().min_value(0).max_value(capacity));
+    let d_written = tc.draw(gs::integers::<u32>().min_value(0).max_value(capacity));
+    tc.assume(a_written < capacity || d_written < capacity);
 
     let mut types = ColumnBatchType::new();
     types.add::<A>();
@@ -293,19 +295,19 @@ fn an_underfilled_batch_is_refused(tc: hegel::TestCase) {
     let builder = types.into_batch(capacity);
     {
         let mut writer = builder.writer::<A>().expect("A is in the batch type");
-        for _ in 0..capacity {
+        for _ in 0..a_written {
             writer.push(A(0)).expect("push within capacity");
         }
     }
     {
         let mut writer = builder.writer::<D>().expect("D is in the batch type");
-        for _ in 0..written {
+        for _ in 0..d_written {
             writer.push(D::new(0, &ds)).expect("push within capacity");
         }
     }
     assert_eq!(
         ds.live(),
-        written as usize,
+        d_written as usize,
         "the builder is not holding what was written"
     );
     let Err(error) = builder.build() else {
@@ -374,7 +376,6 @@ fn a_refused_build_drops_the_written_components() {
         let mut writer = builder.writer::<D>().expect("D is in the batch type");
         writer.push(D::new(1, &ds)).unwrap();
         writer.push(D::new(2, &ds)).unwrap();
-        // The A column is left empty, so build() must fail.
     }
     assert_eq!(ds.live(), 2, "the builder is not holding what was written");
     assert!(
