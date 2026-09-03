@@ -103,11 +103,10 @@ pub fn settings() -> hegel::Settings {
 /// any hecs contract.
 pub const MAX_ENTITIES: u32 = if cfg!(miri) { 4 } else { 8 };
 
-/// Component payloads are small so that distinct values recur across entities,
-/// which is what makes a swapped or stale component visible. Bounds are
-/// inclusive.
+/// Any `i32`, so that two entities rarely hold the same payload and a swapped
+/// or stale component shows up as a wrong value.
 pub fn val() -> impl gs::PrintableGenerator<i32> {
-    gs::integers::<i32>().min_value(-3).max_value(3)
+    gs::integers::<i32>()
 }
 
 /// One of `handles`, drawn uniformly: `sampled_from` made printable, since
