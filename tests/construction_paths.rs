@@ -193,23 +193,26 @@ enum Command {
     Despawn(Entity),
 }
 
-/// A command on a handle from `pool`, or a spawn. Two of the eight kinds
+/// A command on a handle from `pool`, or a spawn. A quarter of the commands
 /// spawn, so the pool grows fast enough for the other commands to have
 /// entities to act on. An empty pool only gets spawns.
 #[hegel::composite]
 fn commands_on(tc: &hegel::TestCase, pool: &[Entity]) -> Command {
-    let which = gs::integers::<u8>()
-        .min_value(0)
-        .max_value(if pool.is_empty() { 1 } else { 7 });
-    match tc.draw(which) {
-        0 | 1 => Command::Spawn(tc.draw(components())),
-        2 => Command::Insert(tc.draw(handle_from(pool)), tc.draw(components())),
-        3 => Command::InsertOne(tc.draw(handle_from(pool)), tc.draw(kinds()), tc.draw(val())),
-        4 => Command::RemoveAB(tc.draw(handle_from(pool))),
-        5 => Command::RemoveCD(tc.draw(handle_from(pool))),
-        6 => Command::RemoveOne(tc.draw(handle_from(pool)), tc.draw(kinds())),
-        _ => Command::Despawn(tc.draw(handle_from(pool))),
+    if pool.is_empty() || tc.draw(gs::weighted_booleans(0.25)) {
+        return Command::Spawn(tc.draw(components()));
     }
+    let e = tc.draw(handle_from(pool));
+    tc.draw(
+        hegel::one_of!(
+            hegel::compose!(|tc| { Command::Insert(e, tc.draw(components())) }),
+            hegel::compose!(|tc| { Command::InsertOne(e, tc.draw(kinds()), tc.draw(val())) }),
+            gs::just(Command::RemoveAB(e)),
+            gs::just(Command::RemoveCD(e)),
+            hegel::compose!(|tc| { Command::RemoveOne(e, tc.draw(kinds())) }),
+            gs::just(Command::Despawn(e)),
+        )
+        .print_as_debug(),
+    )
 }
 
 fn record(buffer: &mut CommandBuffer, c: Command, ds: &DropTracker) {
