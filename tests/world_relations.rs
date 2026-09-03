@@ -24,14 +24,10 @@ fn operations_on_distinct_entities_commute(tc: hegel::TestCase) {
     let x = tc.draw(ops());
     let y = tc.draw(ops());
 
-    let (rx0, ry0, rx1, ry1);
-    {
-        let (first, second) = worlds.split_at_mut(1);
-        rx0 = apply(&mut first[0], e1, x, &ds);
-        ry0 = apply(&mut first[0], e2, y, &ds);
-        ry1 = apply(&mut second[0], e2, y, &ds);
-        rx1 = apply(&mut second[0], e1, x, &ds);
-    }
+    let rx0 = apply(&mut worlds[0], e1, x, &ds);
+    let ry0 = apply(&mut worlds[0], e2, y, &ds);
+    let ry1 = apply(&mut worlds[1], e2, y, &ds);
+    let rx1 = apply(&mut worlds[1], e1, x, &ds);
     assert_eq!(
         rx0, rx1,
         "result of {x:?} on {e1:?} depended on the order of {y:?} on {e2:?}"
