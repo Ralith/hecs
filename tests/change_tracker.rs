@@ -158,6 +158,10 @@ fn check_removed(changes: &mut Changes<'_, Tracked>, want: &HashMap<Entity, i32>
     assert_eq!(got, *want, "removed()");
 }
 
+// Each case applies up to `STEPS` rules, chosen at random, to the machine
+// built in `change_tracker_matches_model` below. Invariants run in full on the
+// initial and final state and, after each step, each with probability
+// `1 / STEPS`.
 #[hegel::state_machine]
 impl TrackerModel {
     #[rule]

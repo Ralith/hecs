@@ -1,6 +1,25 @@
 //! Shared fixtures for the property tests: a fixed component universe, an
 //! observational fingerprint of a `World`, and twin worlds replayed from one
-//! drawn history.
+//! generated history.
+//!
+//! A property is a test whose inputs come from a `hegel::TestCase`:
+//!
+//! ```
+//! #[hegel::test(settings())]
+//! fn a_spawned_component_reads_back(tc: hegel::TestCase) {
+//!     assert_d_balanced_at_start();
+//!     let v = tc.draw(val());
+//!     let mut world = World::new();
+//!     let e = world.spawn((A(v),));
+//!     assert_eq!(world.get::<&A>(e).unwrap().0, v);
+//! }
+//! ```
+//!
+//! `tc.draw(g)` returns one value from the generator `g`. hegel runs the body
+//! once per case with fresh draws, and on a failure reruns it on the smallest
+//! inputs it can find and prints them. Every `TestCase` method takes `&self`.
+//! `TestCase` is `Send` but not `Sync`, so drawing from another thread means
+//! moving a clone of it there, which none of these tests do.
 //!
 //! Each integration-test binary compiles this module separately, so parts of it
 //! are unused in some binaries.
@@ -53,18 +72,19 @@ pub fn d_live() -> i64 {
     D_LIVE.with(|c| c.get())
 }
 
-/// The thread-local survives hegel's many test cases, so an imbalance at case
-/// start means a previous case leaked or double-dropped.
+/// hegel runs every case of a property in the test's own thread, one after
+/// another, so the thread-local carries over between cases and an imbalance
+/// at case start means a previous case leaked or double-dropped.
 pub fn assert_d_balanced_at_start() {
     assert_eq!(d_live(), 0, "live D count nonzero at case start");
 }
 
-/// Under Miri each operation is interpreted, so these tests run a much smaller
-/// search and serve as a UB oracle for hecs's unsafe component moves rather
-/// than as a search for logic bugs. Two consequences: hegel's `TooSlow` check
-/// would report on interpreter speed rather than on anything about the tests,
-/// and Miri's isolation denies the file and random-device access hegel needs
-/// for its failure database and its seed, so both are turned off.
+/// Under Miri each operation is interpreted, so these tests run four fixed
+/// cases each and serve as a UB oracle for hecs's unsafe component moves
+/// rather than as a search for logic bugs. Miri's isolation denies the file
+/// and random-device access hegel uses for a fresh seed and for saving
+/// failures, and hegel's check that ten cases arrive within thirty seconds
+/// would report on the interpreter, so all three are turned off.
 #[cfg(miri)]
 pub fn settings() -> hegel::Settings {
     hegel::Settings::new()
@@ -74,6 +94,10 @@ pub fn settings() -> hegel::Settings {
         .suppress_health_check([hegel::HealthCheck::TooSlow])
 }
 
+/// 250 cases per property. Outside CI hegel seeds each run afresh and saves
+/// any failing case under `.hegel/` (gitignored) so the next run replays it
+/// first. When `CI` or `GITHUB_ACTIONS` is set the seed is fixed per test and
+/// nothing is saved, so a failure there reproduces locally with `CI=1`.
 #[cfg(not(miri))]
 pub fn settings() -> hegel::Settings {
     hegel::Settings::new().test_cases(250)
@@ -88,7 +112,9 @@ pub const MAX_ENTITIES: u32 = 4;
 pub const MAX_ENTITIES: u32 = 8;
 
 /// Component payloads are small so that distinct values recur across entities,
-/// which is what makes a swapped or stale component visible.
+/// which is what makes a swapped or stale component visible. Bounds on hegel's
+/// integer generators are inclusive. `draw` accepts only generators that can
+/// print what they drew, which is how a failing case's inputs get reported.
 pub fn val() -> impl gs::PrintableGenerator<i32> {
     gs::integers::<i32>().min_value(-3).max_value(3)
 }
@@ -127,9 +153,13 @@ impl Spec {
     }
 }
 
+// `draw` refuses a generator whose values it cannot print. This prints `Spec`
+// with its `Debug` impl.
 hegel::pretty_print_as_debug!(Spec);
 
-/// An arbitrary component subset.
+/// An arbitrary component subset. The attribute turns this into a
+/// zero-argument `specs()` returning a generator of `Spec`, and
+/// `tc.draw(specs())` supplies the `TestCase`.
 #[hegel::composite]
 pub fn specs(tc: &hegel::TestCase) -> Spec {
     Spec {
@@ -187,6 +217,9 @@ pub fn fingerprint_d_count(fp: &Fingerprint) -> i64 {
     fp.values().filter(|o| o.d.is_some()).count() as i64
 }
 
+/// Live `D` components summed over `worlds`. Each twin holds its own copy of
+/// every `D` it was fed, so `d_live()` should equal this sum rather than one
+/// world's count.
 pub fn total_d(worlds: &[World]) -> i64 {
     worlds
         .iter()

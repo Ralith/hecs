@@ -6,8 +6,8 @@
 //! `Ok`/`Err` against modelled liveness, and the touched entity's resulting
 //! component set). The global oracles — full bidirectional equivalence, the
 //! archetype partition, the drop count, and the query surface — are invariants,
-//! which hegel samples between steps and runs in full on the initial and final
-//! state.
+//! which hegel runs in full on the initial and final state and, after each
+//! step, each with probability `1 / STEPS`, so about once more per case.
 //!
 //! The handle pool deliberately retains despawned handles, so operations
 //! against dead entities are common and their error paths are exercised.
@@ -80,6 +80,8 @@ impl WorldModel {
     }
 }
 
+// Each case applies up to `STEPS` rules, chosen at random, to the machine
+// built in `world_matches_model` below.
 #[hegel::state_machine]
 impl WorldModel {
     /// `spawn` reports a fresh handle carrying exactly the bundle's components,
