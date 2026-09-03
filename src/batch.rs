@@ -112,6 +112,7 @@ impl ColumnBatchBuilder {
             .iter()
             .any(|ty| *self.fill.get_mut(&ty.id()).unwrap().get_mut() != self.target_fill)
         {
+            self.archetype = Some(archetype); // Let Drop do its thing
             return Err(BatchIncomplete { _opaque: () });
         }
         unsafe {
@@ -267,6 +268,25 @@ mod tests {
             .unwrap();
         assert_eq!(Arc::strong_count(&value), 2);
         drop(builder);
+        assert_eq!(Arc::strong_count(&value), 1);
+    }
+
+    #[test]
+    #[cfg(feature = "std")]
+    fn build_error_drops_elements() {
+        use std::sync::Arc;
+        let mut ty = ColumnBatchType::new();
+        ty.add::<Arc<()>>();
+        ty.add::<u32>();
+
+        let builder = ty.into_batch(2);
+        let value = Arc::new(());
+        {
+            let mut writer = builder.writer::<Arc<()>>().unwrap();
+            writer.push(value.clone()).unwrap();
+            writer.push(value.clone()).unwrap();
+        }
+        assert!(builder.build().is_err());
         assert_eq!(Arc::strong_count(&value), 1);
     }
 }
