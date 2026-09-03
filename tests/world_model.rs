@@ -466,43 +466,48 @@ impl WorldModel {
         }
     }
 
-    /// A `View` reaches by handle exactly the entities a query iterates, and
-    /// writes through it are visible afterwards.
+    /// A `View` reaches by handle exactly the entities a query iterates, and a
+    /// write through it is visible afterwards.
     #[rule]
-    fn view_random_access(&mut self, tc: TestCase) {
+    fn view_get_mut(&mut self, tc: TestCase) {
+        let e = self.draw_handle(&tc);
+        let v = tc.draw(val());
+        let got = self.world.view_mut::<&mut B>().get_mut(e).map(|b| b.0 = v);
+        assert_eq!(
+            got.is_some(),
+            self.expect(e).is_some_and(|cs| cs.b.is_some()),
+            "view B-presence {e:?}"
+        );
+        if got.is_some() {
+            self.model.get_mut(&e).unwrap().b = Some(v);
+        }
+        self.check_entity(e, "view_get_mut");
+    }
+
+    /// `View::get_disjoint_mut` resolves two distinct handles at once, each as
+    /// `get_mut` would.
+    #[rule]
+    fn view_get_disjoint_mut(&mut self, tc: TestCase) {
         let e1 = self.draw_handle(&tc);
         let e2 = self.draw_handle(&tc);
+        // `get_disjoint_mut` documents a panic on repeated handles.
+        tc.assume(e1 != e2);
         let (v1, v2) = (tc.draw(val()), tc.draw(val()));
-        let (got1, got2);
-        if e1 == e2 {
-            let mut view = self.world.view_mut::<&mut B>();
-            got1 = view.get_mut(e1).map(|b| {
-                b.0 = v1;
-            });
-            got2 = None;
-        } else {
-            let mut view = self.world.view_mut::<&mut B>();
-            let [r1, r2] = view.get_disjoint_mut([e1, e2]);
-            got1 = r1.map(|b| b.0 = v1);
-            got2 = r2.map(|b| b.0 = v2);
-        }
-        assert_eq!(
-            got1.is_some(),
-            self.expect(e1).is_some_and(|cs| cs.b.is_some()),
-            "view B-presence {e1:?}"
-        );
-        if got1.is_some() {
-            self.model.get_mut(&e1).unwrap().b = Some(v1);
-        }
-        if e1 != e2 {
+        let mut view = self.world.view_mut::<&mut B>();
+        let [r1, r2] = view.get_disjoint_mut([e1, e2]);
+        let got1 = r1.map(|b| b.0 = v1).is_some();
+        let got2 = r2.map(|b| b.0 = v2).is_some();
+        drop(view);
+        for (e, v, got) in [(e1, v1, got1), (e2, v2, got2)] {
             assert_eq!(
-                got2.is_some(),
-                self.expect(e2).is_some_and(|cs| cs.b.is_some()),
-                "view B-presence {e2:?}"
+                got,
+                self.expect(e).is_some_and(|cs| cs.b.is_some()),
+                "view B-presence {e:?}"
             );
-            if got2.is_some() {
-                self.model.get_mut(&e2).unwrap().b = Some(v2);
+            if got {
+                self.model.get_mut(&e).unwrap().b = Some(v);
             }
+            self.check_entity(e, "view_get_disjoint_mut");
         }
     }
 
