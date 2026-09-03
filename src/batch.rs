@@ -132,7 +132,7 @@ impl Drop for ColumnBatchBuilder {
                     let base = archetype.get_dynamic(ty.id(), 0, 0).unwrap();
                     for i in 0..fill {
                         scratch.copy_from_nonoverlapping(
-                            base.as_ptr().add(i as usize),
+                            base.as_ptr().add(i as usize * ty.layout().size()),
                             ty.layout().size(),
                         );
                         ty.drop(scratch);
