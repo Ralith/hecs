@@ -14,7 +14,7 @@
 use std::collections::HashMap;
 
 use fixtures::*;
-use hecs::{Entity, EntityBuilderClone, Or, PreparedQuery, QueryOneError, With, Without, World};
+use hecs::{Entity, Or, PreparedQuery, QueryOneError, With, Without, World};
 use hegel::generators::{self as gs, Generator};
 use hegel::stateful::{pool, Pool};
 use hegel::TestCase;
@@ -56,13 +56,7 @@ impl WorldModel {
 
     /// Everything observable about `e` right now.
     fn observe(&self, e: Entity) -> Option<Components> {
-        let eref = self.world.entity(e).ok()?;
-        Some(Components {
-            a: eref.get::<&A>().map(|r| r.0),
-            b: eref.get::<&B>().map(|r| r.0),
-            c: eref.get::<&C>().is_some(),
-            d: eref.get::<&D>().map(|r| r.value),
-        })
+        self.world.entity(e).ok().map(Components::observed)
     }
 
     fn check_entity(&self, e: Entity, label: &str) {
@@ -589,12 +583,7 @@ impl WorldModel {
                     1,
                     "scratch world holds more than the moved entity"
                 );
-                let obs = Components {
-                    a: scratch.get::<&A>(moved).ok().map(|r| r.0),
-                    b: scratch.get::<&B>(moved).ok().map(|r| r.0),
-                    c: scratch.get::<&C>(moved).is_ok(),
-                    d: scratch.get::<&D>(moved).ok().map(|r| r.value),
-                };
+                let obs = Components::observed(scratch.entity(moved).unwrap());
                 assert_eq!(Some(obs), expected, "migrated entity lost components");
                 self.model.remove(&e);
                 self.retired.push(e);
@@ -609,17 +598,7 @@ impl WorldModel {
     fn spawn_clone_builder(&mut self, tc: TestCase) {
         self.flush_model();
         let cs = tc.draw(components_without_d());
-        let mut builder = EntityBuilderClone::new();
-        if let Some(v) = cs.a {
-            builder.add(A(v));
-        }
-        if let Some(v) = cs.b {
-            builder.add(B(v));
-        }
-        if cs.c {
-            builder.add(C);
-        }
-        let built = builder.build();
+        let built = cs.clone_builder().build();
         for _ in 0..2 {
             let e = self.world.spawn(&built);
             assert!(

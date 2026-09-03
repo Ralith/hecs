@@ -6,7 +6,10 @@ use std::collections::{BTreeMap, HashSet};
 use std::fmt;
 use std::sync::Arc;
 
-use hecs::{CommandBuffer, ComponentError, Entity, EntityBuilder, NoSuchEntity, World};
+use hecs::{
+    CommandBuffer, ComponentError, Entity, EntityBuilder, EntityBuilderClone, EntityRef,
+    NoSuchEntity, World,
+};
 use hegel::generators::{self as gs, Generator};
 use serde::de::DeserializeSeed;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -240,6 +243,16 @@ impl Components {
         self
     }
 
+    /// What `eref` holds right now.
+    pub fn observed(eref: EntityRef<'_>) -> Components {
+        Components {
+            a: eref.get::<&A>().map(|r| r.0),
+            b: eref.get::<&B>().map(|r| r.0),
+            c: eref.get::<&C>().is_some(),
+            d: eref.get::<&D>().map(|r| r.value),
+        }
+    }
+
     pub fn builder(&self, ds: &DropTracker) -> EntityBuilder {
         let mut b = EntityBuilder::new();
         if let Some(v) = self.a {
@@ -253,6 +266,23 @@ impl Components {
         }
         if let Some(v) = self.d {
             b.add(D::new(v, ds));
+        }
+        b
+    }
+
+    /// `builder` for `EntityBuilderClone`, which cannot hold the non-`Clone`
+    /// `D`.
+    pub fn clone_builder(&self) -> EntityBuilderClone {
+        assert!(self.d.is_none(), "D is not Clone");
+        let mut b = EntityBuilderClone::new();
+        if let Some(v) = self.a {
+            b.add(A(v));
+        }
+        if let Some(v) = self.b {
+            b.add(B(v));
+        }
+        if self.c {
+            b.add(C);
         }
         b
     }
@@ -339,14 +369,9 @@ pub type Fingerprint = BTreeMap<Entity, Components>;
 pub fn fingerprint(world: &World) -> Fingerprint {
     let mut fp = Fingerprint::new();
     for eref in world.iter() {
-        let obs = Components {
-            a: eref.get::<&A>().map(|r| r.0),
-            b: eref.get::<&B>().map(|r| r.0),
-            c: eref.get::<&C>().is_some(),
-            d: eref.get::<&D>().map(|r| r.value),
-        };
         assert!(
-            fp.insert(eref.entity(), obs).is_none(),
+            fp.insert(eref.entity(), Components::observed(eref))
+                .is_none(),
             "world.iter() yielded {:?} twice",
             eref.entity()
         );
