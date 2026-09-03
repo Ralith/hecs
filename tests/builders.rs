@@ -310,9 +310,8 @@ fn ref_projections_read_and_write_the_component(tc: hegel::TestCase) {
 fn archetype_columns_agree_with_per_entity_reads(tc: hegel::TestCase) {
     assert_d_balanced_at_start();
     let history = tc.draw(histories(0, MAX_ENTITIES));
-    let (mut worlds, _pool) = build_twins(&history, 1);
-    let world = &mut worlds[0];
-    let before = fingerprint(world);
+    let world = build_world(&history);
+    let before = fingerprint(&world);
 
     let mut by_id: BTreeMap<u32, i32> = BTreeMap::new();
     for arch in world.archetypes() {
@@ -344,7 +343,7 @@ fn archetype_columns_agree_with_per_entity_reads(tc: hegel::TestCase) {
             }
         }
     }
-    for (e, o) in fingerprint(world) {
+    for (e, o) in fingerprint(&world) {
         assert_eq!(
             o.b,
             before[&e].b.map(|_| v),

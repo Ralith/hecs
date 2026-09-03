@@ -34,11 +34,11 @@ fn collect(it: impl Iterator<Item = (Entity, i32)>, label: &str) -> BTreeMap<Ent
 #[hegel::test(settings())]
 fn satisfies_reports_query_matching_for_every_entity(tc: hegel::TestCase) {
     let history = tc.draw(histories(0, MAX_ENTITIES));
-    let (worlds, _pool) = build_twins(&history, 1);
-    let fp = fingerprint(&worlds[0]);
+    let world = build_world(&history);
+    let fp = fingerprint(&world);
 
     let mut got: BTreeMap<Entity, (bool, bool)> = BTreeMap::new();
-    for (e, one, both) in worlds[0]
+    for (e, one, both) in world
         .query::<(Entity, Satisfies<&A>, Satisfies<(&A, &B)>)>()
         .iter()
     {
@@ -60,9 +60,8 @@ fn satisfies_reports_query_matching_for_every_entity(tc: hegel::TestCase) {
 #[hegel::test(settings())]
 fn writes_through_a_unique_query_are_visible(tc: hegel::TestCase) {
     let history = tc.draw(histories(0, MAX_ENTITIES));
-    let (mut worlds, _pool) = build_twins(&history, 1);
-    let world = &mut worlds[0];
-    let mut fp = fingerprint(world);
+    let world = build_world(&history);
+    let mut fp = fingerprint(&world);
     let v = tc.draw(val());
 
     {
@@ -90,7 +89,7 @@ fn writes_through_a_unique_query_are_visible(tc: hegel::TestCase) {
         }
     }
     assert_eq!(
-        fingerprint(world),
+        fingerprint(&world),
         fp,
         "writes through query::<&mut A> were lost"
     );
@@ -101,11 +100,11 @@ fn writes_through_a_unique_query_are_visible(tc: hegel::TestCase) {
 #[hegel::test(settings())]
 fn or_accessors_agree_with_the_matched_variant(tc: hegel::TestCase) {
     let history = tc.draw(histories(0, MAX_ENTITIES));
-    let (worlds, _pool) = build_twins(&history, 1);
-    let fp = fingerprint(&worlds[0]);
+    let world = build_world(&history);
+    let fp = fingerprint(&world);
 
     let mut seen = 0usize;
-    for (e, or) in worlds[0].query::<(Entity, Or<&A, &B>)>().iter() {
+    for (e, or) in world.query::<(Entity, Or<&A, &B>)>().iter() {
         let o = fp[&e];
         assert!(
             o.a.is_some() || o.b.is_some(),
@@ -143,9 +142,8 @@ fn or_accessors_agree_with_the_matched_variant(tc: hegel::TestCase) {
 #[hegel::test(settings())]
 fn query_filters_select_by_component_presence(tc: hegel::TestCase) {
     let history = tc.draw(histories(0, MAX_ENTITIES));
-    let (mut worlds, _pool) = build_twins(&history, 1);
-    let world = &mut worlds[0];
-    let fp = fingerprint(world);
+    let mut world = build_world(&history);
+    let fp = fingerprint(&world);
 
     let with_b: BTreeMap<Entity, i32> = fp
         .iter()
@@ -205,9 +203,8 @@ fn query_filters_select_by_component_presence(tc: hegel::TestCase) {
 #[hegel::test(settings())]
 fn batched_iteration_partitions_the_matches(tc: hegel::TestCase) {
     let history = tc.draw(histories(0, MAX_ENTITIES));
-    let (mut worlds, _pool) = build_twins(&history, 1);
-    let world = &mut worlds[0];
-    let want = expected_a(&fingerprint(world));
+    let mut world = build_world(&history);
+    let want = expected_a(&fingerprint(&world));
     // A batch size of 0 is documented to panic.
     let size = tc.draw(gs::integers::<u32>().min_value(1).max_value(4));
 
@@ -239,9 +236,8 @@ fn batched_iteration_partitions_the_matches(tc: hegel::TestCase) {
 #[hegel::test(settings())]
 fn view_iteration_visits_every_match(tc: hegel::TestCase) {
     let history = tc.draw(histories(0, MAX_ENTITIES));
-    let (mut worlds, _pool) = build_twins(&history, 1);
-    let world = &mut worlds[0];
-    let want = expected_a(&fingerprint(world));
+    let mut world = build_world(&history);
+    let want = expected_a(&fingerprint(&world));
 
     {
         let mut view = world.view_mut::<(Entity, &mut A)>();
@@ -260,7 +256,7 @@ fn view_iteration_visits_every_match(tc: hegel::TestCase) {
     }
     {
         let mut prepared = PreparedQuery::<(Entity, &A)>::default();
-        let mut view = prepared.view_mut(world);
+        let mut view = prepared.view_mut(&mut world);
         let got = collect(
             (&mut view).into_iter().map(|(e, a)| (e, a.0)),
             "&mut PreparedView",
@@ -280,9 +276,8 @@ fn view_iteration_visits_every_match(tc: hegel::TestCase) {
 #[hegel::test(settings())]
 fn random_access_views_agree_with_iteration(tc: hegel::TestCase) {
     let history = tc.draw(histories(1, MAX_ENTITIES));
-    let (mut worlds, pool) = build_twins(&history, 1);
-    let world = &mut worlds[0];
-    let fp = fingerprint(world);
+    let (mut world, pool) = build_world_with_handles(&history);
+    let fp = fingerprint(&world);
     let e1 = tc.draw(handle_from(&pool));
     let e2 = tc.draw(handle_from(&pool));
 
@@ -337,7 +332,7 @@ fn random_access_views_agree_with_iteration(tc: hegel::TestCase) {
     }
     {
         let mut prepared = PreparedQuery::<(Entity, &A)>::new();
-        let mut view = prepared.view_mut(world);
+        let mut view = prepared.view_mut(&mut world);
         for (&e, o) in &fp {
             assert_eq!(
                 view.get_mut(e).map(|(got, a)| (got, a.0)),
@@ -368,7 +363,7 @@ fn random_access_views_agree_with_iteration(tc: hegel::TestCase) {
     }
 
     assert_eq!(
-        fingerprint(world),
+        fingerprint(&world),
         fp,
         "a read-only shape mutated the world"
     );

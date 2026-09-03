@@ -129,10 +129,9 @@ fn operations_on_distinct_entities_commute(tc: hegel::TestCase) {
 fn insert_then_remove_leaves_the_component_absent(tc: hegel::TestCase) {
     assert_d_balanced_at_start();
     let history = tc.draw(histories(1, MAX_ENTITIES));
-    let (mut worlds, pool) = build_twins(&history, 1);
-    let world = &mut worlds[0];
+    let (mut world, pool) = build_world_with_handles(&history);
     let e = tc.draw(handle_from(&pool));
-    let before = fingerprint(world);
+    let before = fingerprint(&world);
     let live = before.contains_key(&e);
     let v = tc.draw(val());
     let which = tc.draw(gs::integers::<u8>().min_value(0).max_value(3));
@@ -183,13 +182,13 @@ fn insert_then_remove_leaves_the_component_absent(tc: hegel::TestCase) {
         }
     }
     assert_eq!(
-        fingerprint(world),
+        fingerprint(&world),
         expected,
         "insert then remove left a residue on {e:?}"
     );
     assert_eq!(
         d_live(),
-        total_d(&worlds),
+        d_in(&world),
         "drop imbalance after insert then remove"
     );
 }
@@ -202,10 +201,9 @@ fn insert_then_remove_leaves_the_component_absent(tc: hegel::TestCase) {
 fn exchange_roundtrip_restores_the_world(tc: hegel::TestCase) {
     assert_d_balanced_at_start();
     let history = tc.draw(histories(1, MAX_ENTITIES));
-    let (mut worlds, pool) = build_twins(&history, 1);
-    let world = &mut worlds[0];
+    let (mut world, pool) = build_world_with_handles(&history);
     let e = tc.draw(handle_from(&pool));
-    let before = fingerprint(world);
+    let before = fingerprint(&world);
     let had_a = before.get(&e).and_then(|o| o.a);
     let x = tc.draw(val());
 
@@ -223,7 +221,7 @@ fn exchange_roundtrip_restores_the_world(tc: hegel::TestCase) {
             let mut expected = before;
             expected.get_mut(&e).unwrap().b = None;
             assert_eq!(
-                fingerprint(world),
+                fingerprint(&world),
                 expected,
                 "exchange roundtrip residue on {e:?}"
             );
@@ -234,7 +232,7 @@ fn exchange_roundtrip_restores_the_world(tc: hegel::TestCase) {
                 "exchange_one::<A, B> failed but {e:?} has an A"
             );
             assert_eq!(
-                fingerprint(world),
+                fingerprint(&world),
                 before,
                 "a failed exchange mutated the world"
             );
@@ -242,7 +240,7 @@ fn exchange_roundtrip_restores_the_world(tc: hegel::TestCase) {
     }
     assert_eq!(
         d_live(),
-        total_d(&worlds),
+        d_in(&world),
         "drop imbalance after exchange roundtrip"
     );
 }

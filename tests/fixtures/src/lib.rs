@@ -184,19 +184,15 @@ pub fn fingerprint(world: &World) -> Fingerprint {
     fp
 }
 
-/// How many live `D` components a fingerprint accounts for.
-fn fingerprint_d_count(fp: &Fingerprint) -> i64 {
-    fp.values().filter(|o| o.d.is_some()).count() as i64
+/// How many `D` components `world` holds.
+pub fn d_in(world: &World) -> i64 {
+    world.query::<&D>().iter().count() as i64
 }
 
-/// Live `D` components summed over `worlds`. Each twin holds its own copy of
-/// every `D` it was fed, so `d_live()` should equal this sum rather than one
-/// world's count.
+/// `d_in` summed over `worlds`. Each twin holds its own copy of every `D` it
+/// was fed, so `d_live()` should equal this sum rather than one world's count.
 pub fn total_d(worlds: &[World]) -> i64 {
-    worlds
-        .iter()
-        .map(|w| fingerprint_d_count(&fingerprint(w)))
-        .sum()
+    worlds.iter().map(d_in).sum()
 }
 
 /// The archetypes partition the live entities: each id appears in exactly one
@@ -263,29 +259,33 @@ pub fn histories(tc: &hegel::TestCase, min_steps: u32, max_steps: u32) -> Vec<St
     steps
 }
 
-/// Replay `history` into `n_worlds` fresh worlds and return them with the pool
-/// of every handle spawned, despawned ones included.
+/// Replay `history` into `n_worlds` fresh worlds. Also returns every handle
+/// the replay spawned, in spawn order and despawned ones included, as the
+/// `Vec` callers draw their targets from.
 ///
 /// `World` is not `Clone`, so this is how a relation between two executions
-/// "from the same state" is set up. It relies on hecs allocating handles
-/// deterministically, which the `deterministic_ids` test in src/world.rs pins.
-/// The assertions below fail if it ever stops holding.
+/// "from the same state" is set up. Cloning through the column API as in
+/// examples/cloning.rs would not serve: that example says the clone may hand
+/// out different entity ids (issue #332), and the tests here drive one set of
+/// handles into every twin. The replay relies instead on hecs allocating
+/// handles deterministically, which the `deterministic_ids` test in
+/// src/world.rs pins. The assertions below fail if that ever stops holding.
 pub fn build_twins(history: &[Step], n_worlds: usize) -> (Vec<World>, Vec<Entity>) {
     let mut worlds: Vec<World> = (0..n_worlds).map(|_| World::new()).collect();
-    let mut pool: Vec<Entity> = Vec::new();
+    let mut handles: Vec<Entity> = Vec::new();
     for step in history {
         match *step {
             Step::Spawn(cs) => {
-                let mut handles = worlds.iter_mut().map(|w| w.spawn(cs.builder().build()));
-                let first = handles.next().expect("at least one world");
-                for h in handles {
+                let mut spawned = worlds.iter_mut().map(|w| w.spawn(cs.builder().build()));
+                let first = spawned.next().expect("at least one world");
+                for h in spawned {
                     assert_eq!(first, h, "twin worlds allocated different handles");
                 }
-                pool.push(first);
+                handles.push(first);
             }
             Step::Despawn(i) => {
                 for w in &mut worlds {
-                    w.despawn(pool[i])
+                    w.despawn(handles[i])
                         .expect("a history only despawns live entities");
                 }
             }
@@ -295,10 +295,16 @@ pub fn build_twins(history: &[Step], n_worlds: usize) -> (Vec<World>, Vec<Entity
     for (i, w) in worlds.iter().enumerate().skip(1) {
         assert_eq!(fp0, fingerprint(w), "twin world {i} diverged during setup");
     }
-    (worlds, pool)
+    (worlds, handles)
+}
+
+/// One world replayed from `history`, with the same handle `Vec`.
+pub fn build_world_with_handles(history: &[Step]) -> (World, Vec<Entity>) {
+    let (mut worlds, handles) = build_twins(history, 1);
+    (worlds.pop().expect("one world"), handles)
 }
 
 /// One world replayed from `history`.
 pub fn build_world(history: &[Step]) -> World {
-    build_twins(history, 1).0.pop().expect("one world")
+    build_world_with_handles(history).0
 }

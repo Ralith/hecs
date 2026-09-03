@@ -123,11 +123,6 @@ fn column_batch_matches_individual_spawns(tc: hegel::TestCase) {
     }
 }
 
-/// How many `D` components a world holds.
-fn d_in(world: &World) -> i64 {
-    world.query::<&D>().iter().count() as i64
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq, hegel::PrettyPrintable)]
 enum Kind {
     /// Live, with components the batch does not supply; they must not survive.
