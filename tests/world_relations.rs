@@ -14,8 +14,8 @@ use hegel::generators as gs;
 /// order is observable through the handles they return, so they do not commute.
 #[derive(Clone, Copy, Debug, hegel::PrettyPrintable)]
 enum Op {
-    InsertOne(u8, i32),
-    RemoveOne(u8),
+    InsertOne(Kind, i32),
+    RemoveOne(Kind),
     InsertBundle(Components),
     RemoveAB,
     RemoveCD,
@@ -28,12 +28,9 @@ enum Op {
 
 #[hegel::composite]
 fn ops(tc: &hegel::TestCase) -> Op {
-    fn which() -> impl hegel::generators::PrintableGenerator<u8> {
-        gs::integers::<u8>().min_value(0).max_value(3)
-    }
     tc.draw(hegel::one_of!(
-        hegel::compose!(|tc| { Op::InsertOne(tc.draw(which()), tc.draw(val())) }),
-        hegel::compose!(|tc| { Op::RemoveOne(tc.draw(which())) }),
+        hegel::compose!(|tc| { Op::InsertOne(tc.draw(kinds()), tc.draw(val())) }),
+        hegel::compose!(|tc| { Op::RemoveOne(tc.draw(kinds())) }),
         hegel::compose!(|tc| { Op::InsertBundle(tc.draw(components())) }),
         gs::just(Op::RemoveAB),
         gs::just(Op::RemoveCD),
@@ -48,18 +45,8 @@ fn ops(tc: &hegel::TestCase) -> Op {
 /// Apply `op` to `e` and report whether it succeeded.
 fn apply(world: &mut World, e: Entity, op: Op, ds: &DropTracker) -> bool {
     match op {
-        Op::InsertOne(which, v) => match which {
-            0 => world.insert_one(e, A(v)).is_ok(),
-            1 => world.insert_one(e, B(v)).is_ok(),
-            2 => world.insert_one(e, C).is_ok(),
-            _ => world.insert_one(e, D::new(v, ds)).is_ok(),
-        },
-        Op::RemoveOne(which) => match which {
-            0 => world.remove_one::<A>(e).is_ok(),
-            1 => world.remove_one::<B>(e).is_ok(),
-            2 => world.remove_one::<C>(e).is_ok(),
-            _ => world.remove_one::<D>(e).is_ok(),
-        },
+        Op::InsertOne(kind, v) => kind.insert_one(world, e, v, ds).is_ok(),
+        Op::RemoveOne(kind) => kind.remove_one(world, e).is_ok(),
         Op::InsertBundle(cs) => world.insert(e, cs.builder(ds).build()).is_ok(),
         Op::RemoveAB => world.remove::<(A, B)>(e).is_ok(),
         Op::RemoveCD => world.remove::<(C, D)>(e).is_ok(),
@@ -134,10 +121,10 @@ fn insert_then_remove_leaves_the_component_absent(tc: hegel::TestCase) {
     let before = fingerprint(&world);
     let live = before.contains_key(&e);
     let v = tc.draw(val());
-    let which = tc.draw(gs::integers::<u8>().min_value(0).max_value(3));
+    let kind = tc.draw(kinds());
 
-    let inserted = match which {
-        0 => {
+    let inserted = match kind {
+        Kind::A => {
             let ins = world.insert_one(e, A(v)).is_ok();
             assert_eq!(
                 world.remove_one::<A>(e).ok(),
@@ -146,7 +133,7 @@ fn insert_then_remove_leaves_the_component_absent(tc: hegel::TestCase) {
             );
             ins
         }
-        1 => {
+        Kind::B => {
             let ins = world.insert_one(e, B(v)).is_ok();
             assert_eq!(
                 world.remove_one::<B>(e).ok(),
@@ -155,12 +142,12 @@ fn insert_then_remove_leaves_the_component_absent(tc: hegel::TestCase) {
             );
             ins
         }
-        2 => {
+        Kind::C => {
             let ins = world.insert_one(e, C).is_ok();
             assert_eq!(world.remove_one::<C>(e).is_ok(), ins, "removed C");
             ins
         }
-        _ => {
+        Kind::D => {
             let ins = world.insert_one(e, D::new(v, &ds)).is_ok();
             let got = world.remove_one::<D>(e).ok();
             assert_eq!(got.as_ref().map(|d| d.value), ins.then_some(v), "removed D");
@@ -174,12 +161,7 @@ fn insert_then_remove_leaves_the_component_absent(tc: hegel::TestCase) {
 
     let mut expected = before;
     if let Some(obs) = expected.get_mut(&e) {
-        match which {
-            0 => obs.a = None,
-            1 => obs.b = None,
-            2 => obs.c = false,
-            _ => obs.d = None,
-        }
+        *obs = obs.without(kind);
     }
     assert_eq!(
         fingerprint(&world),
@@ -355,29 +337,29 @@ fn insert_order_on_one_entity_is_unobservable(tc: hegel::TestCase) {
     let history = tc.draw(histories(1, MAX_ENTITIES));
     let (mut worlds, pool) = build_twins(&history, 2, &ds);
     let e = tc.draw(handle_from(&pool));
-    let c1 = tc.draw(gs::integers::<u8>().min_value(0).max_value(3));
-    let c2 = tc.draw(gs::integers::<u8>().min_value(0).max_value(3));
+    let c1 = tc.draw(kinds());
+    let c2 = tc.draw(kinds());
     tc.assume(c1 != c2);
     let v1 = tc.draw(val());
     let v2 = tc.draw(val());
 
-    let insert = |w: &mut World, which: u8, v: i32| apply(w, e, Op::InsertOne(which, v), &ds);
+    let insert = |w: &mut World, k: Kind, v: i32| k.insert_one(w, e, v, &ds).is_ok();
     let first1 = insert(&mut worlds[0], c1, v1);
     let first2 = insert(&mut worlds[0], c2, v2);
     let second2 = insert(&mut worlds[1], c2, v2);
     let second1 = insert(&mut worlds[1], c1, v1);
     assert_eq!(
         first1, second1,
-        "insert of component {c1} was order-dependent on {e:?}"
+        "insert of {c1:?} was order-dependent on {e:?}"
     );
     assert_eq!(
         first2, second2,
-        "insert of component {c2} was order-dependent on {e:?}"
+        "insert of {c2:?} was order-dependent on {e:?}"
     );
     assert_eq!(
         fingerprint(&worlds[0]),
         fingerprint(&worlds[1]),
-        "insert order of components {c1} and {c2} was observable on {e:?}"
+        "insert order of {c1:?} and {c2:?} was observable on {e:?}"
     );
     assert_eq!(
         ds.live(),

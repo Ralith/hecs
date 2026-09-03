@@ -68,8 +68,8 @@ fn spawn_incrementally(world: &mut World, cs: Components, ds: &DropTracker) -> E
 
 #[derive(Clone, Copy, Debug, hegel::PrettyPrintable)]
 enum Mutation {
-    InsertOne(u8, i32),
-    RemoveOne(u8),
+    InsertOne(Kind, i32),
+    RemoveOne(Kind),
     InsertBundle(Components),
     RemoveAB,
     Despawn,
@@ -78,12 +78,9 @@ enum Mutation {
 
 #[hegel::composite]
 fn mutations(tc: &hegel::TestCase) -> Mutation {
-    fn which() -> impl hegel::generators::PrintableGenerator<u8> {
-        gs::integers::<u8>().min_value(0).max_value(3)
-    }
     tc.draw(hegel::one_of!(
-        hegel::compose!(|tc| { Mutation::InsertOne(tc.draw(which()), tc.draw(val())) }),
-        hegel::compose!(|tc| { Mutation::RemoveOne(tc.draw(which())) }),
+        hegel::compose!(|tc| { Mutation::InsertOne(tc.draw(kinds()), tc.draw(val())) }),
+        hegel::compose!(|tc| { Mutation::RemoveOne(tc.draw(kinds())) }),
         hegel::compose!(|tc| { Mutation::InsertBundle(tc.draw(components())) }),
         gs::just(Mutation::RemoveAB),
         gs::just(Mutation::Despawn),
@@ -93,18 +90,8 @@ fn mutations(tc: &hegel::TestCase) -> Mutation {
 
 fn apply(world: &mut World, e: Entity, m: Mutation, ds: &DropTracker) -> bool {
     match m {
-        Mutation::InsertOne(which, v) => match which {
-            0 => world.insert_one(e, A(v)).is_ok(),
-            1 => world.insert_one(e, B(v)).is_ok(),
-            2 => world.insert_one(e, C).is_ok(),
-            _ => world.insert_one(e, D::new(v, ds)).is_ok(),
-        },
-        Mutation::RemoveOne(which) => match which {
-            0 => world.remove_one::<A>(e).is_ok(),
-            1 => world.remove_one::<B>(e).is_ok(),
-            2 => world.remove_one::<C>(e).is_ok(),
-            _ => world.remove_one::<D>(e).is_ok(),
-        },
+        Mutation::InsertOne(kind, v) => kind.insert_one(world, e, v, ds).is_ok(),
+        Mutation::RemoveOne(kind) => kind.remove_one(world, e).is_ok(),
         Mutation::InsertBundle(cs) => world.insert(e, cs.builder(ds).build()).is_ok(),
         Mutation::RemoveAB => world.remove::<(A, B)>(e).is_ok(),
         Mutation::Despawn => world.despawn(e).is_ok(),
@@ -232,10 +219,10 @@ fn construction_routes_are_observationally_equal(tc: hegel::TestCase) {
 enum Command {
     Spawn(Components),
     Insert(Entity, Components),
-    InsertOne(Entity, u8, i32),
+    InsertOne(Entity, Kind, i32),
     RemoveAB(Entity),
     RemoveCD(Entity),
-    RemoveOne(Entity, u8),
+    RemoveOne(Entity, Kind),
     Despawn(Entity),
 }
 
@@ -244,17 +231,16 @@ enum Command {
 /// entities to act on. An empty pool only gets spawns.
 #[hegel::composite]
 fn commands_on(tc: &hegel::TestCase, pool: &[Entity]) -> Command {
-    let which = gs::integers::<u8>().min_value(0).max_value(3);
-    let kinds = gs::integers::<u8>()
+    let which = gs::integers::<u8>()
         .min_value(0)
         .max_value(if pool.is_empty() { 1 } else { 7 });
-    match tc.draw(kinds) {
+    match tc.draw(which) {
         0 | 1 => Command::Spawn(tc.draw(components())),
         2 => Command::Insert(tc.draw(handle_from(pool)), tc.draw(components())),
-        3 => Command::InsertOne(tc.draw(handle_from(pool)), tc.draw(which), tc.draw(val())),
+        3 => Command::InsertOne(tc.draw(handle_from(pool)), tc.draw(kinds()), tc.draw(val())),
         4 => Command::RemoveAB(tc.draw(handle_from(pool))),
         5 => Command::RemoveCD(tc.draw(handle_from(pool))),
-        6 => Command::RemoveOne(tc.draw(handle_from(pool)), tc.draw(which)),
+        6 => Command::RemoveOne(tc.draw(handle_from(pool)), tc.draw(kinds())),
         _ => Command::Despawn(tc.draw(handle_from(pool))),
     }
 }
@@ -263,20 +249,10 @@ fn record(buffer: &mut CommandBuffer, c: Command, ds: &DropTracker) {
     match c {
         Command::Spawn(cs) => buffer.spawn(cs.builder(ds).build()),
         Command::Insert(e, cs) => buffer.insert(e, cs.builder(ds).build()),
-        Command::InsertOne(e, which, v) => match which {
-            0 => buffer.insert_one(e, A(v)),
-            1 => buffer.insert_one(e, B(v)),
-            2 => buffer.insert_one(e, C),
-            _ => buffer.insert_one(e, D::new(v, ds)),
-        },
+        Command::InsertOne(e, kind, v) => kind.buffer_insert_one(buffer, e, v, ds),
         Command::RemoveAB(e) => buffer.remove::<(A, B)>(e),
         Command::RemoveCD(e) => buffer.remove::<(C, D)>(e),
-        Command::RemoveOne(e, which) => match which {
-            0 => buffer.remove_one::<A>(e),
-            1 => buffer.remove_one::<B>(e),
-            2 => buffer.remove_one::<C>(e),
-            _ => buffer.remove_one::<D>(e),
-        },
+        Command::RemoveOne(e, kind) => kind.buffer_remove_one(buffer, e),
         Command::Despawn(e) => buffer.despawn(e),
     }
 }
@@ -289,20 +265,10 @@ fn apply_eagerly(world: &mut World, c: Command, ds: &DropTracker) {
             world.spawn(cs.builder(ds).build());
         }
         Command::Insert(e, cs) => drop(world.insert(e, cs.builder(ds).build())),
-        Command::InsertOne(e, which, v) => match which {
-            0 => drop(world.insert_one(e, A(v))),
-            1 => drop(world.insert_one(e, B(v))),
-            2 => drop(world.insert_one(e, C)),
-            _ => drop(world.insert_one(e, D::new(v, ds))),
-        },
+        Command::InsertOne(e, kind, v) => drop(kind.insert_one(world, e, v, ds)),
         Command::RemoveAB(e) => drop(world.remove::<(A, B)>(e)),
         Command::RemoveCD(e) => drop(world.remove::<(C, D)>(e)),
-        Command::RemoveOne(e, which) => match which {
-            0 => drop(world.remove_one::<A>(e)),
-            1 => drop(world.remove_one::<B>(e)),
-            2 => drop(world.remove_one::<C>(e)),
-            _ => drop(world.remove_one::<D>(e)),
-        },
+        Command::RemoveOne(e, kind) => drop(kind.remove_one(world, e)),
         Command::Despawn(e) => drop(world.despawn(e)),
     }
 }
@@ -313,7 +279,7 @@ fn pending_d(commands: &[Command]) -> usize {
         .iter()
         .map(|c| match c {
             Command::Spawn(cs) | Command::Insert(_, cs) => cs.d.is_some() as usize,
-            Command::InsertOne(_, 3, _) => 1,
+            Command::InsertOne(_, Kind::D, _) => 1,
             _ => 0,
         })
         .sum()

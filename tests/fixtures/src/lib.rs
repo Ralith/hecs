@@ -6,7 +6,7 @@ use std::collections::{BTreeMap, HashSet};
 use std::fmt;
 use std::sync::Arc;
 
-use hecs::{Entity, EntityBuilder, World};
+use hecs::{CommandBuffer, ComponentError, Entity, EntityBuilder, NoSuchEntity, World};
 use hegel::generators::{self as gs, Generator};
 use serde::de::DeserializeSeed;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -118,6 +118,76 @@ pub fn handle_from(handles: &[Entity]) -> impl gs::PrintableGenerator<Entity> + 
     gs::sampled_from(handles).print_as_debug()
 }
 
+/// One of the four component types, for operations that name a single
+/// component.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, hegel::PrettyPrintable)]
+pub enum Kind {
+    A,
+    B,
+    C,
+    D,
+}
+
+pub const KINDS: [Kind; 4] = [Kind::A, Kind::B, Kind::C, Kind::D];
+
+pub fn kinds() -> impl gs::PrintableGenerator<Kind> {
+    gs::sampled_from(&KINDS[..])
+}
+
+impl Kind {
+    /// `insert_one` of this kind's component with payload `v`; `C` has none.
+    pub fn insert_one(
+        self,
+        world: &mut World,
+        e: Entity,
+        v: i32,
+        ds: &DropTracker,
+    ) -> Result<(), NoSuchEntity> {
+        match self {
+            Kind::A => world.insert_one(e, A(v)),
+            Kind::B => world.insert_one(e, B(v)),
+            Kind::C => world.insert_one(e, C),
+            Kind::D => world.insert_one(e, D::new(v, ds)),
+        }
+    }
+
+    /// `remove_one` of this kind's component; the removed value is dropped.
+    pub fn remove_one(self, world: &mut World, e: Entity) -> Result<(), ComponentError> {
+        match self {
+            Kind::A => world.remove_one::<A>(e).map(drop),
+            Kind::B => world.remove_one::<B>(e).map(drop),
+            Kind::C => world.remove_one::<C>(e).map(drop),
+            Kind::D => world.remove_one::<D>(e).map(drop),
+        }
+    }
+
+    /// `CommandBuffer::insert_one` of this kind's component.
+    pub fn buffer_insert_one(
+        self,
+        buffer: &mut CommandBuffer,
+        e: Entity,
+        v: i32,
+        ds: &DropTracker,
+    ) {
+        match self {
+            Kind::A => buffer.insert_one(e, A(v)),
+            Kind::B => buffer.insert_one(e, B(v)),
+            Kind::C => buffer.insert_one(e, C),
+            Kind::D => buffer.insert_one(e, D::new(v, ds)),
+        }
+    }
+
+    /// `CommandBuffer::remove_one` of this kind's component.
+    pub fn buffer_remove_one(self, buffer: &mut CommandBuffer, e: Entity) {
+        match self {
+            Kind::A => buffer.remove_one::<A>(e),
+            Kind::B => buffer.remove_one::<B>(e),
+            Kind::C => buffer.remove_one::<C>(e),
+            Kind::D => buffer.remove_one::<D>(e),
+        }
+    }
+}
+
 /// The components of one entity: the payloads of its `A`, `B` and `D`, and
 /// whether it has a `C`. `D` payloads stay as `i32` here and become `D`
 /// values in `builder`, so a tracker only ever counts values that were handed
@@ -136,6 +206,38 @@ impl Components {
             + self.b.is_some() as usize
             + self.c as usize
             + self.d.is_some() as usize
+    }
+
+    pub fn has(&self, kind: Kind) -> bool {
+        match kind {
+            Kind::A => self.a.is_some(),
+            Kind::B => self.b.is_some(),
+            Kind::C => self.c,
+            Kind::D => self.d.is_some(),
+        }
+    }
+
+    /// `self` with the `kind` component present, holding `v` where it has a
+    /// payload.
+    pub fn with(mut self, kind: Kind, v: i32) -> Components {
+        match kind {
+            Kind::A => self.a = Some(v),
+            Kind::B => self.b = Some(v),
+            Kind::C => self.c = true,
+            Kind::D => self.d = Some(v),
+        }
+        self
+    }
+
+    /// `self` with the `kind` component absent.
+    pub fn without(mut self, kind: Kind) -> Components {
+        match kind {
+            Kind::A => self.a = None,
+            Kind::B => self.b = None,
+            Kind::C => self.c = false,
+            Kind::D => self.d = None,
+        }
+        self
     }
 
     pub fn builder(&self, ds: &DropTracker) -> EntityBuilder {
