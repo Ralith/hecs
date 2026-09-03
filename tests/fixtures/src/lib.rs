@@ -138,7 +138,8 @@ pub fn kinds() -> impl gs::PrintableGenerator<Kind> {
 }
 
 impl Kind {
-    /// `insert_one` of this kind's component with payload `v`; `C` has none.
+    /// `insert_one` of this kind's component, with payload `v` where it has
+    /// one.
     pub fn insert_one(
         self,
         world: &mut World,
@@ -154,7 +155,7 @@ impl Kind {
         }
     }
 
-    /// `remove_one` of this kind's component; the removed value is dropped.
+    /// `remove_one` of this kind's component. The removed value is dropped.
     pub fn remove_one(self, world: &mut World, e: Entity) -> Result<(), ComponentError> {
         match self {
             Kind::A => world.remove_one::<A>(e).map(drop),

@@ -345,10 +345,10 @@ impl TrackerModel {
     /// Poll the tracker, check the reports the caller pulls against the
     /// model, and advance the model's snapshots.
     ///
-    /// `pulled` is which reports the caller asks for and in what order; the
-    /// rest are left to `Changes::drop`, which must drain them so that the
-    /// snapshot advances regardless. The next poll and the live-count
-    /// invariant check that it did.
+    /// `pulled` is which reports the caller asks for, in what order. The rest
+    /// are left to `Changes::drop`, which must drain them so that the snapshot
+    /// advances regardless. The next poll and the live-count invariant check
+    /// that it did.
     #[rule]
     fn poll(&mut self, tc: TestCase) {
         let expected = self.expected();

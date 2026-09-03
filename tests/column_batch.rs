@@ -203,7 +203,7 @@ fn column_batch_at_places_each_row_on_its_handle(tc: hegel::TestCase) {
         tc.draw(gs::vecs(hegel::tuples!(row(), handle_from(&target_handles))).max_size(8));
     let (rows, handles): (Vec<Row>, Vec<Entity>) = placements.iter().copied().unzip();
 
-    // Every entity the batch does not name keeps its components; a named
+    // Every entity the batch does not name keeps its components, and a named
     // handle takes its last row.
     let mut expected = fingerprint(&world);
     for &((a, d), e) in &placements {
