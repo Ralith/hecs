@@ -20,7 +20,7 @@ fn expected_a(fp: &Fingerprint) -> BTreeMap<Entity, i32> {
 }
 
 /// Collect `(Entity, value)` pairs, failing on a repeated entity.
-fn collect(it: impl Iterator<Item = (Entity, i32)>, label: &str) -> BTreeMap<Entity, i32> {
+fn collect<V>(it: impl Iterator<Item = (Entity, V)>, label: &str) -> BTreeMap<Entity, V> {
     let mut got = BTreeMap::new();
     for (e, v) in it {
         assert!(got.insert(e, v).is_none(), "{label} yielded {e:?} twice");
@@ -38,16 +38,13 @@ fn satisfies_reports_query_matching_for_every_entity(tc: hegel::TestCase) {
     let world = build_world(&history, &ds);
     let fp = fingerprint(&world);
 
-    let mut got: BTreeMap<Entity, (bool, bool)> = BTreeMap::new();
-    for (e, one, both) in world
-        .query::<(Entity, Satisfies<&A>, Satisfies<(&A, &B)>)>()
-        .iter()
-    {
-        assert!(
-            got.insert(e, (one, both)).is_none(),
-            "Satisfies yielded {e:?} twice"
-        );
-    }
+    let got = collect(
+        world
+            .query::<(Entity, Satisfies<&A>, Satisfies<(&A, &B)>)>()
+            .iter()
+            .map(|(e, one, both)| (e, (one, both))),
+        "Satisfies",
+    );
     let want: BTreeMap<Entity, (bool, bool)> = fp
         .iter()
         .map(|(&e, o)| (e, (o.a.is_some(), o.a.is_some() && o.b.is_some())))
@@ -213,26 +210,24 @@ fn batched_iteration_partitions_the_matches(tc: hegel::TestCase) {
     // A batch size of 0 is documented to panic.
     let size = tc.draw(gs::integers::<u32>().min_value(1).max_value(4));
 
-    let mut got = BTreeMap::new();
-    for batch in world.query::<(Entity, &A)>().iter_batched(size) {
-        for (e, a) in batch {
-            assert!(
-                got.insert(e, a.0).is_none(),
-                "iter_batched yielded {e:?} twice"
-            );
-        }
-    }
+    let got = collect(
+        world
+            .query::<(Entity, &A)>()
+            .iter_batched(size)
+            .flatten()
+            .map(|(e, a)| (e, a.0)),
+        "iter_batched",
+    );
     assert_eq!(got, want, "QueryBorrow::iter_batched({size})");
 
-    let mut got = BTreeMap::new();
-    for batch in world.query_mut::<(Entity, &A)>().into_iter_batched(size) {
-        for (e, a) in batch {
-            assert!(
-                got.insert(e, a.0).is_none(),
-                "into_iter_batched yielded {e:?} twice"
-            );
-        }
-    }
+    let got = collect(
+        world
+            .query_mut::<(Entity, &A)>()
+            .into_iter_batched(size)
+            .flatten()
+            .map(|(e, a)| (e, a.0)),
+        "into_iter_batched",
+    );
     assert_eq!(got, want, "QueryMut::into_iter_batched({size})");
 }
 
