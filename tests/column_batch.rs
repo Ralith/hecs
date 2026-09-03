@@ -24,6 +24,19 @@ fn rows_up_to(max: usize) -> impl gs::PrintableGenerator<Vec<Row>> {
     gs::vecs(row()).max_size(max)
 }
 
+/// Push `rows` into a builder whose type declares `A` and `D`.
+fn fill_batch(builder: &ColumnBatchBuilder, rows: &[Row], ds: &DropTracker) {
+    let mut writer = builder.writer::<A>().expect("A is in the batch type");
+    for &(a, _) in rows {
+        writer.push(A(a)).expect("push within capacity");
+    }
+    drop(writer);
+    let mut writer = builder.writer::<D>().expect("D is in the batch type");
+    for &(_, d) in rows {
+        writer.push(D::new(d, ds)).expect("push within capacity");
+    }
+}
+
 /// Build a complete `{A, D}` batch from `rows`, exercising the writer surface
 /// on the way: `writer` for a type outside the batch, `fill`, and a push past
 /// capacity.
@@ -37,11 +50,9 @@ fn build_batch(rows: &[Row], ds: &DropTracker) -> ColumnBatch {
         builder.writer::<B>().is_none(),
         "writer::<B> exists but B is not in the batch type"
     );
+    fill_batch(&builder, rows, ds);
     {
         let mut writer = builder.writer::<A>().expect("A is in the batch type");
-        for &(a, _) in rows {
-            writer.push(A(a)).expect("push within capacity");
-        }
         assert_eq!(writer.fill(), rows.len() as u32, "A column fill");
         assert_eq!(
             writer.push(A(0)),
@@ -49,13 +60,14 @@ fn build_batch(rows: &[Row], ds: &DropTracker) -> ColumnBatch {
             "a push past capacity must return the value"
         );
     }
-    {
-        let mut writer = builder.writer::<D>().expect("D is in the batch type");
-        for &(_, d) in rows {
-            writer.push(D::new(d, ds)).expect("push within capacity");
-        }
-        assert_eq!(writer.fill(), rows.len() as u32, "D column fill");
-    }
+    assert_eq!(
+        builder
+            .writer::<D>()
+            .expect("D is in the batch type")
+            .fill(),
+        rows.len() as u32,
+        "D column fill"
+    );
     builder.build().expect("a fully filled batch must build")
 }
 
@@ -248,32 +260,26 @@ fn the_ways_of_declaring_a_batch_type_agree(tc: hegel::TestCase) {
     as_bundle.add_bundle::<(A, D)>();
 
     let mut worlds = Vec::new();
-    for types in [individually, dynamically, as_bundle] {
+    for (name, types) in [
+        ("add", individually),
+        ("add_dynamic", dynamically),
+        ("add_bundle", as_bundle),
+    ] {
         let mut world = World::new();
         // `ColumnBatchBuilder::new` is the non-consuming spelling of
         // `into_batch`.
         let builder = ColumnBatchBuilder::new(types, rows.len() as u32);
-        {
-            let mut writer = builder.writer::<A>().expect("A was declared");
-            for &(a, _) in &rows {
-                writer.push(A(a)).expect("push within capacity");
-            }
-        }
-        {
-            let mut writer = builder.writer::<D>().expect("D was declared");
-            for &(_, d) in &rows {
-                writer.push(D::new(d, &ds)).expect("push within capacity");
-            }
-        }
+        fill_batch(&builder, &rows, &ds);
         world.spawn_column_batch(builder.build().expect("a filled batch must build"));
-        worlds.push(world);
+        worlds.push((name, world));
     }
-    let expected = fingerprint(&worlds[0]);
-    for (i, world) in worlds.iter().enumerate().skip(1) {
+    let (_, first) = &worlds[0];
+    let expected = fingerprint(first);
+    for (name, world) in &worlds[1..] {
         assert_eq!(
             expected,
             fingerprint(world),
-            "batch type {i} produced different entities"
+            "the batch type declared with {name} produced different entities"
         );
     }
 }
