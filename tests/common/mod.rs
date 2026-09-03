@@ -2,25 +2,6 @@
 //! observational fingerprint of a `World`, and twin worlds replayed from one
 //! generated history.
 //!
-//! A property is a test whose inputs come from a `hegel::TestCase`:
-//!
-//! ```
-//! #[hegel::test(settings())]
-//! fn a_spawned_component_reads_back(tc: hegel::TestCase) {
-//!     assert_d_balanced_at_start();
-//!     let v = tc.draw(val());
-//!     let mut world = World::new();
-//!     let e = world.spawn((A(v),));
-//!     assert_eq!(world.get::<&A>(e).unwrap().0, v);
-//! }
-//! ```
-//!
-//! `tc.draw(g)` returns one value from the generator `g`. hegel runs the body
-//! once per case with fresh draws, and on a failure reruns it on the smallest
-//! inputs it can find and prints them. Every `TestCase` method takes `&self`.
-//! `TestCase` is `Send` but not `Sync`, so drawing from another thread means
-//! moving a clone of it there, which none of these tests do.
-//!
 //! Each integration-test binary compiles this module separately, so parts of it
 //! are unused in some binaries.
 #![allow(dead_code)]
@@ -72,9 +53,9 @@ pub fn d_live() -> i64 {
     D_LIVE.with(|c| c.get())
 }
 
-/// hegel runs every case of a property in the test's own thread, one after
-/// another, so the thread-local carries over between cases and an imbalance
-/// at case start means a previous case leaked or double-dropped.
+/// Cases run one after another on the test's thread, so the thread-local
+/// carries over and an imbalance at case start means a previous case leaked or
+/// double-dropped.
 pub fn assert_d_balanced_at_start() {
     assert_eq!(d_live(), 0, "live D count nonzero at case start");
 }
@@ -112,9 +93,8 @@ pub const MAX_ENTITIES: u32 = 4;
 pub const MAX_ENTITIES: u32 = 8;
 
 /// Component payloads are small so that distinct values recur across entities,
-/// which is what makes a swapped or stale component visible. Bounds on hegel's
-/// integer generators are inclusive. `draw` accepts only generators that can
-/// print what they drew, which is how a failing case's inputs get reported.
+/// which is what makes a swapped or stale component visible. Bounds are
+/// inclusive.
 pub fn val() -> impl gs::PrintableGenerator<i32> {
     gs::integers::<i32>().min_value(-3).max_value(3)
 }
@@ -153,9 +133,7 @@ impl Spec {
     }
 }
 
-/// An arbitrary component subset. The attribute turns this into a
-/// zero-argument `specs()` returning a generator of `Spec`, and
-/// `tc.draw(specs())` supplies the `TestCase`.
+/// An arbitrary component subset.
 #[hegel::composite]
 pub fn specs(tc: &hegel::TestCase) -> Spec {
     Spec {
