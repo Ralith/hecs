@@ -83,13 +83,12 @@ fn column_batch_matches_individual_spawns(tc: hegel::TestCase) {
 
     // Two successive batches, so the second one merges into the archetype the
     // first one created.
-    let batches = tc.draw(gs::integers::<u8>().min_value(1).max_value(2));
-    for _ in 0..batches {
-        let rows = tc.draw(rows_up_to(12));
+    let batches: Vec<Vec<Row>> = tc.draw(gs::vecs(rows_up_to(12)).min_size(1).max_size(2));
+    for rows in &batches {
         let len_before = batched.len();
         let mut seen: HashSet<Entity> = batched.iter().map(|eref| eref.entity()).collect();
 
-        let iter = batched.spawn_column_batch(build_batch(&rows, &ds));
+        let iter = batched.spawn_column_batch(build_batch(rows, &ds));
         assert_eq!(iter.len(), rows.len(), "SpawnColumnBatchIter::len");
         let handles: Vec<Entity> = iter.collect();
         assert_eq!(
@@ -103,14 +102,14 @@ fn column_batch_matches_individual_spawns(tc: hegel::TestCase) {
             "world.len() after spawn_column_batch"
         );
 
-        for (i, (&e, &(a, d))) in handles.iter().zip(&rows).enumerate() {
+        for (i, (&e, &(a, d))) in handles.iter().zip(rows).enumerate() {
             assert!(seen.insert(e), "row {i} reused handle {e:?}");
             assert!(batched.contains(e), "row {i} handle {e:?} is not contained");
             assert_eq!(batched.get::<&A>(e).unwrap().0, a, "A of row {i}");
             assert_eq!(batched.get::<&D>(e).unwrap().value, d, "D of row {i}");
         }
 
-        for &(a, d) in &rows {
+        for &(a, d) in rows {
             individually.spawn((A(a), D::new(d, &ds)));
         }
         assert_eq!(
