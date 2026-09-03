@@ -195,9 +195,7 @@ pub fn total_d(worlds: &[World]) -> i64 {
 }
 
 /// The archetypes partition the live entities: each id appears in exactly one
-/// archetype and the lengths sum to `world.len()`. `Archetype::len` and
-/// `ids()` are the public form of the invariant `World::archetypes_mut` and
-/// `insert_batch` maintain internally.
+/// archetype and the lengths sum to `world.len()`.
 pub fn check_archetypes(world: &World, label: &str) {
     let mut total = 0u32;
     let mut ids = HashSet::new();
@@ -229,8 +227,8 @@ pub fn check_archetypes(world: &World, label: &str) {
 ///
 /// `World` is not `Clone`, so this is how a relation between two executions
 /// "from the same state" is set up. It relies on hecs allocating handles
-/// deterministically (`World::deterministic_ids` in src/world.rs tests pins
-/// that); the assertions below fail loudly if it ever stops holding.
+/// deterministically, which the `deterministic_ids` test in src/world.rs pins.
+/// The assertions below fail if it ever stops holding.
 pub fn build_twins(
     tc: &hegel::TestCase,
     n_worlds: usize,
