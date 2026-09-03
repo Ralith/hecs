@@ -16,8 +16,12 @@ use hegel::generators as gs;
 /// One entity's worth of batch data: payloads for its `A` and `D` columns.
 type Row = (i32, i32);
 
+fn row() -> impl gs::PrintableGenerator<Row> {
+    hegel::tuples!(val(), val())
+}
+
 fn rows_up_to(max: usize) -> impl gs::PrintableGenerator<Vec<Row>> {
-    gs::vecs(hegel::tuples!(val(), val())).max_size(max)
+    gs::vecs(row()).max_size(max)
 }
 
 /// Build a complete `{A, D}` batch from `rows`, exercising the writer surface
@@ -123,8 +127,9 @@ fn column_batch_matches_individual_spawns(tc: hegel::TestCase) {
     }
 }
 
+/// Whether a batch target is still live when the batch is spawned over it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, hegel::PrettyPrintable)]
-enum Kind {
+enum Liveness {
     /// Live, with components the batch does not supply; they must not survive.
     Live,
     /// Spawned and then despawned; the batch resurrects the exact handle.
@@ -135,7 +140,7 @@ enum Kind {
 /// batch has to remove B and C as well as overwrite A and D.
 #[derive(Clone, Copy, Debug, hegel::PrettyPrintable)]
 struct Target {
-    kind: Kind,
+    liveness: Liveness,
     a: i32,
     b: i32,
     d: i32,
@@ -144,7 +149,7 @@ struct Target {
 #[hegel::composite]
 fn batch_targets(tc: &hegel::TestCase) -> Target {
     Target {
-        kind: tc.draw(gs::sampled_from(vec![Kind::Despawned, Kind::Live])),
+        liveness: tc.draw(gs::sampled_from(vec![Liveness::Despawned, Liveness::Live])),
         a: tc.draw(val()),
         b: tc.draw(val()),
         d: tc.draw(val()),
@@ -169,47 +174,38 @@ fn column_batch_at_places_each_row_on_its_handle(tc: hegel::TestCase) {
     // so a repeated handle in the batch list is the only way two rows can
     // collide.
     let bystander_bs: Vec<i32> = tc.draw(gs::vecs(val()).max_size(4));
-    let bystanders: Vec<(Entity, Components)> = bystander_bs
-        .iter()
-        .map(|&b| {
-            let cs = Components {
-                b: Some(b),
-                ..Components::default()
-            };
-            (world.spawn(cs.builder(&ds).build()), cs)
-        })
-        .collect();
-
-    let targets: Vec<Target> = tc.draw(gs::vecs(batch_targets()).max_size(6));
+    for &b in &bystander_bs {
+        world.spawn((B(b),));
+    }
+    let targets: Vec<Target> = tc.draw(gs::vecs(batch_targets()).min_size(1).max_size(6));
     let target_handles: Vec<Entity> = targets
         .iter()
-        .map(|t| {
-            let cs = Components {
-                a: Some(t.a),
-                b: Some(t.b),
-                c: true,
-                d: Some(t.d),
-            };
-            world.spawn(cs.builder(&ds).build())
-        })
+        .map(|t| world.spawn((A(t.a), B(t.b), C, D::new(t.d, &ds))))
         .collect();
     for (t, &e) in targets.iter().zip(&target_handles) {
-        if t.kind == Kind::Despawned {
+        if t.liveness == Liveness::Despawned {
             world.despawn(e).expect("despawn of a live target");
         }
     }
 
-    if target_handles.is_empty() {
-        return;
-    }
-    let rows = tc.draw(rows_up_to(8));
-    let handles: Vec<Entity> = tc.draw(
-        gs::vecs(handle_from(&target_handles))
-            .min_size(rows.len())
-            .max_size(rows.len()),
-    );
+    let placements: Vec<(Row, Entity)> =
+        tc.draw(gs::vecs(hegel::tuples!(row(), handle_from(&target_handles))).max_size(8));
+    let (rows, handles): (Vec<Row>, Vec<Entity>) = placements.iter().copied().unzip();
 
-    let before = fingerprint(&world);
+    // Every entity the batch does not name keeps its components; a named
+    // handle takes its last row.
+    let mut expected = fingerprint(&world);
+    for &((a, d), e) in &placements {
+        expected.insert(
+            e,
+            Components {
+                a: Some(a),
+                d: Some(d),
+                ..Components::default()
+            },
+        );
+    }
+
     let d_before = ds.live();
     let batch = build_batch(&rows, &ds);
     assert_eq!(
@@ -219,36 +215,11 @@ fn column_batch_at_places_each_row_on_its_handle(tc: hegel::TestCase) {
     );
     world.spawn_column_batch_at(&handles, batch);
 
-    // The last row for an id wins.
-    let mut expected: Vec<(Entity, Components)> = bystanders.clone();
-    let mut placed: Vec<(Entity, Components)> = Vec::new();
-    for (&e, &(a, d)) in handles.iter().zip(&rows) {
-        let cs = Components {
-            a: Some(a),
-            b: None,
-            c: false,
-            d: Some(d),
-        };
-        placed.retain(|(other, _)| other.id() != e.id());
-        placed.push((e, cs));
-    }
-    let replaced: HashSet<u32> = handles.iter().map(|e| e.id()).collect();
-    for (t, &e) in targets.iter().zip(&target_handles) {
-        if t.kind == Kind::Live && !replaced.contains(&e.id()) {
-            expected.push((e, before[&e]));
-        }
-    }
-    expected.extend(placed);
-
-    let after = fingerprint(&world);
     assert_eq!(
-        after.len(),
-        expected.len(),
-        "world holds the wrong number of entities"
+        fingerprint(&world),
+        expected,
+        "world contents after spawn_column_batch_at"
     );
-    for (e, cs) in &expected {
-        assert_eq!(after.get(e), Some(cs), "contents of {e:?} after the batch");
-    }
     check_archetypes(&world, "batch-at world");
     assert_eq!(
         ds.live(),
