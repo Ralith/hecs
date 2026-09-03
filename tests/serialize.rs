@@ -80,26 +80,6 @@ impl row::DeserializeContext for RowDe<'_> {
     }
 }
 
-fn row_bytes(world: &World) -> Vec<u8> {
-    let mut buf = Vec::new();
-    let mut ser = bincode::Serializer::new(&mut buf, bincode::options());
-    row::serialize(world, &mut Row, &mut ser).expect("row serialize");
-    buf
-}
-
-fn row_satisfying_bytes<Q: Query>(world: &World) -> Vec<u8> {
-    let mut buf = Vec::new();
-    let mut ser = bincode::Serializer::new(&mut buf, bincode::options());
-    row::serialize_satisfying::<Q, _, _>(world, &mut Row, &mut ser)
-        .expect("row serialize_satisfying");
-    buf
-}
-
-fn row_world(bytes: &[u8], ds: &DropTracker) -> Result<World, bincode::Error> {
-    let mut de = bincode::Deserializer::with_reader(bytes, bincode::options());
-    row::deserialize(&mut RowDe(ds), &mut de)
-}
-
 // ---- column format ----
 
 struct ColumnSer;
@@ -246,28 +226,64 @@ impl<'de> Visitor<'de> for DColumn<'_> {
     }
 }
 
-fn column_bytes(world: &World) -> Vec<u8> {
+/// One of the two formats, behind the bincode plumbing every test shares.
+trait Format {
+    const NAME: &'static str;
+    fn bytes(world: &World) -> Vec<u8>;
+    fn satisfying_bytes<Q: Query>(world: &World) -> Vec<u8>;
+    fn world(bytes: &[u8], ds: &DropTracker) -> Result<World, bincode::Error>;
+}
+
+fn serialized(
+    write: impl FnOnce(
+        &mut bincode::Serializer<&mut Vec<u8>, bincode::DefaultOptions>,
+    ) -> bincode::Result<()>,
+) -> Vec<u8> {
     let mut buf = Vec::new();
-    let mut ser = bincode::Serializer::new(&mut buf, bincode::options());
-    column::serialize(world, &mut ColumnSer, &mut ser).expect("column serialize");
+    write(&mut bincode::Serializer::new(&mut buf, bincode::options())).expect("serialize");
     buf
 }
 
-fn column_satisfying_bytes<Q: Query>(world: &World) -> Vec<u8> {
-    let mut buf = Vec::new();
-    let mut ser = bincode::Serializer::new(&mut buf, bincode::options());
-    column::serialize_satisfying::<Q, _, _>(world, &mut ColumnSer, &mut ser)
-        .expect("column serialize_satisfying");
-    buf
+struct RowFormat;
+
+impl Format for RowFormat {
+    const NAME: &'static str = "row";
+
+    fn bytes(world: &World) -> Vec<u8> {
+        serialized(|ser| row::serialize(world, &mut Row, ser))
+    }
+
+    fn satisfying_bytes<Q: Query>(world: &World) -> Vec<u8> {
+        serialized(|ser| row::serialize_satisfying::<Q, _, _>(world, &mut Row, ser))
+    }
+
+    fn world(bytes: &[u8], ds: &DropTracker) -> Result<World, bincode::Error> {
+        let mut de = bincode::Deserializer::with_reader(bytes, bincode::options());
+        row::deserialize(&mut RowDe(ds), &mut de)
+    }
 }
 
-fn column_world(bytes: &[u8], ds: &DropTracker) -> Result<World, bincode::Error> {
-    let mut de = bincode::Deserializer::with_reader(bytes, bincode::options());
-    let mut context = ColumnDe {
-        components: Vec::new(),
-        ds,
-    };
-    column::deserialize(&mut context, &mut de)
+struct ColumnFormat;
+
+impl Format for ColumnFormat {
+    const NAME: &'static str = "column";
+
+    fn bytes(world: &World) -> Vec<u8> {
+        serialized(|ser| column::serialize(world, &mut ColumnSer, ser))
+    }
+
+    fn satisfying_bytes<Q: Query>(world: &World) -> Vec<u8> {
+        serialized(|ser| column::serialize_satisfying::<Q, _, _>(world, &mut ColumnSer, ser))
+    }
+
+    fn world(bytes: &[u8], ds: &DropTracker) -> Result<World, bincode::Error> {
+        let mut de = bincode::Deserializer::with_reader(bytes, bincode::options());
+        let mut context = ColumnDe {
+            components: Vec::new(),
+            ds,
+        };
+        column::deserialize(&mut context, &mut de)
+    }
 }
 
 /// bincode-encode one value with the options used everywhere here, for
@@ -282,132 +298,107 @@ fn encode<T: Serialize>(value: &T) -> Vec<u8> {
 /// claim non-trivial.
 const WORLD_SIZE: u32 = if cfg!(miri) { 3 } else { 24 };
 
+fn check_roundtrip<F: Format>(world: &World, ds: &DropTracker) {
+    let restored = F::world(&F::bytes(world), ds).expect("deserialize");
+    assert_eq!(
+        fingerprint(world),
+        fingerprint(&restored),
+        "{} round trip",
+        F::NAME
+    );
+}
+
 #[hegel::test(settings())]
 fn row_format_roundtrips(tc: hegel::TestCase) {
     let ds = DropTracker::new();
     let history = tc.draw(histories(0, WORLD_SIZE));
-    let world = build_world(&history, &ds);
-    let restored = row_world(&row_bytes(&world), &ds).expect("row deserialize");
-    assert_eq!(
-        fingerprint(&world),
-        fingerprint(&restored),
-        "row round trip"
-    );
+    check_roundtrip::<RowFormat>(&build_world(&history, &ds), &ds);
 }
 
 #[hegel::test(settings())]
 fn column_format_roundtrips(tc: hegel::TestCase) {
     let ds = DropTracker::new();
     let history = tc.draw(histories(0, WORLD_SIZE));
-    let world = build_world(&history, &ds);
-    let restored = column_world(&column_bytes(&world), &ds).expect("column deserialize");
-    assert_eq!(
-        fingerprint(&world),
-        fingerprint(&restored),
-        "column round trip"
-    );
+    check_roundtrip::<ColumnFormat>(&build_world(&history, &ds), &ds);
 }
 
 /// `serialize_satisfying::<Q>` writes exactly the entities matching `Q`, and
 /// writes all of their components rather than only the ones `Q` mentions.
-#[hegel::test(settings())]
-fn row_serialize_satisfying_keeps_exactly_the_matching_entities(tc: hegel::TestCase) {
-    let ds = DropTracker::new();
-    let history = tc.draw(histories(0, WORLD_SIZE));
-    let world = build_world(&history, &ds);
-    let restored = row_world(&row_satisfying_bytes::<&A>(&world), &ds).expect("row deserialize");
-    let want: Fingerprint = fingerprint(&world)
+fn check_satisfying<F: Format>(world: &World, ds: &DropTracker) {
+    let restored = F::world(&F::satisfying_bytes::<&A>(world), ds).expect("deserialize");
+    let want: Fingerprint = fingerprint(world)
         .into_iter()
         .filter(|(_, cs)| cs.a.is_some())
         .collect();
     assert_eq!(
         want,
         fingerprint(&restored),
-        "row serialize_satisfying::<&A>"
+        "{} serialize_satisfying::<&A>",
+        F::NAME
     );
+}
+
+#[hegel::test(settings())]
+fn row_serialize_satisfying_keeps_exactly_the_matching_entities(tc: hegel::TestCase) {
+    let ds = DropTracker::new();
+    let history = tc.draw(histories(0, WORLD_SIZE));
+    check_satisfying::<RowFormat>(&build_world(&history, &ds), &ds);
 }
 
 #[hegel::test(settings())]
 fn column_serialize_satisfying_keeps_exactly_the_matching_entities(tc: hegel::TestCase) {
     let ds = DropTracker::new();
     let history = tc.draw(histories(0, WORLD_SIZE));
-    let world = build_world(&history, &ds);
-    let restored =
-        column_world(&column_satisfying_bytes::<&A>(&world), &ds).expect("column deserialize");
-    let want: Fingerprint = fingerprint(&world)
-        .into_iter()
-        .filter(|(_, cs)| cs.a.is_some())
-        .collect();
-    assert_eq!(
-        want,
-        fingerprint(&restored),
-        "column serialize_satisfying::<&A>"
-    );
+    check_satisfying::<ColumnFormat>(&build_world(&history, &ds), &ds);
 }
 
 /// A strict prefix of a valid stream is rejected, and nothing the failed parse
 /// had already built survives. bincode parsing is deterministic, so a prefix
 /// follows the full parse byte for byte until it runs out of input.
+fn check_truncation<F: Format>(bytes: &[u8], cut: usize, ds: &DropTracker) {
+    F::world(bytes, ds).expect("the full stream parses");
+    let baseline = ds.live();
+    assert!(
+        F::world(&bytes[..cut], ds).is_err(),
+        "{} prefix {cut}/{} parsed",
+        F::NAME,
+        bytes.len()
+    );
+    assert_eq!(
+        ds.live(),
+        baseline,
+        "{} prefix {cut} leaked or double-dropped a component",
+        F::NAME
+    );
+}
+
 #[hegel::test(settings())]
 fn row_truncated_input_is_rejected_without_leaking(tc: hegel::TestCase) {
     let ds = DropTracker::new();
     let history = tc.draw(histories(0, WORLD_SIZE));
-    let world = build_world(&history, &ds);
-    let bytes = row_bytes(&world);
-    assert_eq!(
-        fingerprint(&world),
-        fingerprint(&row_world(&bytes, &ds).expect("row deserialize")),
-        "row round trip"
-    );
+    let bytes = RowFormat::bytes(&build_world(&history, &ds));
     let cut = tc.draw(
         gs::integers::<usize>()
             .min_value(0)
             .max_value(bytes.len() - 1),
     );
-    let baseline = ds.live();
-    assert!(
-        row_world(&bytes[..cut], &ds).is_err(),
-        "row prefix {cut}/{} parsed",
-        bytes.len()
-    );
-    assert_eq!(
-        ds.live(),
-        baseline,
-        "row prefix {cut} leaked or double-dropped a component"
-    );
+    check_truncation::<RowFormat>(&bytes, cut, &ds);
 }
 
-/// The column counterpart. A failed column parse leaves the components it had
-/// already read in a `ColumnBatchBuilder` that is then dropped; that builder
-/// leaked them all (issue #450), so this is the regression witness for the
-/// deserialize path.
+/// A failed column parse leaves the components it had already read in a
+/// `ColumnBatchBuilder` that is then dropped; that builder leaked them all
+/// (issue #450), so this is the regression witness for the deserialize path.
 #[hegel::test(settings())]
 fn column_truncated_input_is_rejected_without_leaking(tc: hegel::TestCase) {
     let ds = DropTracker::new();
     let history = tc.draw(histories(0, WORLD_SIZE));
-    let world = build_world(&history, &ds);
-    let bytes = column_bytes(&world);
-    assert_eq!(
-        fingerprint(&world),
-        fingerprint(&column_world(&bytes, &ds).expect("column deserialize")),
-        "column round trip"
-    );
+    let bytes = ColumnFormat::bytes(&build_world(&history, &ds));
     let cut = tc.draw(
         gs::integers::<usize>()
             .min_value(0)
             .max_value(bytes.len() - 1),
     );
-    let baseline = ds.live();
-    assert!(
-        column_world(&bytes[..cut], &ds).is_err(),
-        "column prefix {cut}/{} parsed",
-        bytes.len()
-    );
-    assert_eq!(
-        ds.live(),
-        baseline,
-        "column prefix {cut} leaked or double-dropped a component"
-    );
+    check_truncation::<ColumnFormat>(&bytes, cut, &ds);
 }
 
 /// One to three `(position, mask)` pairs flipping the low two bits of a byte in
@@ -436,7 +427,19 @@ fn corrupt(bytes: &mut [u8], flips: &[(usize, u8)]) {
 /// Corrupting a stream must produce either an error or a usable world — never a
 /// panic, and never a world with a duplicated handle. `Ok` is legitimate:
 /// flipping bits of a payload byte yields a different valid stream.
-///
+fn check_corruption<F: Format>(bytes: &[u8], ds: &DropTracker) {
+    match catch_unwind(AssertUnwindSafe(|| F::world(bytes, ds))) {
+        Ok(Ok(restored)) => {
+            // `fingerprint` panics on a handle iterated twice, `check_archetypes`
+            // on an id in two archetypes.
+            fingerprint(&restored);
+            check_archetypes(&restored, "corrupted stream");
+        }
+        Ok(Err(_)) => {}
+        Err(_) => panic!("{} deserialize panicked on a corrupted stream", F::NAME),
+    }
+}
+
 /// Not run under Miri: a corrupted entity id makes `spawn_at` grow the metadata
 /// table to that id, which is a few tens of megabytes at worst here but is far
 /// beyond what the interpreter can track in reasonable time.
@@ -445,38 +448,26 @@ fn corrupt(bytes: &mut [u8], flips: &[(usize, u8)]) {
 fn row_corrupted_input_is_rejected_or_usable(tc: hegel::TestCase) {
     let ds = DropTracker::new();
     let history = tc.draw(histories(0, WORLD_SIZE));
-    let world = build_world(&history, &ds);
-    let mut bytes = row_bytes(&world);
+    let mut bytes = RowFormat::bytes(&build_world(&history, &ds));
     let flips = tc.draw(corruptions(bytes.len()));
     corrupt(&mut bytes, &flips);
-    let outcome = catch_unwind(AssertUnwindSafe(|| row_world(&bytes, &ds)));
-    match outcome {
-        Ok(Ok(restored)) => drop(fingerprint(&restored)),
-        Ok(Err(_)) => {}
-        Err(_) => panic!("row deserialize panicked on a corrupted stream"),
-    }
+    check_corruption::<RowFormat>(&bytes, &ds);
 }
 
-/// The column counterpart. Corrupting the entity-id region routinely produces
-/// colliding ids, which used to reach an out-of-bounds write in
-/// `spawn_column_batch_at` (issue #449), so this doubles as the regression
-/// witness for that fix. Not run under Miri, for the same reason as its row
-/// counterpart: `entity_count` drives a `reserve` before it is validated.
+/// Corrupting the entity-id region routinely produces colliding ids, which
+/// used to reach an out-of-bounds write in `spawn_column_batch_at` (issue
+/// #449), so this doubles as the regression witness for that fix. Not run
+/// under Miri, for the same reason as its row counterpart: `entity_count`
+/// drives a `reserve` before it is validated.
 #[cfg_attr(miri, ignore = "corrupted counts reach allocations Miri cannot afford")]
 #[hegel::test(settings())]
 fn column_corrupted_input_is_rejected_or_usable(tc: hegel::TestCase) {
     let ds = DropTracker::new();
     let history = tc.draw(histories(0, WORLD_SIZE));
-    let world = build_world(&history, &ds);
-    let mut bytes = column_bytes(&world);
+    let mut bytes = ColumnFormat::bytes(&build_world(&history, &ds));
     let flips = tc.draw(corruptions(bytes.len()));
     corrupt(&mut bytes, &flips);
-    let outcome = catch_unwind(AssertUnwindSafe(|| column_world(&bytes, &ds)));
-    match outcome {
-        Ok(Ok(restored)) => drop(fingerprint(&restored)),
-        Ok(Err(_)) => {}
-        Err(_) => panic!("column deserialize panicked on a corrupted stream"),
-    }
+    check_corruption::<ColumnFormat>(&bytes, &ds);
 }
 
 /// Streams that are well-formed bincode but not valid hecs serializations must
@@ -490,7 +481,7 @@ fn row_rejects_streams_it_cannot_represent() {
     zero_generation.extend(encode(&0u64)); // entity bits: generation 0
     zero_generation.extend(encode(&0u64)); // no components
     assert!(
-        row_world(&zero_generation, &ds).is_err(),
+        RowFormat::world(&zero_generation, &ds).is_err(),
         "accepted a generation-0 entity"
     );
 
@@ -501,7 +492,7 @@ fn row_rejects_streams_it_cannot_represent() {
     unknown_component.extend(encode(&99u32)); // no such Id variant
     unknown_component.extend(encode(&0i32));
     assert!(
-        row_world(&unknown_component, &ds).is_err(),
+        RowFormat::world(&unknown_component, &ds).is_err(),
         "accepted an unknown component id"
     );
 }
@@ -522,7 +513,7 @@ fn column_rejects_streams_it_cannot_represent() {
     duplicate_column.extend(encode(&0i32)); // first A column
     duplicate_column.extend(encode(&1i32)); // second A column, no space left
     assert!(
-        column_world(&duplicate_column, &ds).is_err(),
+        ColumnFormat::world(&duplicate_column, &ds).is_err(),
         "accepted a duplicated component column"
     );
 
@@ -532,7 +523,7 @@ fn column_rejects_streams_it_cannot_represent() {
     short_entity_list.extend(encode(&0u32)); // component_count = 0
     short_entity_list.extend(encode(&(1u64 << 32))); // only one entity id
     assert!(
-        column_world(&short_entity_list, &ds).is_err(),
+        ColumnFormat::world(&short_entity_list, &ds).is_err(),
         "accepted a short entity list"
     );
 }
@@ -555,7 +546,8 @@ fn column_deserialize_tolerates_repeated_entity_ids() {
     bytes.extend(encode(&7i32));
     bytes.extend(encode(&9i32));
 
-    let world = column_world(&bytes, &ds).expect("repeated ids are deduplicated, not rejected");
+    let world =
+        ColumnFormat::world(&bytes, &ds).expect("repeated ids are deduplicated, not rejected");
     let e = Entity::from_bits(bits).unwrap();
     assert_eq!(
         world.len(),
