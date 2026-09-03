@@ -184,39 +184,14 @@ impl WorldModel {
         self.flush_model();
         let e = self.draw_handle(&tc);
         let live = self.model.contains_key(&e);
+        let kind = tc.draw(kinds());
         let v = tc.draw(val());
-        let ok = match tc.draw(gs::integers::<u8>().min_value(0).max_value(3)) {
-            0 => {
-                let ok = self.world.insert_one(e, A(v)).is_ok();
-                if let Some(m) = self.model.get_mut(&e) {
-                    m.a = Some(v);
-                }
-                ok
-            }
-            1 => {
-                let ok = self.world.insert_one(e, B(v)).is_ok();
-                if let Some(m) = self.model.get_mut(&e) {
-                    m.b = Some(v);
-                }
-                ok
-            }
-            2 => {
-                let ok = self.world.insert_one(e, C).is_ok();
-                if let Some(m) = self.model.get_mut(&e) {
-                    m.c = true;
-                }
-                ok
-            }
-            // On a dead target the component is dropped rather than stored, so
-            // the drop count stays balanced either way.
-            _ => {
-                let ok = self.world.insert_one(e, D::new(v, &self.ds)).is_ok();
-                if let Some(m) = self.model.get_mut(&e) {
-                    m.d = Some(v);
-                }
-                ok
-            }
-        };
+        // On a dead target the component is dropped rather than stored, so
+        // the drop count stays balanced either way.
+        let ok = kind.insert_one(&mut self.world, e, v, &self.ds).is_ok();
+        if let Some(m) = self.model.get_mut(&e) {
+            *m = m.with(kind, v);
+        }
         assert_eq!(ok, live, "insert_one disagreed for {e:?}");
         self.check_entity(e, "insert_one");
     }
@@ -247,48 +222,32 @@ impl WorldModel {
         self.flush_model();
         let e = self.draw_handle(&tc);
         let before = self.expect(e);
-        match tc.draw(gs::integers::<u8>().min_value(0).max_value(3)) {
-            0 => {
-                let got = self.world.remove_one::<A>(e).ok();
-                assert_eq!(
-                    got.map(|A(v)| v),
-                    before.and_then(|cs| cs.a),
-                    "remove_one::<A> {e:?}"
-                );
-                if let Some(m) = self.model.get_mut(&e) {
-                    m.a = None;
-                }
-            }
-            1 => {
-                let got = self.world.remove_one::<B>(e).ok();
-                assert_eq!(
-                    got.map(|B(v)| v),
-                    before.and_then(|cs| cs.b),
-                    "remove_one::<B> {e:?}"
-                );
-                if let Some(m) = self.model.get_mut(&e) {
-                    m.b = None;
-                }
-            }
-            2 => {
-                let ok = self.world.remove_one::<C>(e).is_ok();
-                assert_eq!(ok, before.is_some_and(|cs| cs.c), "remove_one::<C> {e:?}");
-                if let Some(m) = self.model.get_mut(&e) {
-                    m.c = false;
-                }
-            }
+        let kind = tc.draw(kinds());
+        match kind {
+            Kind::A => assert_eq!(
+                self.world.remove_one::<A>(e).ok().map(|A(v)| v),
+                before.and_then(|cs| cs.a),
+                "remove_one::<A> {e:?}"
+            ),
+            Kind::B => assert_eq!(
+                self.world.remove_one::<B>(e).ok().map(|B(v)| v),
+                before.and_then(|cs| cs.b),
+                "remove_one::<B> {e:?}"
+            ),
+            Kind::C => assert_eq!(
+                self.world.remove_one::<C>(e).is_ok(),
+                before.is_some_and(|cs| cs.c),
+                "remove_one::<C> {e:?}"
+            ),
             // The removed D is returned and dropped here, matching the model.
-            _ => {
-                let got = self.world.remove_one::<D>(e).ok();
-                assert_eq!(
-                    got.as_ref().map(|d| d.value),
-                    before.and_then(|cs| cs.d),
-                    "remove_one::<D> {e:?}"
-                );
-                if let Some(m) = self.model.get_mut(&e) {
-                    m.d = None;
-                }
-            }
+            Kind::D => assert_eq!(
+                self.world.remove_one::<D>(e).ok().map(|d| d.value),
+                before.and_then(|cs| cs.d),
+                "remove_one::<D> {e:?}"
+            ),
+        }
+        if let Some(m) = self.model.get_mut(&e) {
+            *m = m.without(kind);
         }
         self.check_entity(e, "remove_one");
     }
@@ -364,38 +323,25 @@ impl WorldModel {
         self.check_entity(e, "exchange_one");
     }
 
-    /// A write through `get::<&mut T>` is visible to a subsequent read. This is
-    /// a read path, so it does not flush.
+    /// `get::<&mut T>` resolves exactly the components the model holds, and a
+    /// write through it is visible to a subsequent read. This is a read path,
+    /// so it does not flush.
     #[rule]
     fn mutate_in_place(&mut self, tc: TestCase) {
         let e = self.draw_handle(&tc);
+        let kind = tc.draw(kinds());
         let v = tc.draw(val());
-        match tc.draw(gs::integers::<u8>().min_value(0).max_value(2)) {
-            0 => {
-                if let Ok(mut a) = self.world.get::<&mut A>(e) {
-                    a.0 = v;
-                }
-                if let Some(m) = self.model.get_mut(&e).filter(|m| m.a.is_some()) {
-                    m.a = Some(v);
-                }
-            }
-            1 => {
-                if let Ok(mut b) = self.world.get::<&mut B>(e) {
-                    b.0 = v;
-                }
-                if let Some(m) = self.model.get_mut(&e).filter(|m| m.b.is_some()) {
-                    m.b = Some(v);
-                }
-            }
+        let had = self.model.get(&e).is_some_and(|m| m.has(kind));
+        let got = match kind {
+            Kind::A => self.world.get::<&mut A>(e).map(|mut a| a.0 = v).is_ok(),
+            Kind::B => self.world.get::<&mut B>(e).map(|mut b| b.0 = v).is_ok(),
+            Kind::C => self.world.get::<&mut C>(e).is_ok(),
             // Editing D's payload constructs and drops nothing.
-            _ => {
-                if let Ok(mut d) = self.world.get::<&mut D>(e) {
-                    d.value = v;
-                }
-                if let Some(m) = self.model.get_mut(&e).filter(|m| m.d.is_some()) {
-                    m.d = Some(v);
-                }
-            }
+            Kind::D => self.world.get::<&mut D>(e).map(|mut d| d.value = v).is_ok(),
+        };
+        assert_eq!(got, had, "get::<&mut {kind:?}> disagreed for {e:?}");
+        if had {
+            *self.model.get_mut(&e).unwrap() = self.model[&e].with(kind, v);
         }
         self.check_entity(e, "mutate_in_place");
     }
