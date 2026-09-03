@@ -21,11 +21,11 @@ use hecs::{
 /// spawned from that very bundle.
 #[hegel::test(settings())]
 fn bundle_satisfaction_agrees_with_world_satisfies(tc: hegel::TestCase) {
-    assert_d_balanced_at_start();
+    let ds = DropTracker::new();
     let cs = tc.draw(components());
     let mut world = World::new();
 
-    let mut builder = cs.builder();
+    let mut builder = cs.builder(&ds);
     let built = builder.build();
     assert_eq!(built.has::<A>(), cs.a.is_some(), "BuiltEntity::has::<A>");
     assert_eq!(built.has::<B>(), cs.b.is_some(), "BuiltEntity::has::<B>");
@@ -79,15 +79,15 @@ fn bundle_satisfaction_agrees_with_world_satisfies(tc: hegel::TestCase) {
 /// leaks when the bundle goes unused.
 #[hegel::test(settings())]
 fn an_unspawned_bundle_drops_its_components(tc: hegel::TestCase) {
-    assert_d_balanced_at_start();
+    let ds = DropTracker::new();
     let cs = tc.draw(components());
     {
-        let mut builder = cs.builder();
+        let mut builder = cs.builder(&ds);
         let built = builder.build();
         assert_eq!(built.has::<D>(), cs.d.is_some(), "BuiltEntity::has::<D>");
     }
     assert_eq!(
-        d_live(),
+        ds.live(),
         0,
         "an unspawned bundle leaked or double-dropped its components"
     );
@@ -97,10 +97,10 @@ fn an_unspawned_bundle_drops_its_components(tc: hegel::TestCase) {
 /// build spawns nothing.
 #[hegel::test(settings())]
 fn clearing_a_builder_drops_its_components(tc: hegel::TestCase) {
-    assert_d_balanced_at_start();
+    let ds = DropTracker::new();
     let cs = tc.draw(components());
     let mut world = World::new();
-    let mut builder = cs.builder();
+    let mut builder = cs.builder(&ds);
     builder.clear();
     assert_eq!(
         builder.component_types().count(),
@@ -112,7 +112,7 @@ fn clearing_a_builder_drops_its_components(tc: hegel::TestCase) {
         "clear left components"
     );
     assert_eq!(
-        d_live(),
+        ds.live(),
         0,
         "clear leaked or double-dropped the builder's components"
     );
@@ -129,11 +129,11 @@ fn clearing_a_builder_drops_its_components(tc: hegel::TestCase) {
 /// spawned.
 #[hegel::test(settings())]
 fn builder_edits_through_get_mut_are_spawned(tc: hegel::TestCase) {
-    assert_d_balanced_at_start();
+    let ds = DropTracker::new();
     let cs = tc.draw(components());
     let v = tc.draw(val());
     let mut world = World::new();
-    let mut builder = cs.builder();
+    let mut builder = cs.builder(&ds);
 
     let mut expected = cs;
     if let Some(a) = builder.get_mut::<&mut A>() {
@@ -141,7 +141,7 @@ fn builder_edits_through_get_mut_are_spawned(tc: hegel::TestCase) {
         expected.a = Some(v);
     }
     if let Some(d) = builder.get_mut::<&mut D>() {
-        d.0 = v;
+        d.value = v;
         expected.d = Some(v);
     }
     let e = world.spawn(builder.build());
@@ -266,11 +266,11 @@ fn a_cloned_builder_spawns_the_same_entity(tc: hegel::TestCase) {
 /// in the world.
 #[hegel::test(settings())]
 fn ref_projections_read_and_write_the_component(tc: hegel::TestCase) {
-    assert_d_balanced_at_start();
+    let ds = DropTracker::new();
     let v = tc.draw(val());
     let w = tc.draw(val());
     let mut world = World::new();
-    let e = world.spawn((A(v), D::new(v)));
+    let e = world.spawn((A(v), D::new(v, &ds)));
 
     {
         let shared: Ref<'_, A> = world.get::<&A>(e).expect("A was just spawned");
@@ -299,7 +299,7 @@ fn ref_projections_read_and_write_the_component(tc: hegel::TestCase) {
     );
 
     world.despawn(e).unwrap();
-    assert_eq!(d_live(), 0, "drop imbalance in the ref-projection test");
+    assert_eq!(ds.live(), 0, "drop imbalance in the ref-projection test");
 }
 
 /// Whole-column archetype access presents the same values as per-entity reads,
@@ -308,9 +308,9 @@ fn ref_projections_read_and_write_the_component(tc: hegel::TestCase) {
 /// views of the same storage must not drift.
 #[hegel::test(settings())]
 fn archetype_columns_agree_with_per_entity_reads(tc: hegel::TestCase) {
-    assert_d_balanced_at_start();
+    let ds = DropTracker::new();
     let history = tc.draw(histories(0, MAX_ENTITIES));
-    let world = build_world(&history);
+    let world = build_world(&history, &ds);
     let before = fingerprint(&world);
 
     let mut by_id: BTreeMap<u32, i32> = BTreeMap::new();

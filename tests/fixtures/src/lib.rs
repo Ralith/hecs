@@ -2,12 +2,14 @@
 //! observational fingerprint of a `World`, and twin worlds replayed from one
 //! generated history.
 
-use std::cell::Cell;
 use std::collections::{BTreeMap, HashSet};
+use std::fmt;
+use std::sync::Arc;
 
 use hecs::{Entity, EntityBuilder, World};
 use hegel::generators::{self as gs, Generator};
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::de::DeserializeSeed;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 /// The component types the tests use: two same-shaped payload components, a
 /// zero-sized marker, and a drop-tracked non-`Copy` component.
@@ -18,42 +20,63 @@ pub struct B(pub i32);
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct C;
 
-thread_local! { static D_LIVE: Cell<i64> = const { Cell::new(0) }; }
+/// Counts live `D` values: each holds a clone of the `Arc`, so the strong
+/// count is one more than the number alive. A leak or a double drop in hecs's
+/// unsafe component moves shows up as a count that disagrees with the worlds'
+/// contents.
+#[derive(Default)]
+pub struct DropTracker(Arc<()>);
 
-/// Every `D` is constructed through `D::new`, which bumps a thread-local count
-/// that `Drop` decrements, so a leak or double-drop in hecs's unsafe component
-/// moves shows up as a count that disagrees with the world's contents.
-#[derive(Debug, Serialize)]
-pub struct D(pub i32);
+impl DropTracker {
+    pub fn new() -> DropTracker {
+        DropTracker::default()
+    }
+
+    /// How many `D` values made from this tracker are alive.
+    pub fn live(&self) -> usize {
+        Arc::strong_count(&self.0) - 1
+    }
+}
+
+/// A non-`Copy` component counted by the `DropTracker` it was made from.
+pub struct D {
+    pub value: i32,
+    _live: Arc<()>,
+}
 
 impl D {
-    pub fn new(v: i32) -> D {
-        D_LIVE.with(|c| c.set(c.get() + 1));
-        D(v)
+    pub fn new(value: i32, ds: &DropTracker) -> D {
+        D {
+            value,
+            _live: ds.0.clone(),
+        }
     }
 }
 
-impl Drop for D {
-    fn drop(&mut self) {
-        D_LIVE.with(|c| c.set(c.get() - 1));
+impl fmt::Debug for D {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("D").field(&self.value).finish()
     }
 }
 
-impl<'de> Deserialize<'de> for D {
-    fn deserialize<De: Deserializer<'de>>(de: De) -> Result<Self, De::Error> {
-        i32::deserialize(de).map(D::new)
+/// The wire form is the payload alone, as `#[derive(Serialize)]` on a newtype
+/// `D(i32)` would give.
+impl Serialize for D {
+    fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_newtype_struct("D", &self.value)
     }
 }
 
-pub fn d_live() -> i64 {
-    D_LIVE.with(|c| c.get())
-}
+/// Deserializes a `D` counted by the given tracker. `D` has no `Deserialize`
+/// impl, because a bare `D` would belong to no tracker.
+pub struct DSeed<'a>(pub &'a DropTracker);
 
-/// Cases run one after another on the test's thread, so the thread-local
-/// carries over and an imbalance at case start means a previous case leaked or
-/// double-dropped.
-pub fn assert_d_balanced_at_start() {
-    assert_eq!(d_live(), 0, "live D count nonzero at case start");
+impl<'de> DeserializeSeed<'de> for DSeed<'_> {
+    type Value = D;
+
+    fn deserialize<De: Deserializer<'de>>(self, de: De) -> Result<D, De::Error> {
+        i32::deserialize(de).map(|v| D::new(v, self.0))
+    }
 }
 
 /// Under Miri each operation is interpreted, so these tests run four fixed
@@ -106,8 +129,8 @@ pub fn handle_from(handles: &[Entity]) -> impl gs::PrintableGenerator<Entity> + 
 
 /// The components of one entity: the payloads of its `A`, `B` and `D`, and
 /// whether it has a `C`. `D` payloads stay as `i32` here and become `D`
-/// values in `builder`, so the drop count only ever counts values that were
-/// handed to hecs.
+/// values in `builder`, so a tracker only ever counts values that were handed
+/// to hecs.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, hegel::PrettyPrintable)]
 pub struct Components {
     pub a: Option<i32>,
@@ -124,7 +147,7 @@ impl Components {
             + self.d.is_some() as usize
     }
 
-    pub fn builder(&self) -> EntityBuilder {
+    pub fn builder(&self, ds: &DropTracker) -> EntityBuilder {
         let mut b = EntityBuilder::new();
         if let Some(v) = self.a {
             b.add(A(v));
@@ -136,7 +159,7 @@ impl Components {
             b.add(C);
         }
         if let Some(v) = self.d {
-            b.add(D::new(v));
+            b.add(D::new(v, ds));
         }
         b
     }
@@ -172,7 +195,7 @@ pub fn fingerprint(world: &World) -> Fingerprint {
             a: eref.get::<&A>().map(|r| r.0),
             b: eref.get::<&B>().map(|r| r.0),
             c: eref.get::<&C>().is_some(),
-            d: eref.get::<&D>().map(|r| r.0),
+            d: eref.get::<&D>().map(|r| r.value),
         };
         assert!(
             fp.insert(eref.entity(), obs).is_none(),
@@ -185,13 +208,14 @@ pub fn fingerprint(world: &World) -> Fingerprint {
 }
 
 /// How many `D` components `world` holds.
-pub fn d_in(world: &World) -> i64 {
-    world.query::<&D>().iter().count() as i64
+pub fn d_in(world: &World) -> usize {
+    world.query::<&D>().iter().count()
 }
 
 /// `d_in` summed over `worlds`. Each twin holds its own copy of every `D` it
-/// was fed, so `d_live()` should equal this sum rather than one world's count.
-pub fn total_d(worlds: &[World]) -> i64 {
+/// was fed, so the tracker's `live()` should equal this sum rather than one
+/// world's count.
+pub fn total_d(worlds: &[World]) -> usize {
     worlds.iter().map(d_in).sum()
 }
 
@@ -270,13 +294,17 @@ pub fn histories(tc: &hegel::TestCase, min_steps: u32, max_steps: u32) -> Vec<St
 /// handles into every twin. The replay relies instead on hecs allocating
 /// handles deterministically, which the `deterministic_ids` test in
 /// src/world.rs pins. The assertions below fail if that ever stops holding.
-pub fn build_twins(history: &[Step], n_worlds: usize) -> (Vec<World>, Vec<Entity>) {
+pub fn build_twins(
+    history: &[Step],
+    n_worlds: usize,
+    ds: &DropTracker,
+) -> (Vec<World>, Vec<Entity>) {
     let mut worlds: Vec<World> = (0..n_worlds).map(|_| World::new()).collect();
     let mut handles: Vec<Entity> = Vec::new();
     for step in history {
         match *step {
             Step::Spawn(cs) => {
-                let mut spawned = worlds.iter_mut().map(|w| w.spawn(cs.builder().build()));
+                let mut spawned = worlds.iter_mut().map(|w| w.spawn(cs.builder(ds).build()));
                 let first = spawned.next().expect("at least one world");
                 for h in spawned {
                     assert_eq!(first, h, "twin worlds allocated different handles");
@@ -299,12 +327,12 @@ pub fn build_twins(history: &[Step], n_worlds: usize) -> (Vec<World>, Vec<Entity
 }
 
 /// One world replayed from `history`, with the same handle `Vec`.
-pub fn build_world_with_handles(history: &[Step]) -> (World, Vec<Entity>) {
-    let (mut worlds, handles) = build_twins(history, 1);
+pub fn build_world_with_handles(history: &[Step], ds: &DropTracker) -> (World, Vec<Entity>) {
+    let (mut worlds, handles) = build_twins(history, 1, ds);
     (worlds.pop().expect("one world"), handles)
 }
 
 /// One world replayed from `history`.
-pub fn build_world(history: &[Step]) -> World {
-    build_world_with_handles(history).0
+pub fn build_world(history: &[Step], ds: &DropTracker) -> World {
+    build_world_with_handles(history, ds).0
 }

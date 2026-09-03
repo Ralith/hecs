@@ -18,30 +18,30 @@ const ROUTES: usize = 5;
 
 /// Route 2: the static `Bundle` impls, one concrete tuple type per subset of
 /// `{A, B, C, D}`.
-fn spawn_tuple(world: &mut World, cs: Components) -> Entity {
+fn spawn_tuple(world: &mut World, cs: Components, ds: &DropTracker) -> Entity {
     match (cs.a, cs.b, cs.c, cs.d) {
         (None, None, false, None) => world.spawn(()),
         (Some(a), None, false, None) => world.spawn((A(a),)),
         (None, Some(b), false, None) => world.spawn((B(b),)),
         (None, None, true, None) => world.spawn((C,)),
-        (None, None, false, Some(d)) => world.spawn((D::new(d),)),
+        (None, None, false, Some(d)) => world.spawn((D::new(d, ds),)),
         (Some(a), Some(b), false, None) => world.spawn((A(a), B(b))),
         (Some(a), None, true, None) => world.spawn((A(a), C)),
-        (Some(a), None, false, Some(d)) => world.spawn((A(a), D::new(d))),
+        (Some(a), None, false, Some(d)) => world.spawn((A(a), D::new(d, ds))),
         (None, Some(b), true, None) => world.spawn((B(b), C)),
-        (None, Some(b), false, Some(d)) => world.spawn((B(b), D::new(d))),
-        (None, None, true, Some(d)) => world.spawn((C, D::new(d))),
+        (None, Some(b), false, Some(d)) => world.spawn((B(b), D::new(d, ds))),
+        (None, None, true, Some(d)) => world.spawn((C, D::new(d, ds))),
         (Some(a), Some(b), true, None) => world.spawn((A(a), B(b), C)),
-        (Some(a), Some(b), false, Some(d)) => world.spawn((A(a), B(b), D::new(d))),
-        (Some(a), None, true, Some(d)) => world.spawn((A(a), C, D::new(d))),
-        (None, Some(b), true, Some(d)) => world.spawn((B(b), C, D::new(d))),
-        (Some(a), Some(b), true, Some(d)) => world.spawn((A(a), B(b), C, D::new(d))),
+        (Some(a), Some(b), false, Some(d)) => world.spawn((A(a), B(b), D::new(d, ds))),
+        (Some(a), None, true, Some(d)) => world.spawn((A(a), C, D::new(d, ds))),
+        (None, Some(b), true, Some(d)) => world.spawn((B(b), C, D::new(d, ds))),
+        (Some(a), Some(b), true, Some(d)) => world.spawn((A(a), B(b), C, D::new(d, ds))),
     }
 }
 
 /// Route 5: an empty entity migrated through one intermediate archetype per
 /// component.
-fn spawn_incrementally(world: &mut World, cs: Components) -> Entity {
+fn spawn_incrementally(world: &mut World, cs: Components, ds: &DropTracker) -> Entity {
     let e = world.spawn(());
     if let Some(v) = cs.a {
         world
@@ -60,7 +60,7 @@ fn spawn_incrementally(world: &mut World, cs: Components) -> Entity {
     }
     if let Some(v) = cs.d {
         world
-            .insert_one(e, D::new(v))
+            .insert_one(e, D::new(v, ds))
             .expect("insert on a just-spawned entity");
     }
     e
@@ -91,13 +91,13 @@ fn mutations(tc: &hegel::TestCase) -> Mutation {
     ))
 }
 
-fn apply(world: &mut World, e: Entity, m: Mutation) -> bool {
+fn apply(world: &mut World, e: Entity, m: Mutation, ds: &DropTracker) -> bool {
     match m {
         Mutation::InsertOne(which, v) => match which {
             0 => world.insert_one(e, A(v)).is_ok(),
             1 => world.insert_one(e, B(v)).is_ok(),
             2 => world.insert_one(e, C).is_ok(),
-            _ => world.insert_one(e, D::new(v)).is_ok(),
+            _ => world.insert_one(e, D::new(v, ds)).is_ok(),
         },
         Mutation::RemoveOne(which) => match which {
             0 => world.remove_one::<A>(e).is_ok(),
@@ -105,7 +105,7 @@ fn apply(world: &mut World, e: Entity, m: Mutation) -> bool {
             2 => world.remove_one::<C>(e).is_ok(),
             _ => world.remove_one::<D>(e).is_ok(),
         },
-        Mutation::InsertBundle(cs) => world.insert(e, cs.builder().build()).is_ok(),
+        Mutation::InsertBundle(cs) => world.insert(e, cs.builder(ds).build()).is_ok(),
         Mutation::RemoveAB => world.remove::<(A, B)>(e).is_ok(),
         Mutation::Despawn => world.despawn(e).is_ok(),
         Mutation::ExchangeAToB(v) => world.exchange_one::<A, B>(e, B(v)).is_ok(),
@@ -118,30 +118,30 @@ fn apply(world: &mut World, e: Entity, m: Mutation) -> bool {
 /// any subsequent operations.
 #[hegel::test(settings())]
 fn construction_routes_are_observationally_equal(tc: hegel::TestCase) {
-    assert_d_balanced_at_start();
+    let ds = DropTracker::new();
     // A shared history puts every allocator into the same non-trivial state
     // (non-empty freelist, advanced generations) before the routes diverge.
     let history = tc.draw(histories(0, MAX_ENTITIES));
-    let (mut worlds, mut pool) = build_twins(&history, ROUTES);
+    let (mut worlds, mut pool) = build_twins(&history, ROUTES, &ds);
 
     let to_spawn: Vec<Components> = tc.draw(gs::vecs(components()).max_size(MAX_ENTITIES as usize));
 
     let mut buffer = CommandBuffer::new();
     for &cs in &to_spawn {
-        buffer.spawn(cs.builder().build());
+        buffer.spawn(cs.builder(&ds).build());
     }
 
     let mut handles: Vec<Vec<Entity>> = Vec::with_capacity(ROUTES);
     handles.push(
         to_spawn
             .iter()
-            .map(|&cs| worlds[0].spawn(cs.builder().build()))
+            .map(|&cs| worlds[0].spawn(cs.builder(&ds).build()))
             .collect(),
     );
     handles.push(
         to_spawn
             .iter()
-            .map(|&cs| spawn_tuple(&mut worlds[1], cs))
+            .map(|&cs| spawn_tuple(&mut worlds[1], cs, &ds))
             .collect(),
     );
     handles.push(
@@ -150,7 +150,7 @@ fn construction_routes_are_observationally_equal(tc: hegel::TestCase) {
             .map(|&cs| {
                 let e = worlds[2].reserve_entity();
                 worlds[2]
-                    .insert(e, cs.builder().build())
+                    .insert(e, cs.builder(&ds).build())
                     .expect("insert on a freshly reserved entity");
                 e
             })
@@ -162,7 +162,7 @@ fn construction_routes_are_observationally_equal(tc: hegel::TestCase) {
     handles.push(
         to_spawn
             .iter()
-            .map(|&cs| spawn_incrementally(&mut worlds[4], cs))
+            .map(|&cs| spawn_incrementally(&mut worlds[4], cs, &ds))
             .collect(),
     );
 
@@ -188,7 +188,7 @@ fn construction_routes_are_observationally_equal(tc: hegel::TestCase) {
         check_archetypes(w, "constructed world");
     }
     assert_eq!(
-        d_live(),
+        ds.live(),
         total_d(&worlds),
         "drop imbalance across construction routes"
     );
@@ -200,7 +200,7 @@ fn construction_routes_are_observationally_equal(tc: hegel::TestCase) {
     for _ in 0..steps {
         let e = tc.draw(handle_from(&pool));
         let m = tc.draw(mutations());
-        let mut results = worlds.iter_mut().map(|w| apply(w, e, m));
+        let mut results = worlds.iter_mut().map(|w| apply(w, e, m, &ds));
         let first = results.next().expect("at least one world");
         for (i, r) in results.enumerate() {
             assert_eq!(
@@ -220,7 +220,7 @@ fn construction_routes_are_observationally_equal(tc: hegel::TestCase) {
         }
     }
     assert_eq!(
-        d_live(),
+        ds.live(),
         total_d(&worlds),
         "drop imbalance after the mutation phase"
     );
@@ -259,15 +259,15 @@ fn commands_on(tc: &hegel::TestCase, pool: &[Entity]) -> Command {
     }
 }
 
-fn record(buffer: &mut CommandBuffer, c: Command) {
+fn record(buffer: &mut CommandBuffer, c: Command, ds: &DropTracker) {
     match c {
-        Command::Spawn(cs) => buffer.spawn(cs.builder().build()),
-        Command::Insert(e, cs) => buffer.insert(e, cs.builder().build()),
+        Command::Spawn(cs) => buffer.spawn(cs.builder(ds).build()),
+        Command::Insert(e, cs) => buffer.insert(e, cs.builder(ds).build()),
         Command::InsertOne(e, which, v) => match which {
             0 => buffer.insert_one(e, A(v)),
             1 => buffer.insert_one(e, B(v)),
             2 => buffer.insert_one(e, C),
-            _ => buffer.insert_one(e, D::new(v)),
+            _ => buffer.insert_one(e, D::new(v, ds)),
         },
         Command::RemoveAB(e) => buffer.remove::<(A, B)>(e),
         Command::RemoveCD(e) => buffer.remove::<(C, D)>(e),
@@ -283,17 +283,17 @@ fn record(buffer: &mut CommandBuffer, c: Command) {
 
 /// `run_on` is documented to replay commands in order, ignoring failures, so
 /// each command's eager equivalent discards its error.
-fn apply_eagerly(world: &mut World, c: Command) {
+fn apply_eagerly(world: &mut World, c: Command, ds: &DropTracker) {
     match c {
         Command::Spawn(cs) => {
-            world.spawn(cs.builder().build());
+            world.spawn(cs.builder(ds).build());
         }
-        Command::Insert(e, cs) => drop(world.insert(e, cs.builder().build())),
+        Command::Insert(e, cs) => drop(world.insert(e, cs.builder(ds).build())),
         Command::InsertOne(e, which, v) => match which {
             0 => drop(world.insert_one(e, A(v))),
             1 => drop(world.insert_one(e, B(v))),
             2 => drop(world.insert_one(e, C)),
-            _ => drop(world.insert_one(e, D::new(v))),
+            _ => drop(world.insert_one(e, D::new(v, ds))),
         },
         Command::RemoveAB(e) => drop(world.remove::<(A, B)>(e)),
         Command::RemoveCD(e) => drop(world.remove::<(C, D)>(e)),
@@ -308,11 +308,11 @@ fn apply_eagerly(world: &mut World, c: Command) {
 }
 
 /// How many `D` values a recorded sequence is holding inside the buffer.
-fn pending_d(commands: &[Command]) -> i64 {
+fn pending_d(commands: &[Command]) -> usize {
     commands
         .iter()
         .map(|c| match c {
-            Command::Spawn(cs) | Command::Insert(_, cs) => cs.d.is_some() as i64,
+            Command::Spawn(cs) | Command::Insert(_, cs) => cs.d.is_some() as usize,
             Command::InsertOne(_, 3, _) => 1,
             _ => 0,
         })
@@ -326,9 +326,9 @@ fn pending_d(commands: &[Command]) -> i64 {
 /// the handle the eager `spawn` at the same position did.
 #[hegel::test(settings())]
 fn command_buffer_matches_eager_application(tc: hegel::TestCase) {
-    assert_d_balanced_at_start();
+    let ds = DropTracker::new();
     let history = tc.draw(histories(0, MAX_ENTITIES));
-    let (mut worlds, mut pool) = build_twins(&history, 2);
+    let (mut worlds, mut pool) = build_twins(&history, 2, &ds);
 
     // `CommandBuffer::insert` documents `reserve_entity` as the way to obtain a
     // handle for an entity that does not exist yet.
@@ -346,7 +346,7 @@ fn command_buffer_matches_eager_application(tc: hegel::TestCase) {
         let commands: Vec<Command> =
             tc.draw(gs::vecs(commands_on(&pool).print_as_debug()).max_size(12));
         for &c in &commands {
-            record(&mut buffer, c);
+            record(&mut buffer, c, &ds);
         }
 
         // Recording must not touch either world, and every `D` handed to the
@@ -357,7 +357,7 @@ fn command_buffer_matches_eager_application(tc: hegel::TestCase) {
             "recording commands changed a world"
         );
         assert_eq!(
-            d_live(),
+            ds.live(),
             total_d(&worlds) + pending_d(&commands),
             "a buffered D was dropped early or leaked"
         );
@@ -367,7 +367,7 @@ fn command_buffer_matches_eager_application(tc: hegel::TestCase) {
             0 | 1 => {
                 buffer.run_on(&mut worlds[1]);
                 for &c in &commands {
-                    apply_eagerly(&mut worlds[0], c);
+                    apply_eagerly(&mut worlds[0], c, &ds);
                 }
                 assert_eq!(
                     fingerprint(&worlds[0]),
@@ -398,7 +398,7 @@ fn command_buffer_matches_eager_application(tc: hegel::TestCase) {
         }
 
         assert_eq!(
-            d_live(),
+            ds.live(),
             total_d(&worlds),
             "drop imbalance after the buffer was consumed or discarded"
         );

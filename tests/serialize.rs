@@ -12,6 +12,8 @@
 use std::any::TypeId;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
+use std::fmt;
+
 use bincode::Options;
 use fixtures::*;
 use hecs::serialize::{column, row};
@@ -19,7 +21,8 @@ use hecs::{
     Archetype, ColumnBatchBuilder, ColumnBatchType, Entity, EntityBuilder, EntityRef, Query, World,
 };
 use hegel::generators as gs;
-use serde::{Deserialize, Serialize};
+use serde::de::{self, DeserializeSeed, SeqAccess, Unexpected, Visitor};
+use serde::{Deserialize, Deserializer, Serialize};
 
 /// Wire identifiers for the four component types. The bincode encoding of these
 /// discriminants is `A = 0 .. D = 3`, so anything above 3 is an unknown-variant
@@ -54,7 +57,9 @@ impl row::SerializeContext for Row {
     }
 }
 
-impl row::DeserializeContext for Row {
+struct RowDe<'a>(&'a DropTracker);
+
+impl row::DeserializeContext for RowDe<'_> {
     fn deserialize_entity<'de, M>(
         &mut self,
         mut map: M,
@@ -68,7 +73,7 @@ impl row::DeserializeContext for Row {
                 Id::A => entity.add::<A>(map.next_value()?),
                 Id::B => entity.add::<B>(map.next_value()?),
                 Id::C => entity.add::<C>(map.next_value()?),
-                Id::D => entity.add::<D>(map.next_value()?),
+                Id::D => entity.add::<D>(map.next_value_seed(DSeed(self.0))?),
             };
         }
         Ok(())
@@ -90,9 +95,9 @@ fn row_satisfying_bytes<Q: Query>(world: &World) -> Vec<u8> {
     buf
 }
 
-fn row_world(bytes: &[u8]) -> Result<World, bincode::Error> {
+fn row_world(bytes: &[u8], ds: &DropTracker) -> Result<World, bincode::Error> {
     let mut de = bincode::Deserializer::with_reader(bytes, bincode::options());
-    row::deserialize(&mut Row, &mut de)
+    row::deserialize(&mut RowDe(ds), &mut de)
 }
 
 // ---- column format ----
@@ -137,12 +142,12 @@ impl column::SerializeContext for ColumnSer {
     }
 }
 
-#[derive(Default)]
-struct ColumnDe {
+struct ColumnDe<'a> {
     components: Vec<Id>,
+    ds: &'a DropTracker,
 }
 
-impl column::DeserializeContext for ColumnDe {
+impl column::DeserializeContext for ColumnDe<'_> {
     fn deserialize_component_ids<'de, S>(&mut self, mut seq: S) -> Result<ColumnBatchType, S::Error>
     where
         S: serde::de::SeqAccess<'de>,
@@ -175,8 +180,67 @@ impl column::DeserializeContext for ColumnDe {
                 Id::A => column::deserialize_column::<A, _>(entity_count, &mut seq, batch)?,
                 Id::B => column::deserialize_column::<B, _>(entity_count, &mut seq, batch)?,
                 Id::C => column::deserialize_column::<C, _>(entity_count, &mut seq, batch)?,
-                Id::D => column::deserialize_column::<D, _>(entity_count, &mut seq, batch)?,
+                Id::D => d_column(entity_count, &mut seq, batch, self.ds)?,
             }
+        }
+        Ok(())
+    }
+}
+
+/// `column::deserialize_column::<D, _>`, except that each `D` is read through
+/// `DSeed` so it counts towards `ds`.
+fn d_column<'de, S: SeqAccess<'de>>(
+    entity_count: u32,
+    seq: &mut S,
+    batch: &mut ColumnBatchBuilder,
+    ds: &DropTracker,
+) -> Result<(), S::Error> {
+    seq.next_element_seed(DColumn {
+        entity_count,
+        batch,
+        ds,
+    })?
+    .ok_or_else(|| {
+        de::Error::invalid_value(
+            Unexpected::Other("end of components"),
+            &"a column of components",
+        )
+    })
+}
+
+struct DColumn<'a> {
+    entity_count: u32,
+    batch: &'a mut ColumnBatchBuilder,
+    ds: &'a DropTracker,
+}
+
+impl<'de> DeserializeSeed<'de> for DColumn<'_> {
+    type Value = ();
+
+    fn deserialize<De: Deserializer<'de>>(self, de: De) -> Result<(), De::Error> {
+        de.deserialize_tuple(self.entity_count as usize, self)
+    }
+}
+
+impl<'de> Visitor<'de> for DColumn<'_> {
+    type Value = ();
+
+    fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "a column of {} D values", self.entity_count)
+    }
+
+    fn visit_seq<S: SeqAccess<'de>>(self, mut seq: S) -> Result<(), S::Error> {
+        let mut writer = self.batch.writer::<D>().expect("D is in the batch type");
+        while let Some(d) = seq.next_element_seed(DSeed(self.ds))? {
+            if writer.push(d).is_err() {
+                return Err(de::Error::invalid_value(
+                    Unexpected::Other("extra component"),
+                    &self,
+                ));
+            }
+        }
+        if writer.fill() < self.entity_count {
+            return Err(de::Error::invalid_length(writer.fill() as usize, &self));
         }
         Ok(())
     }
@@ -197,9 +261,13 @@ fn column_satisfying_bytes<Q: Query>(world: &World) -> Vec<u8> {
     buf
 }
 
-fn column_world(bytes: &[u8]) -> Result<World, bincode::Error> {
+fn column_world(bytes: &[u8], ds: &DropTracker) -> Result<World, bincode::Error> {
     let mut de = bincode::Deserializer::with_reader(bytes, bincode::options());
-    column::deserialize(&mut ColumnDe::default(), &mut de)
+    let mut context = ColumnDe {
+        components: Vec::new(),
+        ds,
+    };
+    column::deserialize(&mut context, &mut de)
 }
 
 /// bincode-encode one value with the options used everywhere here, for
@@ -219,10 +287,10 @@ const WORLD_SIZE: u32 = 24;
 
 #[hegel::test(settings())]
 fn row_format_roundtrips(tc: hegel::TestCase) {
-    assert_d_balanced_at_start();
+    let ds = DropTracker::new();
     let history = tc.draw(histories(0, WORLD_SIZE));
-    let world = build_world(&history);
-    let restored = row_world(&row_bytes(&world)).expect("row deserialize");
+    let world = build_world(&history, &ds);
+    let restored = row_world(&row_bytes(&world), &ds).expect("row deserialize");
     assert_eq!(
         fingerprint(&world),
         fingerprint(&restored),
@@ -232,10 +300,10 @@ fn row_format_roundtrips(tc: hegel::TestCase) {
 
 #[hegel::test(settings())]
 fn column_format_roundtrips(tc: hegel::TestCase) {
-    assert_d_balanced_at_start();
+    let ds = DropTracker::new();
     let history = tc.draw(histories(0, WORLD_SIZE));
-    let world = build_world(&history);
-    let restored = column_world(&column_bytes(&world)).expect("column deserialize");
+    let world = build_world(&history, &ds);
+    let restored = column_world(&column_bytes(&world), &ds).expect("column deserialize");
     assert_eq!(
         fingerprint(&world),
         fingerprint(&restored),
@@ -247,10 +315,10 @@ fn column_format_roundtrips(tc: hegel::TestCase) {
 /// writes all of their components rather than only the ones `Q` mentions.
 #[hegel::test(settings())]
 fn row_serialize_satisfying_keeps_exactly_the_matching_entities(tc: hegel::TestCase) {
-    assert_d_balanced_at_start();
+    let ds = DropTracker::new();
     let history = tc.draw(histories(0, WORLD_SIZE));
-    let world = build_world(&history);
-    let restored = row_world(&row_satisfying_bytes::<&A>(&world)).expect("row deserialize");
+    let world = build_world(&history, &ds);
+    let restored = row_world(&row_satisfying_bytes::<&A>(&world), &ds).expect("row deserialize");
     let want: Fingerprint = fingerprint(&world)
         .into_iter()
         .filter(|(_, cs)| cs.a.is_some())
@@ -264,11 +332,11 @@ fn row_serialize_satisfying_keeps_exactly_the_matching_entities(tc: hegel::TestC
 
 #[hegel::test(settings())]
 fn column_serialize_satisfying_keeps_exactly_the_matching_entities(tc: hegel::TestCase) {
-    assert_d_balanced_at_start();
+    let ds = DropTracker::new();
     let history = tc.draw(histories(0, WORLD_SIZE));
-    let world = build_world(&history);
+    let world = build_world(&history, &ds);
     let restored =
-        column_world(&column_satisfying_bytes::<&A>(&world)).expect("column deserialize");
+        column_world(&column_satisfying_bytes::<&A>(&world), &ds).expect("column deserialize");
     let want: Fingerprint = fingerprint(&world)
         .into_iter()
         .filter(|(_, cs)| cs.a.is_some())
@@ -285,13 +353,13 @@ fn column_serialize_satisfying_keeps_exactly_the_matching_entities(tc: hegel::Te
 /// follows the full parse byte for byte until it runs out of input.
 #[hegel::test(settings())]
 fn row_truncated_input_is_rejected_without_leaking(tc: hegel::TestCase) {
-    assert_d_balanced_at_start();
+    let ds = DropTracker::new();
     let history = tc.draw(histories(0, WORLD_SIZE));
-    let world = build_world(&history);
+    let world = build_world(&history, &ds);
     let bytes = row_bytes(&world);
     assert_eq!(
         fingerprint(&world),
-        fingerprint(&row_world(&bytes).expect("row deserialize")),
+        fingerprint(&row_world(&bytes, &ds).expect("row deserialize")),
         "row round trip"
     );
     let cut = tc.draw(
@@ -299,14 +367,14 @@ fn row_truncated_input_is_rejected_without_leaking(tc: hegel::TestCase) {
             .min_value(0)
             .max_value(bytes.len() - 1),
     );
-    let baseline = d_live();
+    let baseline = ds.live();
     assert!(
-        row_world(&bytes[..cut]).is_err(),
+        row_world(&bytes[..cut], &ds).is_err(),
         "row prefix {cut}/{} parsed",
         bytes.len()
     );
     assert_eq!(
-        d_live(),
+        ds.live(),
         baseline,
         "row prefix {cut} leaked or double-dropped a component"
     );
@@ -318,13 +386,13 @@ fn row_truncated_input_is_rejected_without_leaking(tc: hegel::TestCase) {
 /// deserialize path.
 #[hegel::test(settings())]
 fn column_truncated_input_is_rejected_without_leaking(tc: hegel::TestCase) {
-    assert_d_balanced_at_start();
+    let ds = DropTracker::new();
     let history = tc.draw(histories(0, WORLD_SIZE));
-    let world = build_world(&history);
+    let world = build_world(&history, &ds);
     let bytes = column_bytes(&world);
     assert_eq!(
         fingerprint(&world),
-        fingerprint(&column_world(&bytes).expect("column deserialize")),
+        fingerprint(&column_world(&bytes, &ds).expect("column deserialize")),
         "column round trip"
     );
     let cut = tc.draw(
@@ -332,14 +400,14 @@ fn column_truncated_input_is_rejected_without_leaking(tc: hegel::TestCase) {
             .min_value(0)
             .max_value(bytes.len() - 1),
     );
-    let baseline = d_live();
+    let baseline = ds.live();
     assert!(
-        column_world(&bytes[..cut]).is_err(),
+        column_world(&bytes[..cut], &ds).is_err(),
         "column prefix {cut}/{} parsed",
         bytes.len()
     );
     assert_eq!(
-        d_live(),
+        ds.live(),
         baseline,
         "column prefix {cut} leaked or double-dropped a component"
     );
@@ -378,13 +446,13 @@ fn corrupt(bytes: &mut [u8], flips: &[(usize, u8)]) {
 #[cfg_attr(miri, ignore = "corrupted ids reach allocations Miri cannot afford")]
 #[hegel::test(settings())]
 fn row_corrupted_input_is_rejected_or_usable(tc: hegel::TestCase) {
-    assert_d_balanced_at_start();
+    let ds = DropTracker::new();
     let history = tc.draw(histories(0, WORLD_SIZE));
-    let world = build_world(&history);
+    let world = build_world(&history, &ds);
     let mut bytes = row_bytes(&world);
     let flips = tc.draw(corruptions(bytes.len()));
     corrupt(&mut bytes, &flips);
-    let outcome = catch_unwind(AssertUnwindSafe(|| row_world(&bytes)));
+    let outcome = catch_unwind(AssertUnwindSafe(|| row_world(&bytes, &ds)));
     match outcome {
         Ok(Ok(restored)) => drop(fingerprint(&restored)),
         Ok(Err(_)) => {}
@@ -400,13 +468,13 @@ fn row_corrupted_input_is_rejected_or_usable(tc: hegel::TestCase) {
 #[cfg_attr(miri, ignore = "corrupted counts reach allocations Miri cannot afford")]
 #[hegel::test(settings())]
 fn column_corrupted_input_is_rejected_or_usable(tc: hegel::TestCase) {
-    assert_d_balanced_at_start();
+    let ds = DropTracker::new();
     let history = tc.draw(histories(0, WORLD_SIZE));
-    let world = build_world(&history);
+    let world = build_world(&history, &ds);
     let mut bytes = column_bytes(&world);
     let flips = tc.draw(corruptions(bytes.len()));
     corrupt(&mut bytes, &flips);
-    let outcome = catch_unwind(AssertUnwindSafe(|| column_world(&bytes)));
+    let outcome = catch_unwind(AssertUnwindSafe(|| column_world(&bytes, &ds)));
     match outcome {
         Ok(Ok(restored)) => drop(fingerprint(&restored)),
         Ok(Err(_)) => {}
@@ -419,12 +487,13 @@ fn column_corrupted_input_is_rejected_or_usable(tc: hegel::TestCase) {
 /// outside the context's enum.
 #[test]
 fn row_rejects_streams_it_cannot_represent() {
+    let ds = DropTracker::new();
     let mut zero_generation = Vec::new();
     zero_generation.extend(encode(&1u64)); // one entity
     zero_generation.extend(encode(&0u64)); // entity bits: generation 0
     zero_generation.extend(encode(&0u64)); // no components
     assert!(
-        row_world(&zero_generation).is_err(),
+        row_world(&zero_generation, &ds).is_err(),
         "accepted a generation-0 entity"
     );
 
@@ -435,7 +504,7 @@ fn row_rejects_streams_it_cannot_represent() {
     unknown_component.extend(encode(&99u32)); // no such Id variant
     unknown_component.extend(encode(&0i32));
     assert!(
-        row_world(&unknown_component).is_err(),
+        row_world(&unknown_component, &ds).is_err(),
         "accepted an unknown component id"
     );
 }
@@ -445,6 +514,7 @@ fn row_rejects_streams_it_cannot_represent() {
 /// deduplicates the type), and an entity list shorter than `entity_count`.
 #[test]
 fn column_rejects_streams_it_cannot_represent() {
+    let ds = DropTracker::new();
     let mut duplicate_column = Vec::new();
     duplicate_column.extend(encode(&1u64)); // one archetype
     duplicate_column.extend(encode(&1u32)); // entity_count
@@ -455,7 +525,7 @@ fn column_rejects_streams_it_cannot_represent() {
     duplicate_column.extend(encode(&0i32)); // first A column
     duplicate_column.extend(encode(&1i32)); // second A column, no space left
     assert!(
-        column_world(&duplicate_column).is_err(),
+        column_world(&duplicate_column, &ds).is_err(),
         "accepted a duplicated component column"
     );
 
@@ -465,7 +535,7 @@ fn column_rejects_streams_it_cannot_represent() {
     short_entity_list.extend(encode(&0u32)); // component_count = 0
     short_entity_list.extend(encode(&(1u64 << 32))); // only one entity id
     assert!(
-        column_world(&short_entity_list).is_err(),
+        column_world(&short_entity_list, &ds).is_err(),
         "accepted a short entity list"
     );
 }
@@ -476,6 +546,7 @@ fn column_rejects_streams_it_cannot_represent() {
 /// fix for issue #449 this reached `Archetype::remove(u32::MAX)`.
 #[test]
 fn column_deserialize_tolerates_repeated_entity_ids() {
+    let ds = DropTracker::new();
     let bits = 1u64 << 32; // generation 1, id 0
     let mut bytes = Vec::new();
     bytes.extend(encode(&1u64)); // one archetype
@@ -487,7 +558,7 @@ fn column_deserialize_tolerates_repeated_entity_ids() {
     bytes.extend(encode(&7i32));
     bytes.extend(encode(&9i32));
 
-    let world = column_world(&bytes).expect("repeated ids are deduplicated, not rejected");
+    let world = column_world(&bytes, &ds).expect("repeated ids are deduplicated, not rejected");
     let e = Entity::from_bits(bits).unwrap();
     assert_eq!(
         world.len(),

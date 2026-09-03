@@ -23,7 +23,7 @@ fn rows_up_to(max: usize) -> impl gs::PrintableGenerator<Vec<Row>> {
 /// Build a complete `{A, D}` batch from `rows`, exercising the writer surface
 /// on the way: `writer` for a type outside the batch, `fill`, and a push past
 /// capacity.
-fn build_batch(rows: &[Row]) -> ColumnBatch {
+fn build_batch(rows: &[Row], ds: &DropTracker) -> ColumnBatch {
     let mut types = ColumnBatchType::new();
     types.add::<A>();
     types.add::<D>();
@@ -48,7 +48,7 @@ fn build_batch(rows: &[Row]) -> ColumnBatch {
     {
         let mut writer = builder.writer::<D>().expect("D is in the batch type");
         for &(_, d) in rows {
-            writer.push(D::new(d)).expect("push within capacity");
+            writer.push(D::new(d, ds)).expect("push within capacity");
         }
         assert_eq!(writer.fill(), rows.len() as u32, "D column fill");
     }
@@ -71,9 +71,9 @@ fn multiset(world: &World) -> Vec<Components> {
 /// "Fix panic after spawn_column_batch on a world with a nonempty freelist".
 #[hegel::test(settings())]
 fn column_batch_matches_individual_spawns(tc: hegel::TestCase) {
-    assert_d_balanced_at_start();
+    let ds = DropTracker::new();
     let history = tc.draw(histories(0, 6));
-    let (mut worlds, _pool) = build_twins(&history, 2);
+    let (mut worlds, _pool) = build_twins(&history, 2, &ds);
     let mut individually = worlds.pop().unwrap();
     let mut batched = worlds.pop().unwrap();
 
@@ -85,7 +85,7 @@ fn column_batch_matches_individual_spawns(tc: hegel::TestCase) {
         let len_before = batched.len();
         let mut seen: HashSet<Entity> = batched.iter().map(|eref| eref.entity()).collect();
 
-        let iter = batched.spawn_column_batch(build_batch(&rows));
+        let iter = batched.spawn_column_batch(build_batch(&rows, &ds));
         assert_eq!(iter.len(), rows.len(), "SpawnColumnBatchIter::len");
         let handles: Vec<Entity> = iter.collect();
         assert_eq!(
@@ -103,11 +103,11 @@ fn column_batch_matches_individual_spawns(tc: hegel::TestCase) {
             assert!(seen.insert(e), "row {i} reused handle {e:?}");
             assert!(batched.contains(e), "row {i} handle {e:?} is not contained");
             assert_eq!(batched.get::<&A>(e).unwrap().0, a, "A of row {i}");
-            assert_eq!(batched.get::<&D>(e).unwrap().0, d, "D of row {i}");
+            assert_eq!(batched.get::<&D>(e).unwrap().value, d, "D of row {i}");
         }
 
         for &(a, d) in &rows {
-            individually.spawn((A(a), D::new(d)));
+            individually.spawn((A(a), D::new(d, &ds)));
         }
         assert_eq!(
             multiset(&batched),
@@ -116,7 +116,7 @@ fn column_batch_matches_individual_spawns(tc: hegel::TestCase) {
         );
         check_archetypes(&batched, "batch world");
         assert_eq!(
-            d_live(),
+            ds.live(),
             d_in(&batched) + d_in(&individually),
             "drop imbalance after a batch"
         );
@@ -162,7 +162,7 @@ fn batch_targets(tc: &hegel::TestCase) -> Target {
 /// regression witness for both fixes.
 #[hegel::test(settings())]
 fn column_batch_at_places_each_row_on_its_handle(tc: hegel::TestCase) {
-    assert_d_balanced_at_start();
+    let ds = DropTracker::new();
     let mut world = World::new();
 
     // Bystanders first, then targets, then despawns: every id stays distinct,
@@ -176,7 +176,7 @@ fn column_batch_at_places_each_row_on_its_handle(tc: hegel::TestCase) {
                 b: Some(b),
                 ..Components::default()
             };
-            (world.spawn(cs.builder().build()), cs)
+            (world.spawn(cs.builder(&ds).build()), cs)
         })
         .collect();
 
@@ -190,7 +190,7 @@ fn column_batch_at_places_each_row_on_its_handle(tc: hegel::TestCase) {
                 c: true,
                 d: Some(t.d),
             };
-            world.spawn(cs.builder().build())
+            world.spawn(cs.builder(&ds).build())
         })
         .collect();
     for (t, &e) in targets.iter().zip(&target_handles) {
@@ -210,11 +210,11 @@ fn column_batch_at_places_each_row_on_its_handle(tc: hegel::TestCase) {
     );
 
     let before = fingerprint(&world);
-    let d_before = d_live();
-    let batch = build_batch(&rows);
+    let d_before = ds.live();
+    let batch = build_batch(&rows, &ds);
     assert_eq!(
-        d_live(),
-        d_before + rows.len() as i64,
+        ds.live(),
+        d_before + rows.len(),
         "the batch holds one D per row"
     );
     world.spawn_column_batch_at(&handles, batch);
@@ -251,7 +251,7 @@ fn column_batch_at_places_each_row_on_its_handle(tc: hegel::TestCase) {
     }
     check_archetypes(&world, "batch-at world");
     assert_eq!(
-        d_live(),
+        ds.live(),
         d_in(&world),
         "replaced components leaked or were dropped twice"
     );
@@ -263,7 +263,7 @@ fn column_batch_at_places_each_row_on_its_handle(tc: hegel::TestCase) {
 /// including "all the components in bundle `T`".
 #[hegel::test(settings())]
 fn the_ways_of_declaring_a_batch_type_agree(tc: hegel::TestCase) {
-    assert_d_balanced_at_start();
+    let ds = DropTracker::new();
     let rows = tc.draw(rows_up_to(8));
 
     let mut individually = ColumnBatchType::new();
@@ -292,7 +292,7 @@ fn the_ways_of_declaring_a_batch_type_agree(tc: hegel::TestCase) {
         {
             let mut writer = builder.writer::<D>().expect("D was declared");
             for &(_, d) in &rows {
-                writer.push(D::new(d)).expect("push within capacity");
+                writer.push(D::new(d, &ds)).expect("push within capacity");
             }
         }
         world.spawn_column_batch(builder.build().expect("a filled batch must build"));
@@ -312,7 +312,7 @@ fn the_ways_of_declaring_a_batch_type_agree(tc: hegel::TestCase) {
 /// already written into it are dropped.
 #[hegel::test(settings())]
 fn an_underfilled_batch_is_refused(tc: hegel::TestCase) {
-    assert_d_balanced_at_start();
+    let ds = DropTracker::new();
     let capacity = tc.draw(gs::integers::<u32>().min_value(1).max_value(8));
     let written = tc.draw(gs::integers::<u32>().min_value(0).max_value(capacity - 1));
 
@@ -329,12 +329,12 @@ fn an_underfilled_batch_is_refused(tc: hegel::TestCase) {
     {
         let mut writer = builder.writer::<D>().expect("D is in the batch type");
         for _ in 0..written {
-            writer.push(D::new(0)).expect("push within capacity");
+            writer.push(D::new(0, &ds)).expect("push within capacity");
         }
     }
     assert_eq!(
-        d_live(),
-        written as i64,
+        ds.live(),
+        written as usize,
         "the builder is not holding what was written"
     );
     let Err(error) = builder.build() else {
@@ -344,7 +344,11 @@ fn an_underfilled_batch_is_refused(tc: hegel::TestCase) {
         !error.to_string().is_empty(),
         "BatchIncomplete has no message"
     );
-    assert_eq!(d_live(), 0, "a refused build leaked the written components");
+    assert_eq!(
+        ds.live(),
+        0,
+        "a refused build leaked the written components"
+    );
 }
 
 /// Dropping a `ColumnBatchBuilder` without building drops whatever was written
@@ -353,7 +357,7 @@ fn an_underfilled_batch_is_refused(tc: hegel::TestCase) {
 /// the regression witness.
 #[hegel::test(settings())]
 fn dropping_an_unbuilt_batch_drops_its_components(tc: hegel::TestCase) {
-    assert_d_balanced_at_start();
+    let ds = DropTracker::new();
     let written: Vec<i32> = tc.draw(gs::vecs(val()).max_size(8));
     let capacity = tc.draw(
         gs::integers::<u32>()
@@ -368,17 +372,17 @@ fn dropping_an_unbuilt_batch_drops_its_components(tc: hegel::TestCase) {
     {
         let mut writer = builder.writer::<D>().expect("D is in the batch type");
         for &d in &written {
-            writer.push(D::new(d)).expect("push within capacity");
+            writer.push(D::new(d, &ds)).expect("push within capacity");
         }
     }
     assert_eq!(
-        d_live(),
-        written.len() as i64,
+        ds.live(),
+        written.len(),
         "the builder is not holding what was written"
     );
     drop(builder);
     assert_eq!(
-        d_live(),
+        ds.live(),
         0,
         "dropping an unbuilt batch leaked {} components",
         written.len()
@@ -390,21 +394,25 @@ fn dropping_an_unbuilt_batch_drops_its_components(tc: hegel::TestCase) {
 /// 0.11.1 (issue #459).
 #[test]
 fn a_refused_build_drops_the_written_components() {
-    assert_d_balanced_at_start();
+    let ds = DropTracker::new();
     let mut types = ColumnBatchType::new();
     types.add::<A>();
     types.add::<D>();
     let builder = types.into_batch(2);
     {
         let mut writer = builder.writer::<D>().expect("D is in the batch type");
-        writer.push(D::new(1)).unwrap();
-        writer.push(D::new(2)).unwrap();
+        writer.push(D::new(1, &ds)).unwrap();
+        writer.push(D::new(2, &ds)).unwrap();
         // The A column is left empty, so build() must fail.
     }
-    assert_eq!(d_live(), 2, "the builder is not holding what was written");
+    assert_eq!(ds.live(), 2, "the builder is not holding what was written");
     assert!(
         builder.build().is_err(),
         "build() accepted an underfilled column"
     );
-    assert_eq!(d_live(), 0, "a refused build leaked the written components");
+    assert_eq!(
+        ds.live(),
+        0,
+        "a refused build leaked the written components"
+    );
 }

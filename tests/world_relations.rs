@@ -46,13 +46,13 @@ fn ops(tc: &hegel::TestCase) -> Op {
 }
 
 /// Apply `op` to `e` and report whether it succeeded.
-fn apply(world: &mut World, e: Entity, op: Op) -> bool {
+fn apply(world: &mut World, e: Entity, op: Op, ds: &DropTracker) -> bool {
     match op {
         Op::InsertOne(which, v) => match which {
             0 => world.insert_one(e, A(v)).is_ok(),
             1 => world.insert_one(e, B(v)).is_ok(),
             2 => world.insert_one(e, C).is_ok(),
-            _ => world.insert_one(e, D::new(v)).is_ok(),
+            _ => world.insert_one(e, D::new(v, ds)).is_ok(),
         },
         Op::RemoveOne(which) => match which {
             0 => world.remove_one::<A>(e).is_ok(),
@@ -60,7 +60,7 @@ fn apply(world: &mut World, e: Entity, op: Op) -> bool {
             2 => world.remove_one::<C>(e).is_ok(),
             _ => world.remove_one::<D>(e).is_ok(),
         },
-        Op::InsertBundle(cs) => world.insert(e, cs.builder().build()).is_ok(),
+        Op::InsertBundle(cs) => world.insert(e, cs.builder(ds).build()).is_ok(),
         Op::RemoveAB => world.remove::<(A, B)>(e).is_ok(),
         Op::RemoveCD => world.remove::<(C, D)>(e).is_ok(),
         Op::Despawn => world.despawn(e).is_ok(),
@@ -82,9 +82,9 @@ fn apply(world: &mut World, e: Entity, op: Op) -> bool {
 /// of hecs storing each entity's components independently of every other's.
 #[hegel::test(settings())]
 fn operations_on_distinct_entities_commute(tc: hegel::TestCase) {
-    assert_d_balanced_at_start();
+    let ds = DropTracker::new();
     let history = tc.draw(histories(1, MAX_ENTITIES));
-    let (mut worlds, pool) = build_twins(&history, 2);
+    let (mut worlds, pool) = build_twins(&history, 2, &ds);
     let e1 = tc.draw(handle_from(&pool));
     let e2 = tc.draw(handle_from(&pool));
     tc.assume(e1 != e2);
@@ -94,10 +94,10 @@ fn operations_on_distinct_entities_commute(tc: hegel::TestCase) {
     let (rx0, ry0, rx1, ry1);
     {
         let (first, second) = worlds.split_at_mut(1);
-        rx0 = apply(&mut first[0], e1, x);
-        ry0 = apply(&mut first[0], e2, y);
-        ry1 = apply(&mut second[0], e2, y);
-        rx1 = apply(&mut second[0], e1, x);
+        rx0 = apply(&mut first[0], e1, x, &ds);
+        ry0 = apply(&mut first[0], e2, y, &ds);
+        ry1 = apply(&mut second[0], e2, y, &ds);
+        rx1 = apply(&mut second[0], e1, x, &ds);
     }
     assert_eq!(
         rx0, rx1,
@@ -113,7 +113,7 @@ fn operations_on_distinct_entities_commute(tc: hegel::TestCase) {
         "[{x:?} on {e1:?}; {y:?} on {e2:?}] and the reverse order left different worlds"
     );
     assert_eq!(
-        d_live(),
+        ds.live(),
         total_d(&worlds),
         "drop imbalance after commuting operations"
     );
@@ -127,9 +127,9 @@ fn operations_on_distinct_entities_commute(tc: hegel::TestCase) {
 /// replaced", which is what makes the residue exactly "T absent".
 #[hegel::test(settings())]
 fn insert_then_remove_leaves_the_component_absent(tc: hegel::TestCase) {
-    assert_d_balanced_at_start();
+    let ds = DropTracker::new();
     let history = tc.draw(histories(1, MAX_ENTITIES));
-    let (mut world, pool) = build_world_with_handles(&history);
+    let (mut world, pool) = build_world_with_handles(&history, &ds);
     let e = tc.draw(handle_from(&pool));
     let before = fingerprint(&world);
     let live = before.contains_key(&e);
@@ -161,9 +161,9 @@ fn insert_then_remove_leaves_the_component_absent(tc: hegel::TestCase) {
             ins
         }
         _ => {
-            let ins = world.insert_one(e, D::new(v)).is_ok();
+            let ins = world.insert_one(e, D::new(v, &ds)).is_ok();
             let got = world.remove_one::<D>(e).ok();
-            assert_eq!(got.as_ref().map(|d| d.0), ins.then_some(v), "removed D");
+            assert_eq!(got.as_ref().map(|d| d.value), ins.then_some(v), "removed D");
             ins
         }
     };
@@ -187,7 +187,7 @@ fn insert_then_remove_leaves_the_component_absent(tc: hegel::TestCase) {
         "insert then remove left a residue on {e:?}"
     );
     assert_eq!(
-        d_live(),
+        ds.live(),
         d_in(&world),
         "drop imbalance after insert then remove"
     );
@@ -199,9 +199,9 @@ fn insert_then_remove_leaves_the_component_absent(tc: hegel::TestCase) {
 /// second.
 #[hegel::test(settings())]
 fn exchange_roundtrip_restores_the_world(tc: hegel::TestCase) {
-    assert_d_balanced_at_start();
+    let ds = DropTracker::new();
     let history = tc.draw(histories(1, MAX_ENTITIES));
-    let (mut world, pool) = build_world_with_handles(&history);
+    let (mut world, pool) = build_world_with_handles(&history, &ds);
     let e = tc.draw(handle_from(&pool));
     let before = fingerprint(&world);
     let had_a = before.get(&e).and_then(|o| o.a);
@@ -239,7 +239,7 @@ fn exchange_roundtrip_restores_the_world(tc: hegel::TestCase) {
         }
     }
     assert_eq!(
-        d_live(),
+        ds.live(),
         d_in(&world),
         "drop imbalance after exchange roundtrip"
     );
@@ -251,9 +251,9 @@ fn exchange_roundtrip_restores_the_world(tc: hegel::TestCase) {
 /// it.
 #[hegel::test(settings())]
 fn spawn_batch_matches_individual_spawns(tc: hegel::TestCase) {
-    assert_d_balanced_at_start();
+    let ds = DropTracker::new();
     let history = tc.draw(histories(0, MAX_ENTITIES));
-    let (mut worlds, _pool) = build_twins(&history, 2);
+    let (mut worlds, _pool) = build_twins(&history, 2, &ds);
     let rows: Vec<(i32, i32)> = tc.draw(gs::vecs(hegel::tuples!(val(), val())).max_size(5));
     let n = rows.len();
     let consumed = tc.draw(gs::integers::<usize>().min_value(0).max_value(n));
@@ -289,12 +289,12 @@ fn spawn_batch_matches_individual_spawns(tc: hegel::TestCase) {
 /// repeat").
 #[hegel::test(settings())]
 fn cleared_world_behaves_like_a_fresh_one(tc: hegel::TestCase) {
-    assert_d_balanced_at_start();
+    let ds = DropTracker::new();
     let history = tc.draw(histories(0, MAX_ENTITIES));
-    let mut cleared = build_world(&history);
+    let mut cleared = build_world(&history, &ds);
     cleared.clear();
     assert_eq!(cleared.len(), 0, "clear left live entities");
-    assert_eq!(d_live(), 0, "clear did not drop every component");
+    assert_eq!(ds.live(), 0, "clear did not drop every component");
 
     let mut fresh = World::new();
     let mut pool: Vec<Entity> = Vec::new();
@@ -308,8 +308,8 @@ fn cleared_world_behaves_like_a_fresh_one(tc: hegel::TestCase) {
         match kind {
             0 | 1 => {
                 let cs = tc.draw(components());
-                let in_cleared = cleared.spawn(cs.builder().build());
-                let in_fresh = fresh.spawn(cs.builder().build());
+                let in_cleared = cleared.spawn(cs.builder(&ds).build());
+                let in_fresh = fresh.spawn(cs.builder(&ds).build());
                 assert_eq!(
                     in_cleared, in_fresh,
                     "cleared world allocated a different handle"
@@ -351,9 +351,9 @@ fn cleared_world_behaves_like_a_fresh_one(tc: hegel::TestCase) {
 /// though the two orders route through different intermediate archetypes.
 #[hegel::test(settings())]
 fn insert_order_on_one_entity_is_unobservable(tc: hegel::TestCase) {
-    assert_d_balanced_at_start();
+    let ds = DropTracker::new();
     let history = tc.draw(histories(1, MAX_ENTITIES));
-    let (mut worlds, pool) = build_twins(&history, 2);
+    let (mut worlds, pool) = build_twins(&history, 2, &ds);
     let e = tc.draw(handle_from(&pool));
     let c1 = tc.draw(gs::integers::<u8>().min_value(0).max_value(3));
     let c2 = tc.draw(gs::integers::<u8>().min_value(0).max_value(3));
@@ -361,7 +361,7 @@ fn insert_order_on_one_entity_is_unobservable(tc: hegel::TestCase) {
     let v1 = tc.draw(val());
     let v2 = tc.draw(val());
 
-    let insert = |w: &mut World, which: u8, v: i32| apply(w, e, Op::InsertOne(which, v));
+    let insert = |w: &mut World, which: u8, v: i32| apply(w, e, Op::InsertOne(which, v), &ds);
     let first1 = insert(&mut worlds[0], c1, v1);
     let first2 = insert(&mut worlds[0], c2, v2);
     let second2 = insert(&mut worlds[1], c2, v2);
@@ -380,7 +380,7 @@ fn insert_order_on_one_entity_is_unobservable(tc: hegel::TestCase) {
         "insert order of components {c1} and {c2} was observable on {e:?}"
     );
     assert_eq!(
-        d_live(),
+        ds.live(),
         total_d(&worlds),
         "drop imbalance after ordered inserts"
     );
@@ -392,9 +392,9 @@ fn insert_order_on_one_entity_is_unobservable(tc: hegel::TestCase) {
 /// generalization of the `deterministic_ids` test in src/world.rs.
 #[hegel::test(settings())]
 fn replaying_a_saved_freelist_reproduces_allocation(tc: hegel::TestCase) {
-    assert_d_balanced_at_start();
+    let ds = DropTracker::new();
     let history = tc.draw(histories(0, MAX_ENTITIES));
-    let mut source = build_world(&history);
+    let mut source = build_world(&history, &ds);
 
     let mut replica = World::new();
     for eref in source.iter() {

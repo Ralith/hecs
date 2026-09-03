@@ -36,6 +36,7 @@ struct WorldModel {
     /// advances the generation, so none of these may resolve again; `clear`
     /// and `spawn_at` are the documented exceptions.
     retired: Vec<Entity>,
+    ds: DropTracker,
 }
 
 impl WorldModel {
@@ -64,7 +65,7 @@ impl WorldModel {
             a: eref.get::<&A>().map(|r| r.0),
             b: eref.get::<&B>().map(|r| r.0),
             c: eref.get::<&C>().is_some(),
-            d: eref.get::<&D>().map(|r| r.0),
+            d: eref.get::<&D>().map(|r| r.value),
         })
     }
 
@@ -88,7 +89,7 @@ impl WorldModel {
     fn spawn(&mut self, tc: TestCase) {
         self.flush_model();
         let cs = tc.draw(components());
-        let mut builder = cs.builder();
+        let mut builder = cs.builder(&self.ds);
         assert_eq!(builder.has::<A>(), cs.a.is_some(), "builder.has::<A>");
         assert_eq!(builder.has::<D>(), cs.d.is_some(), "builder.has::<D>");
         assert_eq!(builder.get::<&A>().map(|r| r.0), cs.a, "builder.get::<&A>");
@@ -113,7 +114,7 @@ impl WorldModel {
         self.flush_model();
         let handle = self.draw_handle(&tc);
         let cs = tc.draw(components());
-        let mut builder = cs.builder();
+        let mut builder = cs.builder(&self.ds);
         self.world.spawn_at(handle, builder.build());
         self.model.retain(|k, _| k.id() != handle.id());
         self.model.insert(handle, cs);
@@ -142,7 +143,7 @@ impl WorldModel {
             "to_bits is not the inverse of from_bits"
         );
         let cs = tc.draw(components());
-        let mut builder = cs.builder();
+        let mut builder = cs.builder(&self.ds);
         self.world.spawn_at(handle, builder.build());
         self.model.retain(|k, _| k.id() != handle.id());
         self.model.insert(handle, cs);
@@ -205,7 +206,7 @@ impl WorldModel {
             // On a dead target the component is dropped rather than stored, so
             // the drop count stays balanced either way.
             _ => {
-                let ok = self.world.insert_one(e, D::new(v)).is_ok();
+                let ok = self.world.insert_one(e, D::new(v, &self.ds)).is_ok();
                 if let Some(m) = self.model.get_mut(&e) {
                     m.d = Some(v);
                 }
@@ -223,7 +224,7 @@ impl WorldModel {
         let e = self.draw_handle(&tc);
         let live = self.model.contains_key(&e);
         let cs = tc.draw(components());
-        let mut builder = cs.builder();
+        let mut builder = cs.builder(&self.ds);
         let ok = self.world.insert(e, builder.build()).is_ok();
         assert_eq!(ok, live, "insert bundle disagreed for {e:?}");
         if let Some(m) = self.model.get_mut(&e) {
@@ -276,7 +277,7 @@ impl WorldModel {
             _ => {
                 let got = self.world.remove_one::<D>(e).ok();
                 assert_eq!(
-                    got.as_ref().map(|d| d.0),
+                    got.as_ref().map(|d| d.value),
                     before.and_then(|cs| cs.d),
                     "remove_one::<D> {e:?}"
                 );
@@ -346,7 +347,7 @@ impl WorldModel {
         } else {
             let got = self.world.exchange_one::<D, A>(e, A(v)).ok();
             assert_eq!(
-                got.as_ref().map(|d| d.0),
+                got.as_ref().map(|d| d.value),
                 before.and_then(|cs| cs.d),
                 "exchange D->A {e:?}"
             );
@@ -385,7 +386,7 @@ impl WorldModel {
             // Editing D's payload constructs and drops nothing.
             _ => {
                 if let Ok(mut d) = self.world.get::<&mut D>(e) {
-                    d.0 = v;
+                    d.value = v;
                 }
                 if let Some(m) = self.model.get_mut(&e).filter(|m| m.d.is_some()) {
                     m.d = Some(v);
@@ -639,7 +640,7 @@ impl WorldModel {
                     a: scratch.get::<&A>(moved).ok().map(|r| r.0),
                     b: scratch.get::<&B>(moved).ok().map(|r| r.0),
                     c: scratch.get::<&C>(moved).is_ok(),
-                    d: scratch.get::<&D>(moved).ok().map(|r| r.0),
+                    d: scratch.get::<&D>(moved).ok().map(|r| r.value),
                 };
                 assert_eq!(Some(obs), expected, "migrated entity lost components");
                 self.model.remove(&e);
@@ -728,8 +729,8 @@ impl WorldModel {
     /// here.
     #[invariant]
     fn drops_balance(&self, _: TestCase) {
-        let expected = self.model.values().filter(|cs| cs.d.is_some()).count() as i64;
-        assert_eq!(d_live(), expected, "live D count != modelled D count");
+        let expected = self.model.values().filter(|cs| cs.d.is_some()).count();
+        assert_eq!(self.ds.live(), expected, "live D count != modelled D count");
     }
 
     /// A destroyed handle never resolves again: `despawn` reuses the id but
@@ -1006,13 +1007,13 @@ impl WorldModel {
 
 #[hegel::test(settings().stateful_step_count(STEPS))]
 fn world_matches_model(tc: TestCase) {
-    assert_d_balanced_at_start();
     let machine = WorldModel {
         world: World::new(),
         model: HashMap::new(),
         handles: pool(&tc),
         reserved: Vec::new(),
         retired: Vec::new(),
+        ds: DropTracker::new(),
     };
     hegel::stateful::run(machine, tc);
 }

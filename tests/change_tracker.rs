@@ -20,8 +20,9 @@
 //! snapshots. That catches a snapshot leaked or dropped twice inside the
 //! tracker.
 
-use std::cell::Cell;
 use std::collections::HashMap;
+use std::fmt;
+use std::sync::Arc;
 
 use fixtures::{settings, val};
 use hecs::{ChangeTracker, Changes, Entity, EntityBuilder, World};
@@ -31,40 +32,25 @@ use hegel::TestCase;
 
 const STEPS: i64 = 150;
 
-thread_local! { static LIVE: Cell<i64> = const { Cell::new(0) }; }
-
-/// The tracked component. `Clone` counts too, because that is how the tracker
-/// takes its snapshots.
-#[derive(Debug)]
-struct Tracked(i32);
-
-impl Tracked {
-    fn new(v: i32) -> Tracked {
-        LIVE.with(|c| c.set(c.get() + 1));
-        Tracked(v)
-    }
+/// The tracked component. Every `Tracked` holds a clone of one `Arc`, so the
+/// strong count minus the test's own handle is how many are alive. `Clone`
+/// counts too, because that is how the tracker takes its snapshots.
+#[derive(Clone)]
+struct Tracked {
+    value: i32,
+    _live: Arc<()>,
 }
 
-impl Clone for Tracked {
-    fn clone(&self) -> Tracked {
-        Tracked::new(self.0)
+impl fmt::Debug for Tracked {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("Tracked").field(&self.value).finish()
     }
 }
 
 impl PartialEq for Tracked {
     fn eq(&self, other: &Tracked) -> bool {
-        self.0 == other.0
+        self.value == other.value
     }
-}
-
-impl Drop for Tracked {
-    fn drop(&mut self) {
-        LIVE.with(|c| c.set(c.get() - 1));
-    }
-}
-
-fn live() -> i64 {
-    LIVE.with(|c| c.get())
 }
 
 /// An untracked component, used to force archetype migrations under the
@@ -86,6 +72,8 @@ struct TrackerModel {
     tracker: ChangeTracker<Tracked>,
     model: HashMap<Entity, Model>,
     handles: Pool<Entity>,
+    /// The handle every `Tracked` is cloned from.
+    live: Arc<()>,
 }
 
 /// What the next poll must report, derived from the model alone.
@@ -120,6 +108,18 @@ impl TrackerModel {
     fn draw_handle(&self, tc: &TestCase) -> Entity {
         *tc.draw(self.handles.values_reusable().print_as_debug())
     }
+
+    fn tracked(&self, value: i32) -> Tracked {
+        Tracked {
+            value,
+            _live: self.live.clone(),
+        }
+    }
+
+    /// How many `Tracked` values are alive, snapshots included.
+    fn live(&self) -> usize {
+        Arc::strong_count(&self.live) - 1
+    }
 }
 
 fn check_added(changes: &mut Changes<'_, Tracked>, want: &HashMap<Entity, i32>) {
@@ -127,7 +127,10 @@ fn check_added(changes: &mut Changes<'_, Tracked>, want: &HashMap<Entity, i32>) 
     assert_eq!(it.len(), want.len(), "added().len()");
     let mut got = HashMap::new();
     for (e, t) in it {
-        assert!(got.insert(e, t.0).is_none(), "added() yielded {e:?} twice");
+        assert!(
+            got.insert(e, t.value).is_none(),
+            "added() yielded {e:?} twice"
+        );
     }
     assert_eq!(got, *want, "added()");
 }
@@ -136,7 +139,7 @@ fn check_changed(changes: &mut Changes<'_, Tracked>, want: &HashMap<Entity, (i32
     let mut got = HashMap::new();
     for (e, old, new) in changes.changed() {
         assert!(
-            got.insert(e, (old.0, new.0)).is_none(),
+            got.insert(e, (old.value, new.value)).is_none(),
             "changed() yielded {e:?} twice"
         );
     }
@@ -149,7 +152,7 @@ fn check_removed(changes: &mut Changes<'_, Tracked>, want: &HashMap<Entity, i32>
     let mut got = HashMap::new();
     for (e, old) in it {
         assert!(
-            got.insert(e, old.0).is_none(),
+            got.insert(e, old.value).is_none(),
             "removed() yielded {e:?} twice"
         );
     }
@@ -168,7 +171,7 @@ impl TrackerModel {
         let other = tc.draw(gs::optional(val()));
         let mut builder = EntityBuilder::new();
         if let Some(v) = tracked {
-            builder.add(Tracked::new(v));
+            builder.add(self.tracked(v));
         }
         if let Some(v) = other {
             builder.add(Other(v));
@@ -190,9 +193,14 @@ impl TrackerModel {
     fn spawn_batch(&mut self, tc: TestCase) {
         let n = tc.draw(gs::integers::<u32>().min_value(0).max_value(4));
         let v = tc.draw(val());
+        let live = &self.live;
+        let tracked = || Tracked {
+            value: v,
+            _live: live.clone(),
+        };
         let handles: Vec<Entity> = self
             .world
-            .spawn_batch((0..n).map(|_| (Tracked::new(v), Other(v))))
+            .spawn_batch((0..n).map(|_| (tracked(), Other(v))))
             .collect();
         for e in handles {
             self.model.insert(
@@ -225,7 +233,7 @@ impl TrackerModel {
         let e = self.draw_handle(&tc);
         let v = tc.draw(val());
         let live_entity = self.model.contains_key(&e);
-        let ok = self.world.insert_one(e, Tracked::new(v)).is_ok();
+        let ok = self.world.insert_one(e, self.tracked(v)).is_ok();
         assert_eq!(ok, live_entity, "insert of Tracked disagreed for {e:?}");
         if let Some(m) = self.model.get_mut(&e) {
             m.current = Some(v);
@@ -257,7 +265,7 @@ impl TrackerModel {
                     had,
                     "&mut Tracked succeeded for {e:?} but the model has none"
                 );
-                t.0 = v;
+                t.value = v;
             }
             Err(_) => assert!(!had, "&mut Tracked failed for {e:?} but the model has one"),
         }
@@ -275,7 +283,7 @@ impl TrackerModel {
             self.world
                 .get::<&mut Tracked>(e)
                 .expect("the model says Tracked is present")
-                .0 = v;
+                .value = v;
         }
     }
 
@@ -365,7 +373,7 @@ impl TrackerModel {
                         let mut it = changes.added();
                         assert_eq!(it.len(), added.len(), "added().len()");
                         if let Some((e, t)) = it.next() {
-                            assert_eq!(added.get(&e), Some(&t.0), "first element of added()");
+                            assert_eq!(added.get(&e), Some(&t.value), "first element of added()");
                         }
                     }
                     check_changed(&mut changes, &changed);
@@ -389,7 +397,7 @@ impl TrackerModel {
         for (&e, m) in &self.model {
             assert!(self.world.contains(e), "world is missing modelled {e:?}");
             assert_eq!(
-                self.world.get::<&Tracked>(e).ok().map(|t| t.0),
+                self.world.get::<&Tracked>(e).ok().map(|t| t.value),
                 m.current,
                 "Tracked on {e:?}"
             );
@@ -415,8 +423,8 @@ impl TrackerModel {
         let current = self.model.values().filter(|m| m.current.is_some()).count();
         let snapshots = self.model.values().filter(|m| m.snapshot.is_some()).count();
         assert_eq!(
-            live(),
-            (current + snapshots) as i64,
+            self.live(),
+            current + snapshots,
             "live Tracked count != current components + snapshots"
         );
     }
@@ -432,12 +440,12 @@ impl TrackerModel {
 )]
 #[hegel::test(settings().stateful_step_count(STEPS))]
 fn change_tracker_matches_model(tc: TestCase) {
-    assert_eq!(live(), 0, "live Tracked count nonzero at case start");
     let machine = TrackerModel {
         world: World::new(),
         tracker: ChangeTracker::new(),
         model: HashMap::new(),
         handles: pool(&tc),
+        live: Arc::new(()),
     };
     hegel::stateful::run(machine, tc);
 }

@@ -33,8 +33,9 @@ fn collect(it: impl Iterator<Item = (Entity, i32)>, label: &str) -> BTreeMap<Ent
 /// for entities with no components at all.
 #[hegel::test(settings())]
 fn satisfies_reports_query_matching_for_every_entity(tc: hegel::TestCase) {
+    let ds = DropTracker::new();
     let history = tc.draw(histories(0, MAX_ENTITIES));
-    let world = build_world(&history);
+    let world = build_world(&history, &ds);
     let fp = fingerprint(&world);
 
     let mut got: BTreeMap<Entity, (bool, bool)> = BTreeMap::new();
@@ -59,8 +60,9 @@ fn satisfies_reports_query_matching_for_every_entity(tc: hegel::TestCase) {
 /// `ExactSizeIterator`, so its length must be the number of matches.
 #[hegel::test(settings())]
 fn writes_through_a_unique_query_are_visible(tc: hegel::TestCase) {
+    let ds = DropTracker::new();
     let history = tc.draw(histories(0, MAX_ENTITIES));
-    let world = build_world(&history);
+    let world = build_world(&history, &ds);
     let mut fp = fingerprint(&world);
     let v = tc.draw(val());
 
@@ -99,8 +101,9 @@ fn writes_through_a_unique_query_are_visible(tc: hegel::TestCase) {
 /// `split`, `left`, `right`, and `cloned().as_mut()`.
 #[hegel::test(settings())]
 fn or_accessors_agree_with_the_matched_variant(tc: hegel::TestCase) {
+    let ds = DropTracker::new();
     let history = tc.draw(histories(0, MAX_ENTITIES));
-    let world = build_world(&history);
+    let world = build_world(&history, &ds);
     let fp = fingerprint(&world);
 
     let mut seen = 0usize;
@@ -141,8 +144,9 @@ fn or_accessors_agree_with_the_matched_variant(tc: hegel::TestCase) {
 /// unique-borrow (`QueryMut`) paths.
 #[hegel::test(settings())]
 fn query_filters_select_by_component_presence(tc: hegel::TestCase) {
+    let ds = DropTracker::new();
     let history = tc.draw(histories(0, MAX_ENTITIES));
-    let mut world = build_world(&history);
+    let mut world = build_world(&history, &ds);
     let fp = fingerprint(&world);
 
     let with_b: BTreeMap<Entity, i32> = fp
@@ -202,8 +206,9 @@ fn query_filters_select_by_component_presence(tc: hegel::TestCase) {
 /// exactly what flat iteration does, whatever the batch size.
 #[hegel::test(settings())]
 fn batched_iteration_partitions_the_matches(tc: hegel::TestCase) {
+    let ds = DropTracker::new();
     let history = tc.draw(histories(0, MAX_ENTITIES));
-    let mut world = build_world(&history);
+    let mut world = build_world(&history, &ds);
     let want = expected_a(&fingerprint(&world));
     // A batch size of 0 is documented to panic.
     let size = tc.draw(gs::integers::<u32>().min_value(1).max_value(4));
@@ -235,8 +240,9 @@ fn batched_iteration_partitions_the_matches(tc: hegel::TestCase) {
 /// matches as a query.
 #[hegel::test(settings())]
 fn view_iteration_visits_every_match(tc: hegel::TestCase) {
+    let ds = DropTracker::new();
     let history = tc.draw(histories(0, MAX_ENTITIES));
-    let mut world = build_world(&history);
+    let mut world = build_world(&history, &ds);
     let want = expected_a(&fingerprint(&world));
 
     {
@@ -275,8 +281,9 @@ fn view_iteration_visits_every_match(tc: hegel::TestCase) {
 /// component, and miss exactly the entities the query does not match.
 #[hegel::test(settings())]
 fn random_access_views_agree_with_iteration(tc: hegel::TestCase) {
+    let ds = DropTracker::new();
     let history = tc.draw(histories(1, MAX_ENTITIES));
-    let (mut world, pool) = build_world_with_handles(&history);
+    let (mut world, pool) = build_world_with_handles(&history, &ds);
     let fp = fingerprint(&world);
     let e1 = tc.draw(handle_from(&pool));
     let e2 = tc.draw(handle_from(&pool));
