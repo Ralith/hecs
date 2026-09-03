@@ -567,6 +567,12 @@ where
         let entity_count = seq
             .next_element::<u32>()?
             .ok_or_else(|| de::Error::invalid_length(0, &self))?;
+        if entity_count == u32::MAX {
+            return Err(de::Error::invalid_length(
+                entity_count as usize,
+                &"less than 2^32-1",
+            ));
+        }
         let component_count = seq
             .next_element::<u32>()?
             .ok_or_else(|| de::Error::invalid_length(1, &self))?;
