@@ -283,29 +283,33 @@ fn insert_order_on_one_entity_is_unobservable(tc: hegel::TestCase) {
     let history = tc.draw(histories(1, MAX_ENTITIES));
     let (mut worlds, pool) = build_twins(&history, 2, &ds);
     let e = tc.draw(handle_from(&pool));
-    let c1 = tc.draw(kinds());
-    let c2 = tc.draw(kinds());
-    tc.assume(c1 != c2);
+    let pair = tc.draw(
+        gs::samples(&KINDS[..])
+            .without_replacement()
+            .min_size(2)
+            .max_size(2),
+    );
+    let (k1, k2) = (pair[0], pair[1]);
     let v1 = tc.draw(val());
     let v2 = tc.draw(val());
 
     let insert = |w: &mut World, k: Kind, v: i32| k.insert_one(w, e, v, &ds).is_ok();
-    let first1 = insert(&mut worlds[0], c1, v1);
-    let first2 = insert(&mut worlds[0], c2, v2);
-    let second2 = insert(&mut worlds[1], c2, v2);
-    let second1 = insert(&mut worlds[1], c1, v1);
+    let first1 = insert(&mut worlds[0], k1, v1);
+    let first2 = insert(&mut worlds[0], k2, v2);
+    let second2 = insert(&mut worlds[1], k2, v2);
+    let second1 = insert(&mut worlds[1], k1, v1);
     assert_eq!(
         first1, second1,
-        "insert of {c1:?} was order-dependent on {e:?}"
+        "insert of {k1:?} was order-dependent on {e:?}"
     );
     assert_eq!(
         first2, second2,
-        "insert of {c2:?} was order-dependent on {e:?}"
+        "insert of {k2:?} was order-dependent on {e:?}"
     );
     assert_eq!(
         fingerprint(&worlds[0]),
         fingerprint(&worlds[1]),
-        "insert order of {c1:?} and {c2:?} was observable on {e:?}"
+        "insert order of {k1:?} and {k2:?} was observable on {e:?}"
     );
     assert_eq!(
         ds.live(),
