@@ -10,6 +10,19 @@ use std::any::TypeId;
 
 use hecs::{Archetype, ColumnBatchBuilder, ColumnBatchType, Component, TypeIdMap, TypeInfo, World};
 
+#[derive(Clone, Debug, PartialEq)]
+struct Count(i32);
+impl Component for Count {}
+
+#[derive(Clone, Debug, PartialEq)]
+struct Name(String);
+impl Component for Name {}
+
+/// A component that will not be registered with the [`WorldCloner`]
+#[derive(Clone, Debug, PartialEq)]
+struct Marker(u8);
+impl Component for Marker {}
+
 struct ComponentCloneMetadata {
     type_info: TypeInfo,
     insert_into_batch_func: &'static dyn Fn(&Archetype, &mut ColumnBatchBuilder),
@@ -75,21 +88,15 @@ impl WorldCloner {
 }
 
 pub fn main() {
-    let int0 = 0;
-    let int1 = 1;
-    let str0 = "Ada".to_owned();
-    let str1 = "Bob".to_owned();
-    let str2 = "Cal".to_owned();
-
     let mut world0 = World::new();
-    let entity0 = world0.spawn((int0, str0));
-    let entity1 = world0.spawn((int1, str1));
-    let entity2 = world0.spawn((str2,));
-    let entity3 = world0.spawn((0u8,)); // unregistered component
+    let entity0 = world0.spawn((Count(0), Name("Ada".to_owned())));
+    let entity1 = world0.spawn((Count(1), Name("Bob".to_owned())));
+    let entity2 = world0.spawn((Name("Cal".to_owned()),));
+    let entity3 = world0.spawn((Marker(0),)); // unregistered component
 
     let mut cloner = WorldCloner::default();
-    cloner.register::<i32>();
-    cloner.register::<String>();
+    cloner.register::<Count>();
+    cloner.register::<Name>();
 
     let world1 = cloner.clone_world(&world0);
 
@@ -104,18 +111,18 @@ pub fn main() {
         world0
             .entity(entity3)
             .expect("w0 entity3 should exist")
-            .has::<u8>(),
-        "original world entity has u8 component"
+            .has::<Marker>(),
+        "original world entity has Marker component"
     );
     assert!(
         !world1
             .entity(entity3)
             .expect("w1 entity3 should exist")
-            .has::<u8>(),
-        "cloned world entity does not have u8 component because it was not registered"
+            .has::<Marker>(),
+        "cloned world entity does not have Marker component because it was not registered"
     );
 
-    type AllRegisteredComponentsQuery = (&'static i32, &'static String);
+    type AllRegisteredComponentsQuery = (&'static Count, &'static Name);
     for entity in [entity0, entity1] {
         let w0_e = world0.entity(entity).expect("w0 entity should exist");
         let w1_e = world1.entity(entity).expect("w1 entity should exist");
@@ -128,7 +135,7 @@ pub fn main() {
         );
     }
 
-    type SomeRegisteredComponentsQuery = (&'static String,);
+    type SomeRegisteredComponentsQuery = (&'static Name,);
     let w0_e = world0.entity(entity2).expect("w0 entity2 should exist");
     let w1_e = world1.entity(entity2).expect("w1 entity2 should exist");
     assert!(w0_e.satisfies::<SomeRegisteredComponentsQuery>());

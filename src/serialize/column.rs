@@ -40,8 +40,10 @@ use crate::{
 /// # use serde::{Serialize, Deserialize};
 /// # #[derive(Serialize)]
 /// # struct Position([f32; 3]);
+/// # impl Component for Position {}
 /// # #[derive(Serialize)]
 /// # struct Velocity([f32; 3]);
+/// # impl Component for Velocity {}
 /// use std::any::TypeId;
 /// use hecs::{*, serialize::column::*};
 ///
@@ -310,8 +312,10 @@ where
 /// # use serde::{Serialize, Deserialize};
 /// # #[derive(Deserialize)]
 /// # struct Position([f32; 3]);
+/// # impl Component for Position {}
 /// # #[derive(Deserialize)]
 /// # struct Velocity([f32; 3]);
+/// # impl Component for Velocity {}
 /// use hecs::{*, serialize::column::*};
 ///
 /// #[derive(Serialize, Deserialize)]
@@ -756,8 +760,10 @@ mod tests {
 
     #[derive(Serialize, Deserialize, PartialEq, Debug, Copy, Clone)]
     struct Position([f32; 3]);
+    impl Component for Position {}
     #[derive(Serialize, Deserialize, PartialEq, Debug, Copy, Clone)]
     struct Velocity([f32; 3]);
+    impl Component for Velocity {}
 
     #[derive(Default)]
     struct Context {
