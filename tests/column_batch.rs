@@ -7,11 +7,9 @@
 //! the leak properties here meaningful: this machinery moves component data
 //! with raw pointer copies and owns partially initialized storage.
 
-mod common;
-
 use std::collections::HashSet;
 
-use common::*;
+use fixtures::*;
 use hecs::{ColumnBatch, ColumnBatchBuilder, ColumnBatchType, Entity, TypeInfo, World};
 use hegel::generators as gs;
 

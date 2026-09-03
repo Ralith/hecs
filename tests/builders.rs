@@ -8,11 +8,9 @@
 //! drop-tracked, so a builder that leaks or double-drops what it holds fails
 //! even when the components it spawns look right.
 
-mod common;
-
 use std::collections::BTreeMap;
 
-use common::*;
+use fixtures::*;
 use hecs::{
     bundle_satisfies_query, dynamic_bundle_satisfies_query, DynamicBundle, Entity,
     EntityBuilderClone, Ref, RefMut, World,

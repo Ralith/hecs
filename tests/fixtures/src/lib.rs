@@ -1,10 +1,6 @@
 //! Shared fixtures for the property tests: a fixed component universe, an
 //! observational fingerprint of a `World`, and twin worlds replayed from one
 //! generated history.
-//!
-//! Each integration-test binary compiles this module separately, so parts of it
-//! are unused in some binaries.
-#![allow(dead_code)]
 
 use std::cell::Cell;
 use std::collections::{BTreeMap, HashSet};
@@ -186,7 +182,7 @@ pub fn fingerprint(world: &World) -> Fingerprint {
 }
 
 /// How many live `D` components a fingerprint accounts for.
-pub fn fingerprint_d_count(fp: &Fingerprint) -> i64 {
+fn fingerprint_d_count(fp: &Fingerprint) -> i64 {
     fp.values().filter(|o| o.d.is_some()).count() as i64
 }
 

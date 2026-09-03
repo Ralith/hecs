@@ -20,12 +20,10 @@
 //! snapshots. That catches a snapshot leaked or dropped twice inside the
 //! tracker.
 
-mod common;
-
 use std::cell::Cell;
 use std::collections::HashMap;
 
-use common::{settings, val};
+use fixtures::{settings, val};
 use hecs::{ChangeTracker, Changes, Entity, EntityBuilder, World};
 use hegel::generators::{self as gs, Generator};
 use hegel::stateful::{pool, Pool};

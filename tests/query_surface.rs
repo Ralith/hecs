@@ -6,11 +6,9 @@
 //! yields exactly the entities and values the fingerprint predicts, with no
 //! duplicates.
 
-mod common;
-
 use std::collections::BTreeMap;
 
-use common::*;
+use fixtures::*;
 use hecs::{Entity, Or, PreparedQuery, Satisfies};
 use hegel::generators as gs;
 

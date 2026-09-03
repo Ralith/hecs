@@ -9,13 +9,11 @@
 //! already parsed. `D` is drop-tracked and deserialized through its own
 //! constructor, which is what makes the leak half checkable.
 
-mod common;
-
 use std::any::TypeId;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
 use bincode::Options;
-use common::*;
+use fixtures::*;
 use hecs::serialize::{column, row};
 use hecs::{
     Archetype, ColumnBatchBuilder, ColumnBatchType, Entity, EntityBuilder, EntityRef, Query, World,

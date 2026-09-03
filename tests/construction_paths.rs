@@ -10,9 +10,7 @@
 //! the tuple route did not), so this phase checks that construction history is
 //! not observable.
 
-mod common;
-
-use common::*;
+use fixtures::*;
 use hecs::{CommandBuffer, Entity, World};
 use hegel::generators::{self as gs, Generator};
 

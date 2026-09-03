@@ -1,0 +1,11 @@
+[package]
+name = "fixtures"
+description = "Shared fixtures for the property tests in ../"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+hecs = { path = "../..", default-features = false }
+hegel = { package = "hegeltest", version = "0.35.0" }
+serde = { version = "1.0.117", features = ["derive"] }

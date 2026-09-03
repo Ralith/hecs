@@ -12,11 +12,9 @@
 //! The handle pool deliberately retains despawned handles, so operations
 //! against dead entities are common and their error paths are exercised.
 
-mod common;
-
 use std::collections::HashMap;
 
-use common::*;
+use fixtures::*;
 use hecs::{Entity, EntityBuilderClone, Or, PreparedQuery, QueryOneError, With, Without, World};
 use hegel::generators::{self as gs, Generator};
 use hegel::stateful::{pool, Pool};

@@ -6,9 +6,7 @@
 //! observational fingerprint. `D` is drop-tracked throughout, so a relation
 //! that holds observationally but leaks a component still fails.
 
-mod common;
-
-use common::*;
+use fixtures::*;
 use hecs::{Entity, World};
 use hegel::generators as gs;
 
