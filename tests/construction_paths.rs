@@ -14,10 +14,12 @@ use fixtures::*;
 use hecs::{CommandBuffer, Entity, World};
 use hegel::generators::{self as gs, Generator};
 
+type Route = fn(&mut World, Components, &DropTracker) -> Entity;
+
 /// The routes that spawn drawn components and return the handle. The
 /// `CommandBuffer` route is driven separately, since `CommandBuffer::spawn`
 /// does not return one.
-const ROUTES: [(&str, fn(&mut World, Components, &DropTracker) -> Entity); 4] = [
+const ROUTES: [(&str, Route); 4] = [
     ("EntityBuilder", spawn_builder),
     ("static tuple", spawn_tuple),
     ("reserve_entity + insert", spawn_reserved),
