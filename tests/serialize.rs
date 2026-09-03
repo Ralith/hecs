@@ -10,9 +10,8 @@
 //! constructor, which is what makes the leak half checkable.
 
 use std::any::TypeId;
-use std::panic::{catch_unwind, AssertUnwindSafe};
-
 use std::fmt;
+use std::panic::{catch_unwind, AssertUnwindSafe};
 
 use bincode::Options;
 use fixtures::*;
@@ -476,21 +475,25 @@ fn column_corrupted_input_is_rejected_or_usable(tc: hegel::TestCase) {
 #[test]
 fn row_rejects_streams_it_cannot_represent() {
     let ds = DropTracker::new();
-    let mut zero_generation = Vec::new();
-    zero_generation.extend(encode(&1u64)); // one entity
-    zero_generation.extend(encode(&0u64)); // entity bits: generation 0
-    zero_generation.extend(encode(&0u64)); // no components
+    let zero_generation = [
+        encode(&1u64), // one entity
+        encode(&0u64), // entity bits: generation 0
+        encode(&0u64), // no components
+    ]
+    .concat();
     assert!(
         RowFormat::world(&zero_generation, &ds).is_err(),
         "accepted a generation-0 entity"
     );
 
-    let mut unknown_component = Vec::new();
-    unknown_component.extend(encode(&1u64)); // one entity
-    unknown_component.extend(encode(&(1u64 << 32))); // generation 1, id 0
-    unknown_component.extend(encode(&1u64)); // one component
-    unknown_component.extend(encode(&99u32)); // no such Id variant
-    unknown_component.extend(encode(&0i32));
+    let unknown_component = [
+        encode(&1u64),         // one entity
+        encode(&(1u64 << 32)), // generation 1, id 0
+        encode(&1u64),         // one component
+        encode(&99u32),        // no such Id variant
+        encode(&0i32),
+    ]
+    .concat();
     assert!(
         RowFormat::world(&unknown_component, &ds).is_err(),
         "accepted an unknown component id"
@@ -503,25 +506,29 @@ fn row_rejects_streams_it_cannot_represent() {
 #[test]
 fn column_rejects_streams_it_cannot_represent() {
     let ds = DropTracker::new();
-    let mut duplicate_column = Vec::new();
-    duplicate_column.extend(encode(&1u64)); // one archetype
-    duplicate_column.extend(encode(&1u32)); // entity_count
-    duplicate_column.extend(encode(&2u32)); // component_count
-    duplicate_column.extend(encode(&0u32)); // Id::A
-    duplicate_column.extend(encode(&0u32)); // Id::A again
-    duplicate_column.extend(encode(&(1u64 << 32))); // generation 1, id 0
-    duplicate_column.extend(encode(&0i32)); // first A column
-    duplicate_column.extend(encode(&1i32)); // second A column, no space left
+    let duplicate_column = [
+        encode(&1u64),         // one archetype
+        encode(&1u32),         // entity_count
+        encode(&2u32),         // component_count
+        encode(&0u32),         // Id::A
+        encode(&0u32),         // Id::A again
+        encode(&(1u64 << 32)), // generation 1, id 0
+        encode(&0i32),         // first A column
+        encode(&1i32),         // second A column, no space left
+    ]
+    .concat();
     assert!(
         ColumnFormat::world(&duplicate_column, &ds).is_err(),
         "accepted a duplicated component column"
     );
 
-    let mut short_entity_list = Vec::new();
-    short_entity_list.extend(encode(&1u64)); // one archetype
-    short_entity_list.extend(encode(&2u32)); // entity_count = 2
-    short_entity_list.extend(encode(&0u32)); // component_count = 0
-    short_entity_list.extend(encode(&(1u64 << 32))); // only one entity id
+    let short_entity_list = [
+        encode(&1u64),         // one archetype
+        encode(&2u32),         // entity_count = 2
+        encode(&0u32),         // component_count = 0
+        encode(&(1u64 << 32)), // only one entity id
+    ]
+    .concat();
     assert!(
         ColumnFormat::world(&short_entity_list, &ds).is_err(),
         "accepted a short entity list"
@@ -536,15 +543,17 @@ fn column_rejects_streams_it_cannot_represent() {
 fn column_deserialize_tolerates_repeated_entity_ids() {
     let ds = DropTracker::new();
     let bits = 1u64 << 32; // generation 1, id 0
-    let mut bytes = Vec::new();
-    bytes.extend(encode(&1u64)); // one archetype
-    bytes.extend(encode(&2u32)); // entity_count = 2
-    bytes.extend(encode(&1u32)); // component_count = 1
-    bytes.extend(encode(&0u32)); // Id::A
-    bytes.extend(encode(&bits));
-    bytes.extend(encode(&bits)); // the same id twice
-    bytes.extend(encode(&7i32));
-    bytes.extend(encode(&9i32));
+    let bytes = [
+        encode(&1u64), // one archetype
+        encode(&2u32), // entity_count = 2
+        encode(&1u32), // component_count = 1
+        encode(&0u32), // Id::A
+        encode(&bits),
+        encode(&bits), // the same id twice
+        encode(&7i32),
+        encode(&9i32),
+    ]
+    .concat();
 
     let world =
         ColumnFormat::world(&bytes, &ds).expect("repeated ids are deduplicated, not rejected");
