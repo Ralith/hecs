@@ -75,6 +75,15 @@ impl WorldModel {
     }
 }
 
+/// Collect `(Entity, value)` pairs, failing on a repeated entity.
+fn unique<V>(pairs: impl IntoIterator<Item = (Entity, V)>, label: &str) -> HashMap<Entity, V> {
+    let mut got = HashMap::new();
+    for (e, v) in pairs {
+        assert!(got.insert(e, v).is_none(), "{label} yielded {e:?} twice");
+    }
+    got
+}
+
 // Driven by `world_matches_model` below.
 #[hegel::state_machine]
 impl WorldModel {
@@ -784,48 +793,49 @@ impl WorldModel {
         let model = &self.model;
         let world = &self.world;
 
-        let mut got = HashMap::new();
-        for (e, a) in world.query::<(Entity, &A)>().iter() {
-            assert!(
-                got.insert(e, a.0).is_none(),
-                "query::<&A> yielded {e:?} twice"
-            );
-        }
+        let got = unique(
+            world.query::<(Entity, &A)>().iter().map(|(e, a)| (e, a.0)),
+            "query::<&A>",
+        );
         let want: HashMap<Entity, i32> = model
             .iter()
             .filter_map(|(&e, cs)| cs.a.map(|v| (e, v)))
             .collect();
         assert_eq!(got, want, "query::<&A>");
 
-        let mut got = HashMap::new();
-        for (e, a, b) in world.query::<(Entity, &A, &B)>().iter() {
-            assert!(
-                got.insert(e, (a.0, b.0)).is_none(),
-                "query::<(&A,&B)> yielded {e:?} twice"
-            );
-        }
+        let got = unique(
+            world
+                .query::<(Entity, &A, &B)>()
+                .iter()
+                .map(|(e, a, b)| (e, (a.0, b.0))),
+            "query::<(&A,&B)>",
+        );
         let want: HashMap<Entity, (i32, i32)> = model
             .iter()
             .filter_map(|(&e, cs)| cs.a.zip(cs.b).map(|v| (e, v)))
             .collect();
         assert_eq!(got, want, "query::<(&A,&B)>");
 
-        let with: HashMap<Entity, i32> = world
-            .query::<With<(Entity, &A), &B>>()
-            .iter()
-            .map(|(e, a)| (e, a.0))
-            .collect();
+        let got = unique(
+            world
+                .query::<With<(Entity, &A), &B>>()
+                .iter()
+                .map(|(e, a)| (e, a.0)),
+            "query::<With<&A, &B>>",
+        );
         let want: HashMap<Entity, i32> = model
             .iter()
             .filter_map(|(&e, cs)| cs.b.and(cs.a).map(|v| (e, v)))
             .collect();
-        assert_eq!(with, want, "query::<With<&A, &B>>");
+        assert_eq!(got, want, "query::<With<&A, &B>>");
 
-        let without: HashMap<Entity, i32> = world
-            .query::<Without<(Entity, &A), &B>>()
-            .iter()
-            .map(|(e, a)| (e, a.0))
-            .collect();
+        let got = unique(
+            world
+                .query::<Without<(Entity, &A), &B>>()
+                .iter()
+                .map(|(e, a)| (e, a.0)),
+            "query::<Without<&A, &B>>",
+        );
         let want: HashMap<Entity, i32> = model
             .iter()
             .filter_map(|(&e, cs)| match (cs.a, cs.b) {
@@ -833,30 +843,34 @@ impl WorldModel {
                 _ => None,
             })
             .collect();
-        assert_eq!(without, want, "query::<Without<&A, &B>>");
+        assert_eq!(got, want, "query::<Without<&A, &B>>");
 
-        let or: HashMap<Entity, (Option<i32>, Option<i32>)> = world
-            .query::<(Entity, Or<&A, &B>)>()
-            .iter()
-            .map(|(e, ab)| (e, (ab.left().map(|a| a.0), ab.right().map(|b| b.0))))
-            .collect();
+        let got = unique(
+            world
+                .query::<(Entity, Or<&A, &B>)>()
+                .iter()
+                .map(|(e, ab)| (e, (ab.left().map(|a| a.0), ab.right().map(|b| b.0)))),
+            "query::<Or<&A, &B>>",
+        );
         let want: HashMap<Entity, (Option<i32>, Option<i32>)> = model
             .iter()
             .filter(|(_, cs)| cs.a.is_some() || cs.b.is_some())
             .map(|(&e, cs)| (e, (cs.a, cs.b)))
             .collect();
-        assert_eq!(or, want, "query::<Or<&A, &B>>");
+        assert_eq!(got, want, "query::<Or<&A, &B>>");
 
-        let opt: HashMap<Entity, Option<i32>> = world
-            .query::<(Entity, &A, Option<&B>)>()
-            .iter()
-            .map(|(e, _, b)| (e, b.map(|b| b.0)))
-            .collect();
+        let got = unique(
+            world
+                .query::<(Entity, &A, Option<&B>)>()
+                .iter()
+                .map(|(e, _, b)| (e, b.map(|b| b.0))),
+            "query::<(&A, Option<&B>)>",
+        );
         let want: HashMap<Entity, Option<i32>> = model
             .iter()
             .filter_map(|(&e, cs)| cs.a.map(|_| (e, cs.b)))
             .collect();
-        assert_eq!(opt, want, "query::<(&A, Option<&B>)>");
+        assert_eq!(got, want, "query::<(&A, Option<&B>)>");
     }
 
     /// Per-entity access agrees with the model for every live entity,
