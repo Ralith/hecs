@@ -14,7 +14,7 @@ use hegel::generators as gs;
 
 /// A single-entity operation. Spawning operations are excluded: allocation
 /// order is observable through the handles they return, so they do not commute.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, hegel::PrettyPrintable)]
 enum Op {
     InsertOne(u8, i32),
     RemoveOne(u8),
@@ -27,8 +27,6 @@ enum Op {
     ExchangeAToB(i32),
     ExchangeDToA(i32),
 }
-
-hegel::pretty_print_as_debug!(Op);
 
 #[hegel::composite]
 fn ops(tc: &hegel::TestCase) -> Op {

@@ -68,7 +68,7 @@ fn spawn_incrementally(world: &mut World, s: Spec) -> Entity {
     e
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, hegel::PrettyPrintable)]
 enum Mutation {
     InsertOne(u8, i32),
     RemoveOne(u8),
@@ -77,8 +77,6 @@ enum Mutation {
     Despawn,
     ExchangeAToB(i32),
 }
-
-hegel::pretty_print_as_debug!(Mutation);
 
 #[hegel::composite]
 fn mutations(tc: &hegel::TestCase) -> Mutation {
@@ -239,8 +237,6 @@ enum Command {
     RemoveOne(Entity, u8),
     Despawn(Entity),
 }
-
-hegel::pretty_print_as_debug!(Command);
 
 fn record(buffer: &mut CommandBuffer, c: Command) {
     match c {

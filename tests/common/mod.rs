@@ -135,7 +135,7 @@ pub fn pick(tc: &hegel::TestCase, pool: &[Entity]) -> Option<Entity> {
 /// An arbitrary subset of the component universe, as drawn payloads. `D`
 /// instances are materialized only when a bundle is built, so the drop count
 /// tracks exactly the instances that entered a world.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, hegel::PrettyPrintable)]
 pub struct Spec {
     pub a: Option<i32>,
     pub b: Option<i32>,
@@ -152,10 +152,6 @@ impl Spec {
             + self.d.is_some() as usize
     }
 }
-
-// `draw` refuses a generator whose values it cannot print. This prints `Spec`
-// with its `Debug` impl.
-hegel::pretty_print_as_debug!(Spec);
 
 /// An arbitrary component subset. The attribute turns this into a
 /// zero-argument `specs()` returning a generator of `Spec`, and
