@@ -345,7 +345,8 @@ impl WorldModel {
         };
         assert_eq!(got, had, "get::<&mut {kind:?}> disagreed for {e:?}");
         if had {
-            *self.model.get_mut(&e).unwrap() = self.model[&e].with(kind, v);
+            let m = self.model.get_mut(&e).unwrap();
+            *m = m.with(kind, v);
         }
         self.check_entity(e, "mutate_in_place");
     }
@@ -422,7 +423,8 @@ impl WorldModel {
     fn view_get_disjoint_mut(&mut self, tc: TestCase) {
         let e1 = self.draw_handle(&tc);
         let e2 = self.draw_handle(&tc);
-        // `get_disjoint_mut` documents a panic on repeated handles.
+        // Like `query_disjoint_mut`, `get_disjoint_mut` panics on repeated
+        // handles.
         tc.assume(e1 != e2);
         let (v1, v2) = (tc.draw(val()), tc.draw(val()));
         let mut view = self.world.view_mut::<&mut B>();
