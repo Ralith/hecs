@@ -207,6 +207,26 @@ fn spawn_batch_matches_individual_spawns(tc: hegel::TestCase) {
     check_archetypes(&worlds[0], "batch");
 }
 
+/// One step run against both the cleared and the fresh world.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, hegel::PrettyPrintable)]
+enum Probe {
+    Spawn(Components),
+    Despawn,
+    InsertA(i32),
+}
+
+/// Half the probes spawn, so the other half soon have entities to act on.
+#[hegel::composite]
+fn probes(tc: &hegel::TestCase) -> Probe {
+    if tc.draw(gs::booleans()) {
+        return Probe::Spawn(tc.draw(components()));
+    }
+    tc.draw(hegel::one_of!(
+        gs::just(Probe::Despawn),
+        hegel::compose!(|tc| { Probe::InsertA(tc.draw(val())) }),
+    ))
+}
+
 /// After `clear`, a world is indistinguishable from `World::new()` under any
 /// subsequent operations — including handing out the same `Entity` values,
 /// which `clear` documents ("clears metadata so that `Entity` values will
@@ -228,10 +248,9 @@ fn cleared_world_behaves_like_a_fresh_one(tc: hegel::TestCase) {
             .max_value(MAX_ENTITIES * 2),
     );
     for _ in 0..steps {
-        let kind = tc.draw(gs::integers::<u8>().min_value(0).max_value(3));
-        match kind {
-            0 | 1 => {
-                let cs = tc.draw(components());
+        let probe = tc.draw(probes());
+        match probe {
+            Probe::Spawn(cs) => {
                 let in_cleared = cleared.spawn(cs.builder(&ds).build());
                 let in_fresh = fresh.spawn(cs.builder(&ds).build());
                 assert_eq!(
@@ -240,27 +259,23 @@ fn cleared_world_behaves_like_a_fresh_one(tc: hegel::TestCase) {
                 );
                 pool.push(in_cleared);
             }
-            2 => {
-                if !pool.is_empty() {
-                    let e = tc.draw(handle_from(&pool));
-                    assert_eq!(
-                        cleared.despawn(e).is_ok(),
-                        fresh.despawn(e).is_ok(),
-                        "despawn of {e:?} disagreed"
-                    );
-                }
+            Probe::Despawn if !pool.is_empty() => {
+                let e = tc.draw(handle_from(&pool));
+                assert_eq!(
+                    cleared.despawn(e).is_ok(),
+                    fresh.despawn(e).is_ok(),
+                    "despawn of {e:?} disagreed"
+                );
             }
-            _ => {
-                if !pool.is_empty() {
-                    let e = tc.draw(handle_from(&pool));
-                    let v = tc.draw(val());
-                    assert_eq!(
-                        cleared.insert_one(e, A(v)).is_ok(),
-                        fresh.insert_one(e, A(v)).is_ok(),
-                        "insert_one on {e:?} disagreed"
-                    );
-                }
+            Probe::InsertA(v) if !pool.is_empty() => {
+                let e = tc.draw(handle_from(&pool));
+                assert_eq!(
+                    cleared.insert_one(e, A(v)).is_ok(),
+                    fresh.insert_one(e, A(v)).is_ok(),
+                    "insert_one on {e:?} disagreed"
+                );
             }
+            Probe::Despawn | Probe::InsertA(_) => {}
         }
         assert_eq!(
             fingerprint(&cleared),
