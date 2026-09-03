@@ -78,6 +78,16 @@ fn unique<V>(pairs: impl IntoIterator<Item = (Entity, V)>, label: &str) -> HashM
     got
 }
 
+/// `query_one::<&A>(e)` on a live entity, against the `A` the model predicts
+/// once the query's filters are applied.
+fn check_query_one(got: Result<&A, QueryOneError>, want: Option<i32>, label: &str) {
+    match got {
+        Ok(a) => assert_eq!(Some(a.0), want, "{label}"),
+        Err(QueryOneError::Unsatisfied) => assert!(want.is_none(), "{label} unsatisfied"),
+        Err(QueryOneError::NoSuchEntity) => panic!("{label} on a live entity"),
+    }
+}
+
 // Driven by `world_matches_model` below.
 #[hegel::state_machine]
 impl WorldModel {
@@ -373,36 +383,18 @@ impl WorldModel {
         let (got1, got2);
         {
             let [r1, r2] = self.world.query_disjoint_mut::<&mut A, 2>([e1, e2]);
-            got1 = r1
-                .map(|a| {
-                    let old = a.0;
-                    a.0 = v1;
-                    old
-                })
-                .ok();
-            got2 = r2
-                .map(|a| {
-                    let old = a.0;
-                    a.0 = v2;
-                    old
-                })
-                .ok();
+            got1 = r1.map(|a| std::mem::replace(&mut a.0, v1)).ok();
+            got2 = r2.map(|a| std::mem::replace(&mut a.0, v2)).ok();
         }
-        assert_eq!(
-            got1,
-            self.expect(e1).and_then(|cs| cs.a),
-            "query_disjoint_mut {e1:?}"
-        );
-        assert_eq!(
-            got2,
-            self.expect(e2).and_then(|cs| cs.a),
-            "query_disjoint_mut {e2:?}"
-        );
-        if got1.is_some() {
-            self.model.get_mut(&e1).unwrap().a = Some(v1);
-        }
-        if got2.is_some() {
-            self.model.get_mut(&e2).unwrap().a = Some(v2);
+        for (e, v, got) in [(e1, v1, got1), (e2, v2, got2)] {
+            assert_eq!(
+                got,
+                self.expect(e).and_then(|cs| cs.a),
+                "query_disjoint_mut {e:?}"
+            );
+            if got.is_some() {
+                self.model.get_mut(&e).unwrap().a = Some(v);
+            }
         }
     }
 
@@ -808,46 +800,23 @@ impl WorldModel {
     #[invariant]
     fn per_entity_access_matches_model(&self, _: TestCase) {
         for (&e, cs) in &self.model {
-            match self.world.query_one::<&A>(e).get() {
-                Ok(a) => assert_eq!(Some(a.0), cs.a, "query_one::<&A> value for {e:?}"),
-                Err(QueryOneError::Unsatisfied) => {
-                    assert!(
-                        cs.a.is_none(),
-                        "query_one::<&A> unsatisfied but A modelled for {e:?}"
-                    )
-                }
-                Err(QueryOneError::NoSuchEntity) => panic!("query_one on live {e:?}"),
-            }
+            check_query_one(
+                self.world.query_one::<&A>(e).get(),
+                cs.a,
+                &format!("query_one::<&A> {e:?}"),
+            );
             // `with`/`without` filter the same query by another component's
             // presence without borrowing it.
-            match self.world.query_one::<&A>(e).with::<&B>().get() {
-                Ok(a) => assert_eq!(
-                    (Some(a.0), true),
-                    (cs.a, cs.b.is_some()),
-                    "with::<&B> {e:?}"
-                ),
-                Err(QueryOneError::Unsatisfied) => {
-                    assert!(
-                        cs.a.is_none() || cs.b.is_none(),
-                        "with::<&B> unsatisfied for {e:?}"
-                    )
-                }
-                Err(QueryOneError::NoSuchEntity) => panic!("with::<&B> on live {e:?}"),
-            }
-            match self.world.query_one::<&A>(e).without::<&B>().get() {
-                Ok(a) => assert_eq!(
-                    (Some(a.0), false),
-                    (cs.a, cs.b.is_some()),
-                    "without::<&B> {e:?}"
-                ),
-                Err(QueryOneError::Unsatisfied) => {
-                    assert!(
-                        cs.a.is_none() || cs.b.is_some(),
-                        "without::<&B> unsatisfied for {e:?}"
-                    )
-                }
-                Err(QueryOneError::NoSuchEntity) => panic!("without::<&B> on live {e:?}"),
-            }
+            check_query_one(
+                self.world.query_one::<&A>(e).with::<&B>().get(),
+                cs.a.filter(|_| cs.b.is_some()),
+                &format!("query_one::<&A>.with::<&B> {e:?}"),
+            );
+            check_query_one(
+                self.world.query_one::<&A>(e).without::<&B>().get(),
+                cs.a.filter(|_| cs.b.is_none()),
+                &format!("query_one::<&A>.without::<&B> {e:?}"),
+            );
             assert_eq!(
                 self.world.satisfies::<&A>(e),
                 cs.a.is_some(),
