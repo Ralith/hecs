@@ -243,6 +243,14 @@ fn apply_eagerly(world: &mut World, c: Command, ds: &DropTracker) {
     }
 }
 
+/// What is done with the buffer once a round of commands is recorded.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, hegel::PrettyPrintable)]
+enum Outcome {
+    Run,
+    Clear,
+    Drop,
+}
+
 /// How many `D` values a recorded sequence is holding inside the buffer.
 fn pending_d(commands: &[Command]) -> usize {
     commands
@@ -298,9 +306,11 @@ fn command_buffer_matches_eager_application(tc: hegel::TestCase) {
             "a buffered D was dropped early or leaked"
         );
 
-        let outcome = tc.draw(gs::integers::<u8>().min_value(0).max_value(3));
+        let outcome = tc.draw(gs::sampled_from(
+            &[Outcome::Run, Outcome::Clear, Outcome::Drop][..],
+        ));
         match outcome {
-            0 | 1 => {
+            Outcome::Run => {
                 buffer.run_on(&mut worlds[1]);
                 for &c in &commands {
                     apply_eagerly(&mut worlds[0], c, &ds);
@@ -320,7 +330,7 @@ fn command_buffer_matches_eager_application(tc: hegel::TestCase) {
                 );
             }
             // `clear` discards the recorded commands.
-            2 => {
+            Outcome::Clear => {
                 buffer.clear();
                 buffer.run_on(&mut worlds[1]);
                 assert_eq!(
@@ -330,7 +340,7 @@ fn command_buffer_matches_eager_application(tc: hegel::TestCase) {
                 );
             }
             // Dropping a non-empty buffer must release its stored components.
-            _ => buffer = CommandBuffer::new(),
+            Outcome::Drop => buffer = CommandBuffer::new(),
         }
 
         assert_eq!(
