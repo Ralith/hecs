@@ -1,4 +1,4 @@
-//! Shared fixtures for the property tests: a fixed component universe, an
+//! Shared fixtures for the property tests: four component types, an
 //! observational fingerprint of a `World`, and twin worlds replayed from one
 //! generated history.
 
@@ -9,8 +9,8 @@ use hecs::{Entity, EntityBuilder, World};
 use hegel::generators::{self as gs, Generator};
 use serde::{Deserialize, Deserializer, Serialize};
 
-/// Component universe: two same-shaped payload components, a zero-sized marker,
-/// and a drop-tracked non-`Copy` component.
+/// The component types the tests use: two same-shaped payload components, a
+/// zero-sized marker, and a drop-tracked non-`Copy` component.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct A(pub i32);
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -95,37 +95,57 @@ pub fn val() -> impl gs::PrintableGenerator<i32> {
     gs::integers::<i32>().min_value(-3).max_value(3)
 }
 
-/// A handle from `pool`, which deliberately retains despawned handles. `pool`
-/// must not be empty.
-pub fn pick(pool: &[Entity]) -> impl gs::PrintableGenerator<Entity> + '_ {
-    gs::sampled_from(pool).print_as_debug()
+/// One of `handles`, drawn uniformly: `sampled_from` made printable, since
+/// `Entity` is not `PrettyPrintable`. Callers pass every handle their world
+/// has issued, despawned ones included, so a draw often names a dead entity
+/// and the `NoSuchEntity` paths get exercised too. `handles` must not be
+/// empty.
+pub fn handle_from(handles: &[Entity]) -> impl gs::PrintableGenerator<Entity> + '_ {
+    gs::sampled_from(handles).print_as_debug()
 }
 
-/// An arbitrary subset of the component universe, as drawn payloads. `D`
-/// instances are materialized only when a bundle is built, so the drop count
-/// tracks exactly the instances that entered a world.
+/// The components of one entity: the payloads of its `A`, `B` and `D`, and
+/// whether it has a `C`. `D` payloads stay as `i32` here and become `D`
+/// values in `builder`, so the drop count only ever counts values that were
+/// handed to hecs.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, hegel::PrettyPrintable)]
-pub struct Spec {
+pub struct Components {
     pub a: Option<i32>,
     pub b: Option<i32>,
     pub c: bool,
     pub d: Option<i32>,
 }
 
-impl Spec {
-    /// How many components an entity built from this spec has.
+impl Components {
     pub fn component_count(&self) -> usize {
         self.a.is_some() as usize
             + self.b.is_some() as usize
             + self.c as usize
             + self.d.is_some() as usize
     }
+
+    pub fn builder(&self) -> EntityBuilder {
+        let mut b = EntityBuilder::new();
+        if let Some(v) = self.a {
+            b.add(A(v));
+        }
+        if let Some(v) = self.b {
+            b.add(B(v));
+        }
+        if self.c {
+            b.add(C);
+        }
+        if let Some(v) = self.d {
+            b.add(D::new(v));
+        }
+        b
+    }
 }
 
-/// An arbitrary component subset.
+/// Each component present or absent independently, with a drawn payload.
 #[hegel::composite]
-pub fn specs(tc: &hegel::TestCase) -> Spec {
-    Spec {
+pub fn components(tc: &hegel::TestCase) -> Components {
+    Components {
         a: tc.draw(gs::optional(val())),
         b: tc.draw(gs::optional(val())),
         c: tc.draw(gs::booleans()),
@@ -133,39 +153,22 @@ pub fn specs(tc: &hegel::TestCase) -> Spec {
     }
 }
 
-/// `specs()` without `D`, which is not `Clone` and so cannot go into an
+/// `components()` without `D`, which is not `Clone` and so cannot go into an
 /// `EntityBuilderClone`.
-pub fn specs_without_d() -> impl gs::PrintableGenerator<Spec> {
-    specs().map(|s| Spec { d: None, ..s })
-}
-
-pub fn make_builder(s: Spec) -> EntityBuilder {
-    let mut b = EntityBuilder::new();
-    if let Some(v) = s.a {
-        b.add(A(v));
-    }
-    if let Some(v) = s.b {
-        b.add(B(v));
-    }
-    if s.c {
-        b.add(C);
-    }
-    if let Some(v) = s.d {
-        b.add(D::new(v));
-    }
-    b
+pub fn components_without_d() -> impl gs::PrintableGenerator<Components> {
+    components().map(|cs| Components { d: None, ..cs })
 }
 
 /// Canonical snapshot of everything a caller can observe about a `World`: the
 /// exact `Entity` handles (id and generation) and, per entity, the exact
 /// component set and values. Two worlds are observationally equivalent iff
 /// their fingerprints compare equal.
-pub type Fingerprint = BTreeMap<Entity, Spec>;
+pub type Fingerprint = BTreeMap<Entity, Components>;
 
 pub fn fingerprint(world: &World) -> Fingerprint {
     let mut fp = Fingerprint::new();
     for eref in world.iter() {
-        let obs = Spec {
+        let obs = Components {
             a: eref.get::<&A>().map(|r| r.0),
             b: eref.get::<&B>().map(|r| r.0),
             c: eref.get::<&C>().is_some(),
@@ -223,11 +226,12 @@ pub fn check_archetypes(world: &World, label: &str) {
     );
 }
 
-/// One step of a world's history: spawn an entity from a spec, or despawn the
-/// `i`th entity spawned so far, which is still live at that point.
+/// One step of a world's history: spawn an entity with the given components,
+/// or despawn the `i`th entity spawned so far, which is still live at that
+/// point.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, hegel::PrettyPrintable)]
 pub enum Step {
-    Spawn(Spec),
+    Spawn(Components),
     Despawn(usize),
 }
 
@@ -251,7 +255,7 @@ pub fn histories(tc: &hegel::TestCase, min_steps: u32, max_steps: u32) -> Vec<St
             live.retain(|&l| l != i);
             steps.push(Step::Despawn(i));
         } else {
-            steps.push(Step::Spawn(tc.draw(specs())));
+            steps.push(Step::Spawn(tc.draw(components())));
             live.push(spawned);
             spawned += 1;
         }
@@ -271,8 +275,8 @@ pub fn build_twins(history: &[Step], n_worlds: usize) -> (Vec<World>, Vec<Entity
     let mut pool: Vec<Entity> = Vec::new();
     for step in history {
         match *step {
-            Step::Spawn(s) => {
-                let mut handles = worlds.iter_mut().map(|w| w.spawn(make_builder(s).build()));
+            Step::Spawn(cs) => {
+                let mut handles = worlds.iter_mut().map(|w| w.spawn(cs.builder().build()));
                 let first = handles.next().expect("at least one world");
                 for h in handles {
                     assert_eq!(first, h, "twin worlds allocated different handles");

@@ -2,9 +2,9 @@
 //! world, plus `CommandBuffer` against eager application.
 //!
 //! hecs allocates handles deterministically, so worlds built by different
-//! routes from the same drawn specs must be observationally identical — same
-//! handles, same component sets, same values. The specs themselves are the
-//! ground truth, so the routes cannot all agree on a wrong answer. After
+//! routes from the same drawn components must be observationally identical:
+//! same handles, same component sets, same values. The drawn components are
+//! the ground truth, so the routes cannot all agree on a wrong answer. After
 //! construction, the same mutations are applied to every world: internally they
 //! differ (the incremental route left a chain of intermediate archetypes behind,
 //! the tuple route did not), so this phase checks that construction history is
@@ -17,9 +17,9 @@ use hegel::generators::{self as gs, Generator};
 const ROUTES: usize = 5;
 
 /// Route 2: the static `Bundle` impls, one concrete tuple type per subset of
-/// the component universe.
-fn spawn_tuple(world: &mut World, s: Spec) -> Entity {
-    match (s.a, s.b, s.c, s.d) {
+/// `{A, B, C, D}`.
+fn spawn_tuple(world: &mut World, cs: Components) -> Entity {
+    match (cs.a, cs.b, cs.c, cs.d) {
         (None, None, false, None) => world.spawn(()),
         (Some(a), None, false, None) => world.spawn((A(a),)),
         (None, Some(b), false, None) => world.spawn((B(b),)),
@@ -41,24 +41,24 @@ fn spawn_tuple(world: &mut World, s: Spec) -> Entity {
 
 /// Route 5: an empty entity migrated through one intermediate archetype per
 /// component.
-fn spawn_incrementally(world: &mut World, s: Spec) -> Entity {
+fn spawn_incrementally(world: &mut World, cs: Components) -> Entity {
     let e = world.spawn(());
-    if let Some(v) = s.a {
+    if let Some(v) = cs.a {
         world
             .insert_one(e, A(v))
             .expect("insert on a just-spawned entity");
     }
-    if let Some(v) = s.b {
+    if let Some(v) = cs.b {
         world
             .insert_one(e, B(v))
             .expect("insert on a just-spawned entity");
     }
-    if s.c {
+    if cs.c {
         world
             .insert_one(e, C)
             .expect("insert on a just-spawned entity");
     }
-    if let Some(v) = s.d {
+    if let Some(v) = cs.d {
         world
             .insert_one(e, D::new(v))
             .expect("insert on a just-spawned entity");
@@ -70,7 +70,7 @@ fn spawn_incrementally(world: &mut World, s: Spec) -> Entity {
 enum Mutation {
     InsertOne(u8, i32),
     RemoveOne(u8),
-    InsertBundle(Spec),
+    InsertBundle(Components),
     RemoveAB,
     Despawn,
     ExchangeAToB(i32),
@@ -84,7 +84,7 @@ fn mutations(tc: &hegel::TestCase) -> Mutation {
     tc.draw(hegel::one_of!(
         hegel::compose!(|tc| { Mutation::InsertOne(tc.draw(which()), tc.draw(val())) }),
         hegel::compose!(|tc| { Mutation::RemoveOne(tc.draw(which())) }),
-        hegel::compose!(|tc| { Mutation::InsertBundle(tc.draw(specs())) }),
+        hegel::compose!(|tc| { Mutation::InsertBundle(tc.draw(components())) }),
         gs::just(Mutation::RemoveAB),
         gs::just(Mutation::Despawn),
         hegel::compose!(|tc| { Mutation::ExchangeAToB(tc.draw(val())) }),
@@ -105,7 +105,7 @@ fn apply(world: &mut World, e: Entity, m: Mutation) -> bool {
             2 => world.remove_one::<C>(e).is_ok(),
             _ => world.remove_one::<D>(e).is_ok(),
         },
-        Mutation::InsertBundle(s) => world.insert(e, make_builder(s).build()).is_ok(),
+        Mutation::InsertBundle(cs) => world.insert(e, cs.builder().build()).is_ok(),
         Mutation::RemoveAB => world.remove::<(A, B)>(e).is_ok(),
         Mutation::Despawn => world.despawn(e).is_ok(),
         Mutation::ExchangeAToB(v) => world.exchange_one::<A, B>(e, B(v)).is_ok(),
@@ -124,33 +124,33 @@ fn construction_routes_are_observationally_equal(tc: hegel::TestCase) {
     let history = tc.draw(histories(0, MAX_ENTITIES));
     let (mut worlds, mut pool) = build_twins(&history, ROUTES);
 
-    let specs: Vec<Spec> = tc.draw(gs::vecs(specs()).max_size(MAX_ENTITIES as usize));
+    let to_spawn: Vec<Components> = tc.draw(gs::vecs(components()).max_size(MAX_ENTITIES as usize));
 
     let mut buffer = CommandBuffer::new();
-    for &s in &specs {
-        buffer.spawn(make_builder(s).build());
+    for &cs in &to_spawn {
+        buffer.spawn(cs.builder().build());
     }
 
     let mut handles: Vec<Vec<Entity>> = Vec::with_capacity(ROUTES);
     handles.push(
-        specs
+        to_spawn
             .iter()
-            .map(|&s| worlds[0].spawn(make_builder(s).build()))
+            .map(|&cs| worlds[0].spawn(cs.builder().build()))
             .collect(),
     );
     handles.push(
-        specs
+        to_spawn
             .iter()
-            .map(|&s| spawn_tuple(&mut worlds[1], s))
+            .map(|&cs| spawn_tuple(&mut worlds[1], cs))
             .collect(),
     );
     handles.push(
-        specs
+        to_spawn
             .iter()
-            .map(|&s| {
+            .map(|&cs| {
                 let e = worlds[2].reserve_entity();
                 worlds[2]
-                    .insert(e, make_builder(s).build())
+                    .insert(e, cs.builder().build())
                     .expect("insert on a freshly reserved entity");
                 e
             })
@@ -160,9 +160,9 @@ fn construction_routes_are_observationally_equal(tc: hegel::TestCase) {
     // recovered from the fingerprint comparison below.
     buffer.run_on(&mut worlds[3]);
     handles.push(
-        specs
+        to_spawn
             .iter()
-            .map(|&s| spawn_incrementally(&mut worlds[4], s))
+            .map(|&cs| spawn_incrementally(&mut worlds[4], cs))
             .collect(),
     );
 
@@ -172,11 +172,11 @@ fn construction_routes_are_observationally_equal(tc: hegel::TestCase) {
     pool.extend(handles[0].iter().copied());
 
     let expected = fingerprint(&worlds[0]);
-    for (e, s) in handles[0].iter().zip(&specs) {
+    for (e, cs) in handles[0].iter().zip(&to_spawn) {
         assert_eq!(
             expected.get(e),
-            Some(s),
-            "the builder route disagrees with the spec for {e:?}"
+            Some(cs),
+            "the builder route disagrees with the drawn components for {e:?}"
         );
     }
     for (i, w) in worlds.iter().enumerate().skip(1) {
@@ -198,7 +198,7 @@ fn construction_routes_are_observationally_equal(tc: hegel::TestCase) {
     }
     let steps = tc.draw(gs::integers::<u32>().min_value(0).max_value(MAX_ENTITIES));
     for _ in 0..steps {
-        let e = tc.draw(pick(&pool));
+        let e = tc.draw(handle_from(&pool));
         let m = tc.draw(mutations());
         let mut results = worlds.iter_mut().map(|w| apply(w, e, m));
         let first = results.next().expect("at least one world");
@@ -230,8 +230,8 @@ fn construction_routes_are_observationally_equal(tc: hegel::TestCase) {
 /// directly.
 #[derive(Clone, Copy, Debug)]
 enum Command {
-    Spawn(Spec),
-    Insert(Entity, Spec),
+    Spawn(Components),
+    Insert(Entity, Components),
     InsertOne(Entity, u8, i32),
     RemoveAB(Entity),
     RemoveCD(Entity),
@@ -249,20 +249,20 @@ fn commands_on(tc: &hegel::TestCase, pool: &[Entity]) -> Command {
         .min_value(0)
         .max_value(if pool.is_empty() { 1 } else { 7 });
     match tc.draw(kinds) {
-        0 | 1 => Command::Spawn(tc.draw(specs())),
-        2 => Command::Insert(tc.draw(pick(pool)), tc.draw(specs())),
-        3 => Command::InsertOne(tc.draw(pick(pool)), tc.draw(which), tc.draw(val())),
-        4 => Command::RemoveAB(tc.draw(pick(pool))),
-        5 => Command::RemoveCD(tc.draw(pick(pool))),
-        6 => Command::RemoveOne(tc.draw(pick(pool)), tc.draw(which)),
-        _ => Command::Despawn(tc.draw(pick(pool))),
+        0 | 1 => Command::Spawn(tc.draw(components())),
+        2 => Command::Insert(tc.draw(handle_from(pool)), tc.draw(components())),
+        3 => Command::InsertOne(tc.draw(handle_from(pool)), tc.draw(which), tc.draw(val())),
+        4 => Command::RemoveAB(tc.draw(handle_from(pool))),
+        5 => Command::RemoveCD(tc.draw(handle_from(pool))),
+        6 => Command::RemoveOne(tc.draw(handle_from(pool)), tc.draw(which)),
+        _ => Command::Despawn(tc.draw(handle_from(pool))),
     }
 }
 
 fn record(buffer: &mut CommandBuffer, c: Command) {
     match c {
-        Command::Spawn(s) => buffer.spawn(make_builder(s).build()),
-        Command::Insert(e, s) => buffer.insert(e, make_builder(s).build()),
+        Command::Spawn(cs) => buffer.spawn(cs.builder().build()),
+        Command::Insert(e, cs) => buffer.insert(e, cs.builder().build()),
         Command::InsertOne(e, which, v) => match which {
             0 => buffer.insert_one(e, A(v)),
             1 => buffer.insert_one(e, B(v)),
@@ -285,10 +285,10 @@ fn record(buffer: &mut CommandBuffer, c: Command) {
 /// each command's eager equivalent discards its error.
 fn apply_eagerly(world: &mut World, c: Command) {
     match c {
-        Command::Spawn(s) => {
-            world.spawn(make_builder(s).build());
+        Command::Spawn(cs) => {
+            world.spawn(cs.builder().build());
         }
-        Command::Insert(e, s) => drop(world.insert(e, make_builder(s).build())),
+        Command::Insert(e, cs) => drop(world.insert(e, cs.builder().build())),
         Command::InsertOne(e, which, v) => match which {
             0 => drop(world.insert_one(e, A(v))),
             1 => drop(world.insert_one(e, B(v))),
@@ -312,7 +312,7 @@ fn pending_d(commands: &[Command]) -> i64 {
     commands
         .iter()
         .map(|c| match c {
-            Command::Spawn(s) | Command::Insert(_, s) => s.d.is_some() as i64,
+            Command::Spawn(cs) | Command::Insert(_, cs) => cs.d.is_some() as i64,
             Command::InsertOne(_, 3, _) => 1,
             _ => 0,
         })

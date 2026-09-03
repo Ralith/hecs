@@ -283,8 +283,8 @@ fn random_access_views_agree_with_iteration(tc: hegel::TestCase) {
     let (mut worlds, pool) = build_twins(&history, 1);
     let world = &mut worlds[0];
     let fp = fingerprint(world);
-    let e1 = tc.draw(pick(&pool));
-    let e2 = tc.draw(pick(&pool));
+    let e1 = tc.draw(handle_from(&pool));
+    let e2 = tc.draw(handle_from(&pool));
 
     {
         let mut q = world.query::<&A>();

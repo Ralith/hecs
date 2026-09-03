@@ -16,7 +16,7 @@ use hegel::generators as gs;
 enum Op {
     InsertOne(u8, i32),
     RemoveOne(u8),
-    InsertBundle(Spec),
+    InsertBundle(Components),
     RemoveAB,
     RemoveCD,
     Despawn,
@@ -34,7 +34,7 @@ fn ops(tc: &hegel::TestCase) -> Op {
     tc.draw(hegel::one_of!(
         hegel::compose!(|tc| { Op::InsertOne(tc.draw(which()), tc.draw(val())) }),
         hegel::compose!(|tc| { Op::RemoveOne(tc.draw(which())) }),
-        hegel::compose!(|tc| { Op::InsertBundle(tc.draw(specs())) }),
+        hegel::compose!(|tc| { Op::InsertBundle(tc.draw(components())) }),
         gs::just(Op::RemoveAB),
         gs::just(Op::RemoveCD),
         gs::just(Op::Despawn),
@@ -60,7 +60,7 @@ fn apply(world: &mut World, e: Entity, op: Op) -> bool {
             2 => world.remove_one::<C>(e).is_ok(),
             _ => world.remove_one::<D>(e).is_ok(),
         },
-        Op::InsertBundle(s) => world.insert(e, make_builder(s).build()).is_ok(),
+        Op::InsertBundle(cs) => world.insert(e, cs.builder().build()).is_ok(),
         Op::RemoveAB => world.remove::<(A, B)>(e).is_ok(),
         Op::RemoveCD => world.remove::<(C, D)>(e).is_ok(),
         Op::Despawn => world.despawn(e).is_ok(),
@@ -85,8 +85,8 @@ fn operations_on_distinct_entities_commute(tc: hegel::TestCase) {
     assert_d_balanced_at_start();
     let history = tc.draw(histories(1, MAX_ENTITIES));
     let (mut worlds, pool) = build_twins(&history, 2);
-    let e1 = tc.draw(pick(&pool));
-    let e2 = tc.draw(pick(&pool));
+    let e1 = tc.draw(handle_from(&pool));
+    let e2 = tc.draw(handle_from(&pool));
     tc.assume(e1 != e2);
     let x = tc.draw(ops());
     let y = tc.draw(ops());
@@ -131,7 +131,7 @@ fn insert_then_remove_leaves_the_component_absent(tc: hegel::TestCase) {
     let history = tc.draw(histories(1, MAX_ENTITIES));
     let (mut worlds, pool) = build_twins(&history, 1);
     let world = &mut worlds[0];
-    let e = tc.draw(pick(&pool));
+    let e = tc.draw(handle_from(&pool));
     let before = fingerprint(world);
     let live = before.contains_key(&e);
     let v = tc.draw(val());
@@ -204,7 +204,7 @@ fn exchange_roundtrip_restores_the_world(tc: hegel::TestCase) {
     let history = tc.draw(histories(1, MAX_ENTITIES));
     let (mut worlds, pool) = build_twins(&history, 1);
     let world = &mut worlds[0];
-    let e = tc.draw(pick(&pool));
+    let e = tc.draw(handle_from(&pool));
     let before = fingerprint(world);
     let had_a = before.get(&e).and_then(|o| o.a);
     let x = tc.draw(val());
@@ -309,9 +309,9 @@ fn cleared_world_behaves_like_a_fresh_one(tc: hegel::TestCase) {
         let kind = tc.draw(gs::integers::<u8>().min_value(0).max_value(3));
         match kind {
             0 | 1 => {
-                let s = tc.draw(specs());
-                let in_cleared = cleared.spawn(make_builder(s).build());
-                let in_fresh = fresh.spawn(make_builder(s).build());
+                let cs = tc.draw(components());
+                let in_cleared = cleared.spawn(cs.builder().build());
+                let in_fresh = fresh.spawn(cs.builder().build());
                 assert_eq!(
                     in_cleared, in_fresh,
                     "cleared world allocated a different handle"
@@ -320,7 +320,7 @@ fn cleared_world_behaves_like_a_fresh_one(tc: hegel::TestCase) {
             }
             2 => {
                 if !pool.is_empty() {
-                    let e = tc.draw(pick(&pool));
+                    let e = tc.draw(handle_from(&pool));
                     assert_eq!(
                         cleared.despawn(e).is_ok(),
                         fresh.despawn(e).is_ok(),
@@ -330,7 +330,7 @@ fn cleared_world_behaves_like_a_fresh_one(tc: hegel::TestCase) {
             }
             _ => {
                 if !pool.is_empty() {
-                    let e = tc.draw(pick(&pool));
+                    let e = tc.draw(handle_from(&pool));
                     let v = tc.draw(val());
                     assert_eq!(
                         cleared.insert_one(e, A(v)).is_ok(),
@@ -356,7 +356,7 @@ fn insert_order_on_one_entity_is_unobservable(tc: hegel::TestCase) {
     assert_d_balanced_at_start();
     let history = tc.draw(histories(1, MAX_ENTITIES));
     let (mut worlds, pool) = build_twins(&history, 2);
-    let e = tc.draw(pick(&pool));
+    let e = tc.draw(handle_from(&pool));
     let c1 = tc.draw(gs::integers::<u8>().min_value(0).max_value(3));
     let c2 = tc.draw(gs::integers::<u8>().min_value(0).max_value(3));
     tc.assume(c1 != c2);
@@ -426,7 +426,7 @@ fn replaying_a_saved_freelist_reproduces_allocation(tc: hegel::TestCase) {
             );
             pool.push(in_source);
         } else if !pool.is_empty() {
-            let e = tc.draw(pick(&pool));
+            let e = tc.draw(handle_from(&pool));
             assert_eq!(
                 source.despawn(e).is_ok(),
                 replica.despawn(e).is_ok(),

@@ -56,8 +56,8 @@ fn build_batch(rows: &[Row]) -> ColumnBatch {
 }
 
 /// A world's observable contents as an order-independent multiset.
-fn multiset(world: &World) -> Vec<Spec> {
-    let mut v: Vec<Spec> = fingerprint(world).into_values().collect();
+fn multiset(world: &World) -> Vec<Components> {
+    let mut v: Vec<Components> = fingerprint(world).into_values().collect();
     v.sort();
     v
 }
@@ -174,14 +174,14 @@ fn column_batch_at_places_each_row_on_its_handle(tc: hegel::TestCase) {
     // so a repeated handle in the batch list is the only way two rows can
     // collide.
     let bystander_bs: Vec<i32> = tc.draw(gs::vecs(val()).max_size(4));
-    let bystanders: Vec<(Entity, Spec)> = bystander_bs
+    let bystanders: Vec<(Entity, Components)> = bystander_bs
         .iter()
         .map(|&b| {
-            let s = Spec {
+            let cs = Components {
                 b: Some(b),
-                ..Spec::default()
+                ..Components::default()
             };
-            (world.spawn(make_builder(s).build()), s)
+            (world.spawn(cs.builder().build()), cs)
         })
         .collect();
 
@@ -189,13 +189,13 @@ fn column_batch_at_places_each_row_on_its_handle(tc: hegel::TestCase) {
     let target_handles: Vec<Entity> = targets
         .iter()
         .map(|t| {
-            let s = Spec {
+            let cs = Components {
                 a: Some(t.a),
                 b: Some(t.b),
                 c: true,
                 d: Some(t.d),
             };
-            world.spawn(make_builder(s).build())
+            world.spawn(cs.builder().build())
         })
         .collect();
     for (t, &e) in targets.iter().zip(&target_handles) {
@@ -209,7 +209,7 @@ fn column_batch_at_places_each_row_on_its_handle(tc: hegel::TestCase) {
     }
     let rows = tc.draw(rows_up_to(8));
     let handles: Vec<Entity> = tc.draw(
-        gs::vecs(pick(&target_handles))
+        gs::vecs(handle_from(&target_handles))
             .min_size(rows.len())
             .max_size(rows.len()),
     );
@@ -225,17 +225,17 @@ fn column_batch_at_places_each_row_on_its_handle(tc: hegel::TestCase) {
     world.spawn_column_batch_at(&handles, batch);
 
     // The last row for an id wins.
-    let mut expected: Vec<(Entity, Spec)> = bystanders.clone();
-    let mut placed: Vec<(Entity, Spec)> = Vec::new();
+    let mut expected: Vec<(Entity, Components)> = bystanders.clone();
+    let mut placed: Vec<(Entity, Components)> = Vec::new();
     for (&e, &(a, d)) in handles.iter().zip(&rows) {
-        let spec = Spec {
+        let cs = Components {
             a: Some(a),
             b: None,
             c: false,
             d: Some(d),
         };
         placed.retain(|(other, _)| other.id() != e.id());
-        placed.push((e, spec));
+        placed.push((e, cs));
     }
     let replaced: HashSet<u32> = handles.iter().map(|e| e.id()).collect();
     for (t, &e) in targets.iter().zip(&target_handles) {
@@ -251,12 +251,8 @@ fn column_batch_at_places_each_row_on_its_handle(tc: hegel::TestCase) {
         expected.len(),
         "world holds the wrong number of entities"
     );
-    for (e, spec) in &expected {
-        assert_eq!(
-            after.get(e),
-            Some(spec),
-            "contents of {e:?} after the batch"
-        );
+    for (e, cs) in &expected {
+        assert_eq!(after.get(e), Some(cs), "contents of {e:?} after the batch");
     }
     check_archetypes(&world, "batch-at world");
     assert_eq!(

@@ -21,7 +21,7 @@ use hecs::{
 use hegel::generators as gs;
 use serde::{Deserialize, Serialize};
 
-/// Wire identifiers for the component universe. The bincode encoding of these
+/// Wire identifiers for the four component types. The bincode encoding of these
 /// discriminants is `A = 0 .. D = 3`, so anything above 3 is an unknown-variant
 /// error on the way back in.
 #[derive(Clone, Copy, Serialize, Deserialize)]
@@ -253,7 +253,7 @@ fn row_serialize_satisfying_keeps_exactly_the_matching_entities(tc: hegel::TestC
     let restored = row_world(&row_satisfying_bytes::<&A>(&world)).expect("row deserialize");
     let want: Fingerprint = fingerprint(&world)
         .into_iter()
-        .filter(|(_, s)| s.a.is_some())
+        .filter(|(_, cs)| cs.a.is_some())
         .collect();
     assert_eq!(
         want,
@@ -271,7 +271,7 @@ fn column_serialize_satisfying_keeps_exactly_the_matching_entities(tc: hegel::Te
         column_world(&column_satisfying_bytes::<&A>(&world)).expect("column deserialize");
     let want: Fingerprint = fingerprint(&world)
         .into_iter()
-        .filter(|(_, s)| s.a.is_some())
+        .filter(|(_, cs)| cs.a.is_some())
         .collect();
     assert_eq!(
         want,
@@ -495,7 +495,7 @@ fn column_deserialize_tolerates_repeated_entity_ids() {
         "a repeated id produced more than one entity"
     );
     assert_eq!(
-        fingerprint(&world).get(&e).and_then(|s| s.a),
+        fingerprint(&world).get(&e).and_then(|cs| cs.a),
         Some(9),
         "the last row must win"
     );

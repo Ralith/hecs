@@ -2,7 +2,7 @@
 //! `EntityBuilderClone`, the bundle query-satisfaction predicates, the `Ref`
 //! wrappers, and whole-column archetype access.
 //!
-//! The oracles are the drawn spec, the world's own `satisfies` (which must
+//! The oracles are the drawn components, the world's own `satisfies` (which must
 //! agree with the predicates that answer the same question without a world),
 //! and per-entity reads (which must agree with whole-column reads). `D` is
 //! drop-tracked, so a builder that leaks or double-drops what it holds fails
@@ -22,15 +22,15 @@ use hecs::{
 #[hegel::test(settings())]
 fn bundle_satisfaction_agrees_with_world_satisfies(tc: hegel::TestCase) {
     assert_d_balanced_at_start();
-    let s = tc.draw(specs());
+    let cs = tc.draw(components());
     let mut world = World::new();
 
-    let mut builder = make_builder(s);
+    let mut builder = cs.builder();
     let built = builder.build();
-    assert_eq!(built.has::<A>(), s.a.is_some(), "BuiltEntity::has::<A>");
-    assert_eq!(built.has::<B>(), s.b.is_some(), "BuiltEntity::has::<B>");
-    assert_eq!(built.has::<C>(), s.c, "BuiltEntity::has::<C>");
-    assert_eq!(built.has::<D>(), s.d.is_some(), "BuiltEntity::has::<D>");
+    assert_eq!(built.has::<A>(), cs.a.is_some(), "BuiltEntity::has::<A>");
+    assert_eq!(built.has::<B>(), cs.b.is_some(), "BuiltEntity::has::<B>");
+    assert_eq!(built.has::<C>(), cs.c, "BuiltEntity::has::<C>");
+    assert_eq!(built.has::<D>(), cs.d.is_some(), "BuiltEntity::has::<D>");
 
     let predicted = (
         dynamic_bundle_satisfies_query::<_, &A>(&built),
@@ -80,11 +80,11 @@ fn bundle_satisfaction_agrees_with_world_satisfies(tc: hegel::TestCase) {
 #[hegel::test(settings())]
 fn an_unspawned_bundle_drops_its_components(tc: hegel::TestCase) {
     assert_d_balanced_at_start();
-    let s = tc.draw(specs());
+    let cs = tc.draw(components());
     {
-        let mut builder = make_builder(s);
+        let mut builder = cs.builder();
         let built = builder.build();
-        assert_eq!(built.has::<D>(), s.d.is_some(), "BuiltEntity::has::<D>");
+        assert_eq!(built.has::<D>(), cs.d.is_some(), "BuiltEntity::has::<D>");
     }
     assert_eq!(
         d_live(),
@@ -98,9 +98,9 @@ fn an_unspawned_bundle_drops_its_components(tc: hegel::TestCase) {
 #[hegel::test(settings())]
 fn clearing_a_builder_drops_its_components(tc: hegel::TestCase) {
     assert_d_balanced_at_start();
-    let s = tc.draw(specs());
+    let cs = tc.draw(components());
     let mut world = World::new();
-    let mut builder = make_builder(s);
+    let mut builder = cs.builder();
     builder.clear();
     assert_eq!(
         builder.component_types().count(),
@@ -120,7 +120,7 @@ fn clearing_a_builder_drops_its_components(tc: hegel::TestCase) {
     let e = world.spawn(builder.build());
     assert_eq!(
         fingerprint(&world).get(&e),
-        Some(&Spec::default()),
+        Some(&Components::default()),
         "a cleared builder spawned components"
     );
 }
@@ -130,12 +130,12 @@ fn clearing_a_builder_drops_its_components(tc: hegel::TestCase) {
 #[hegel::test(settings())]
 fn builder_edits_through_get_mut_are_spawned(tc: hegel::TestCase) {
     assert_d_balanced_at_start();
-    let s = tc.draw(specs());
+    let cs = tc.draw(components());
     let v = tc.draw(val());
     let mut world = World::new();
-    let mut builder = make_builder(s);
+    let mut builder = cs.builder();
 
-    let mut expected = s;
+    let mut expected = cs;
     if let Some(a) = builder.get_mut::<&mut A>() {
         a.0 = v;
         expected.a = Some(v);
@@ -152,24 +152,24 @@ fn builder_edits_through_get_mut_are_spawned(tc: hegel::TestCase) {
     );
 }
 
-/// Add the `{A, B, C}` part of `s` one component at a time. `D` is not
+/// Add the `{A, B, C}` part of `cs` one component at a time. `D` is not
 /// `Clone`, so it cannot go into an `EntityBuilderClone`.
-fn add_individually(builder: &mut EntityBuilderClone, s: Spec) {
-    if let Some(v) = s.a {
+fn add_individually(builder: &mut EntityBuilderClone, cs: Components) {
+    if let Some(v) = cs.a {
         builder.add(A(v));
     }
-    if let Some(v) = s.b {
+    if let Some(v) = cs.b {
         builder.add(B(v));
     }
-    if s.c {
+    if cs.c {
         builder.add(C);
     }
 }
 
 /// Add the same components with one `add_bundle` of a concrete tuple, which
 /// goes through the tuple `DynamicBundleClone` impls instead.
-fn add_as_tuple(builder: &mut EntityBuilderClone, s: Spec) {
-    match (s.a, s.b, s.c) {
+fn add_as_tuple(builder: &mut EntityBuilderClone, cs: Components) {
+    match (cs.a, cs.b, cs.c) {
         (None, None, false) => builder.add_bundle(()),
         (Some(a), None, false) => builder.add_bundle((A(a),)),
         (None, Some(b), false) => builder.add_bundle((B(b),)),
@@ -181,7 +181,7 @@ fn add_as_tuple(builder: &mut EntityBuilderClone, s: Spec) {
     };
 }
 
-fn observe(world: &World, e: Entity) -> Spec {
+fn observe(world: &World, e: Entity) -> Components {
     *fingerprint(world)
         .get(&e)
         .unwrap_or_else(|| panic!("{e:?} is missing from the world"))
@@ -192,20 +192,20 @@ fn observe(world: &World, e: Entity) -> Spec {
 /// them all across.
 #[hegel::test(settings())]
 fn add_bundle_matches_individual_adds(tc: hegel::TestCase) {
-    let s = tc.draw(specs_without_d());
-    let expected = s;
+    let cs = tc.draw(components_without_d());
+    let expected = cs;
     let mut world = World::new();
 
     let mut individually = EntityBuilderClone::new();
-    add_individually(&mut individually, s);
+    add_individually(&mut individually, cs);
     assert_eq!(
         individually.get::<&A>().map(|r| r.0),
-        s.a,
+        cs.a,
         "EntityBuilderClone::get::<&A>"
     );
     assert_eq!(
         individually.component_types().count(),
-        s.component_count(),
+        cs.component_count(),
         "EntityBuilderClone::component_types"
     );
     let built = individually.build();
@@ -213,7 +213,7 @@ fn add_bundle_matches_individual_adds(tc: hegel::TestCase) {
     assert_eq!(observe(&world, e), expected, "individual adds");
 
     let mut as_tuple = EntityBuilderClone::new();
-    add_as_tuple(&mut as_tuple, s);
+    add_as_tuple(&mut as_tuple, cs);
     let e = world.spawn(&as_tuple.build());
     assert_eq!(
         observe(&world, e),
@@ -235,15 +235,15 @@ fn add_bundle_matches_individual_adds(tc: hegel::TestCase) {
 /// the original still spawns correctly afterwards.
 #[hegel::test(settings())]
 fn a_cloned_builder_spawns_the_same_entity(tc: hegel::TestCase) {
-    let s = tc.draw(specs_without_d());
+    let cs = tc.draw(components_without_d());
     let mut world = World::new();
 
     let mut original = EntityBuilderClone::new();
-    add_individually(&mut original, s);
+    add_individually(&mut original, cs);
     let copy = original.clone();
     assert_eq!(
         copy.has::<A>(),
-        s.a.is_some(),
+        cs.a.is_some(),
         "a clone lost a component type"
     );
 
@@ -251,12 +251,12 @@ fn a_cloned_builder_spawns_the_same_entity(tc: hegel::TestCase) {
     let from_copy = world.spawn(&copy.build());
     assert_eq!(
         observe(&world, from_original),
-        s,
+        cs,
         "the original builder spawned the wrong entity"
     );
     assert_eq!(
         observe(&world, from_copy),
-        s,
+        cs,
         "a cloned builder spawned a different entity"
     );
 }

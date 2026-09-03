@@ -1,6 +1,6 @@
 //! Model-based property test for `World`: a drawn sequence of operations is
-//! applied to both a `World` and a `HashMap<Entity, Spec>` reference model, and
-//! the two must agree.
+//! applied to both a `World` and a `HashMap<Entity, Components>` reference
+//! model, and the two must agree.
 //!
 //! Each rule asserts the postcondition it establishes (the operation's
 //! `Ok`/`Err` against modelled liveness, and the touched entity's resulting
@@ -27,7 +27,7 @@ const STEPS: i64 = 150;
 
 struct WorldModel {
     world: World,
-    model: HashMap<Entity, Spec>,
+    model: HashMap<Entity, Components>,
     /// Every handle ever handed out, including despawned ones.
     handles: Pool<Entity>,
     /// Handles from `reserve_entity`/`reserve_entities` awaiting a flush.
@@ -44,7 +44,7 @@ impl WorldModel {
     /// flush (all variations of spawn, despawn, insert and remove).
     fn flush_model(&mut self) {
         for e in self.reserved.drain(..) {
-            self.model.insert(e, Spec::default());
+            self.model.insert(e, Components::default());
         }
     }
 
@@ -53,14 +53,14 @@ impl WorldModel {
     }
 
     /// The component set the model predicts for `e`, or `None` if dead.
-    fn expect(&self, e: Entity) -> Option<Spec> {
+    fn expect(&self, e: Entity) -> Option<Components> {
         self.model.get(&e).copied()
     }
 
     /// Everything observable about `e` right now.
-    fn observe(&self, e: Entity) -> Option<Spec> {
+    fn observe(&self, e: Entity) -> Option<Components> {
         let eref = self.world.entity(e).ok()?;
-        Some(Spec {
+        Some(Components {
             a: eref.get::<&A>().map(|r| r.0),
             b: eref.get::<&B>().map(|r| r.0),
             c: eref.get::<&C>().is_some(),
@@ -87,19 +87,19 @@ impl WorldModel {
     #[rule]
     fn spawn(&mut self, tc: TestCase) {
         self.flush_model();
-        let s = tc.draw(specs());
-        let mut builder = make_builder(s);
-        assert_eq!(builder.has::<A>(), s.a.is_some(), "builder.has::<A>");
-        assert_eq!(builder.has::<D>(), s.d.is_some(), "builder.has::<D>");
-        assert_eq!(builder.get::<&A>().map(|r| r.0), s.a, "builder.get::<&A>");
+        let cs = tc.draw(components());
+        let mut builder = cs.builder();
+        assert_eq!(builder.has::<A>(), cs.a.is_some(), "builder.has::<A>");
+        assert_eq!(builder.has::<D>(), cs.d.is_some(), "builder.has::<D>");
+        assert_eq!(builder.get::<&A>().map(|r| r.0), cs.a, "builder.get::<&A>");
         assert_eq!(
             builder.component_types().count(),
-            s.component_count(),
+            cs.component_count(),
             "builder.component_types"
         );
         let e = self.world.spawn(builder.build());
         assert!(
-            self.model.insert(e, s).is_none(),
+            self.model.insert(e, cs).is_none(),
             "spawn reused a live handle {e:?}"
         );
         self.handles.add(e);
@@ -112,11 +112,11 @@ impl WorldModel {
     fn spawn_at(&mut self, tc: TestCase) {
         self.flush_model();
         let handle = self.draw_handle(&tc);
-        let s = tc.draw(specs());
-        let mut builder = make_builder(s);
+        let cs = tc.draw(components());
+        let mut builder = cs.builder();
         self.world.spawn_at(handle, builder.build());
         self.model.retain(|k, _| k.id() != handle.id());
-        self.model.insert(handle, s);
+        self.model.insert(handle, cs);
         self.retired.retain(|r| r.id() != handle.id());
         self.check_entity(handle, "spawn_at");
         assert!(
@@ -141,11 +141,11 @@ impl WorldModel {
             bits,
             "to_bits is not the inverse of from_bits"
         );
-        let s = tc.draw(specs());
-        let mut builder = make_builder(s);
+        let cs = tc.draw(components());
+        let mut builder = cs.builder();
         self.world.spawn_at(handle, builder.build());
         self.model.retain(|k, _| k.id() != handle.id());
-        self.model.insert(handle, s);
+        self.model.insert(handle, cs);
         self.retired.retain(|r| r.id() != handle.id());
         self.handles.add(handle);
         self.check_entity(handle, "spawn_at_fresh_id");
@@ -222,15 +222,15 @@ impl WorldModel {
         self.flush_model();
         let e = self.draw_handle(&tc);
         let live = self.model.contains_key(&e);
-        let s = tc.draw(specs());
-        let mut builder = make_builder(s);
+        let cs = tc.draw(components());
+        let mut builder = cs.builder();
         let ok = self.world.insert(e, builder.build()).is_ok();
         assert_eq!(ok, live, "insert bundle disagreed for {e:?}");
         if let Some(m) = self.model.get_mut(&e) {
-            m.a = s.a.or(m.a);
-            m.b = s.b.or(m.b);
-            m.c |= s.c;
-            m.d = s.d.or(m.d);
+            m.a = cs.a.or(m.a);
+            m.b = cs.b.or(m.b);
+            m.c |= cs.c;
+            m.d = cs.d.or(m.d);
         }
         self.check_entity(e, "insert_bundle");
     }
@@ -247,7 +247,7 @@ impl WorldModel {
                 let got = self.world.remove_one::<A>(e).ok();
                 assert_eq!(
                     got.map(|A(v)| v),
-                    before.and_then(|s| s.a),
+                    before.and_then(|cs| cs.a),
                     "remove_one::<A> {e:?}"
                 );
                 if let Some(m) = self.model.get_mut(&e) {
@@ -258,7 +258,7 @@ impl WorldModel {
                 let got = self.world.remove_one::<B>(e).ok();
                 assert_eq!(
                     got.map(|B(v)| v),
-                    before.and_then(|s| s.b),
+                    before.and_then(|cs| cs.b),
                     "remove_one::<B> {e:?}"
                 );
                 if let Some(m) = self.model.get_mut(&e) {
@@ -267,7 +267,7 @@ impl WorldModel {
             }
             2 => {
                 let ok = self.world.remove_one::<C>(e).is_ok();
-                assert_eq!(ok, before.is_some_and(|s| s.c), "remove_one::<C> {e:?}");
+                assert_eq!(ok, before.is_some_and(|cs| cs.c), "remove_one::<C> {e:?}");
                 if let Some(m) = self.model.get_mut(&e) {
                     m.c = false;
                 }
@@ -277,7 +277,7 @@ impl WorldModel {
                 let got = self.world.remove_one::<D>(e).ok();
                 assert_eq!(
                     got.as_ref().map(|d| d.0),
-                    before.and_then(|s| s.d),
+                    before.and_then(|cs| cs.d),
                     "remove_one::<D> {e:?}"
                 );
                 if let Some(m) = self.model.get_mut(&e) {
@@ -296,7 +296,7 @@ impl WorldModel {
         let e = self.draw_handle(&tc);
         let before = self.expect(e);
         if tc.draw(gs::booleans()) {
-            let had = before.is_some_and(|s| s.a.is_some() && s.b.is_some());
+            let had = before.is_some_and(|cs| cs.a.is_some() && cs.b.is_some());
             assert_eq!(
                 self.world.remove::<(A, B)>(e).is_ok(),
                 had,
@@ -308,7 +308,7 @@ impl WorldModel {
                 m.b = None;
             }
         } else {
-            let had = before.is_some_and(|s| s.c && s.d.is_some());
+            let had = before.is_some_and(|cs| cs.c && cs.d.is_some());
             assert_eq!(
                 self.world.remove::<(C, D)>(e).is_ok(),
                 had,
@@ -335,7 +335,7 @@ impl WorldModel {
             let got = self.world.exchange_one::<A, B>(e, B(v)).ok();
             assert_eq!(
                 got.map(|A(x)| x),
-                before.and_then(|s| s.a),
+                before.and_then(|cs| cs.a),
                 "exchange A->B {e:?}"
             );
             if got.is_some() {
@@ -347,7 +347,7 @@ impl WorldModel {
             let got = self.world.exchange_one::<D, A>(e, A(v)).ok();
             assert_eq!(
                 got.as_ref().map(|d| d.0),
-                before.and_then(|s| s.d),
+                before.and_then(|cs| cs.d),
                 "exchange D->A {e:?}"
             );
             if got.is_some() {
@@ -445,12 +445,12 @@ impl WorldModel {
         }
         assert_eq!(
             got1,
-            self.expect(e1).and_then(|s| s.a),
+            self.expect(e1).and_then(|cs| cs.a),
             "query_disjoint_mut {e1:?}"
         );
         assert_eq!(
             got2,
-            self.expect(e2).and_then(|s| s.a),
+            self.expect(e2).and_then(|cs| cs.a),
             "query_disjoint_mut {e2:?}"
         );
         if got1.is_some() {
@@ -483,7 +483,7 @@ impl WorldModel {
         }
         assert_eq!(
             got1.is_some(),
-            self.expect(e1).is_some_and(|s| s.b.is_some()),
+            self.expect(e1).is_some_and(|cs| cs.b.is_some()),
             "view B-presence {e1:?}"
         );
         if got1.is_some() {
@@ -492,7 +492,7 @@ impl WorldModel {
         if e1 != e2 {
             assert_eq!(
                 got2.is_some(),
-                self.expect(e2).is_some_and(|s| s.b.is_some()),
+                self.expect(e2).is_some_and(|cs| cs.b.is_some()),
                 "view B-presence {e2:?}"
             );
             if got2.is_some() {
@@ -532,7 +532,7 @@ impl WorldModel {
             n as usize,
             "spawn_batch yielded the wrong count"
         );
-        let s = Spec {
+        let cs = Components {
             a: Some(v),
             b: Some(v),
             c: false,
@@ -540,7 +540,7 @@ impl WorldModel {
         };
         for e in handles {
             assert!(
-                self.model.insert(e, s).is_none(),
+                self.model.insert(e, cs).is_none(),
                 "spawn_batch reused {e:?}"
             );
             self.handles.add(e);
@@ -593,7 +593,11 @@ impl WorldModel {
         self.world.flush();
         self.flush_model();
         for e in expected {
-            assert_eq!(self.observe(e), Some(Spec::default()), "flushed {e:?}");
+            assert_eq!(
+                self.observe(e),
+                Some(Components::default()),
+                "flushed {e:?}"
+            );
         }
     }
 
@@ -631,7 +635,7 @@ impl WorldModel {
                     1,
                     "scratch world holds more than the moved entity"
                 );
-                let obs = Spec {
+                let obs = Components {
                     a: scratch.get::<&A>(moved).ok().map(|r| r.0),
                     b: scratch.get::<&B>(moved).ok().map(|r| r.0),
                     c: scratch.get::<&C>(moved).is_ok(),
@@ -650,22 +654,22 @@ impl WorldModel {
     #[rule]
     fn spawn_clone_builder(&mut self, tc: TestCase) {
         self.flush_model();
-        let s = tc.draw(specs_without_d());
+        let cs = tc.draw(components_without_d());
         let mut builder = EntityBuilderClone::new();
-        if let Some(v) = s.a {
+        if let Some(v) = cs.a {
             builder.add(A(v));
         }
-        if let Some(v) = s.b {
+        if let Some(v) = cs.b {
             builder.add(B(v));
         }
-        if s.c {
+        if cs.c {
             builder.add(C);
         }
         let built = builder.build();
         for _ in 0..2 {
             let e = self.world.spawn(&built);
             assert!(
-                self.model.insert(e, s).is_none(),
+                self.model.insert(e, cs).is_none(),
                 "clone-builder spawn reused {e:?}"
             );
             self.handles.add(e);
@@ -701,9 +705,9 @@ impl WorldModel {
             self.model.len(),
             "world.len() != model.len()"
         );
-        for (&e, s) in &self.model {
+        for (&e, cs) in &self.model {
             assert!(self.world.contains(e), "world is missing modelled {e:?}");
-            assert_eq!(self.observe(e), Some(*s), "components of {e:?}");
+            assert_eq!(self.observe(e), Some(*cs), "components of {e:?}");
         }
         for eref in self.world.iter() {
             assert!(
@@ -724,7 +728,7 @@ impl WorldModel {
     /// here.
     #[invariant]
     fn drops_balance(&self, _: TestCase) {
-        let expected = self.model.values().filter(|s| s.d.is_some()).count() as i64;
+        let expected = self.model.values().filter(|cs| cs.d.is_some()).count() as i64;
         assert_eq!(d_live(), expected, "live D count != modelled D count");
     }
 
@@ -795,7 +799,7 @@ impl WorldModel {
         }
         let want: HashMap<Entity, i32> = model
             .iter()
-            .filter_map(|(&e, s)| s.a.map(|v| (e, v)))
+            .filter_map(|(&e, cs)| cs.a.map(|v| (e, v)))
             .collect();
         assert_eq!(got, want, "query::<&A>");
 
@@ -808,7 +812,7 @@ impl WorldModel {
         }
         let want: HashMap<Entity, (i32, i32)> = model
             .iter()
-            .filter_map(|(&e, s)| s.a.zip(s.b).map(|v| (e, v)))
+            .filter_map(|(&e, cs)| cs.a.zip(cs.b).map(|v| (e, v)))
             .collect();
         assert_eq!(got, want, "query::<(&A,&B)>");
 
@@ -819,7 +823,7 @@ impl WorldModel {
             .collect();
         let want: HashMap<Entity, i32> = model
             .iter()
-            .filter_map(|(&e, s)| s.b.and(s.a).map(|v| (e, v)))
+            .filter_map(|(&e, cs)| cs.b.and(cs.a).map(|v| (e, v)))
             .collect();
         assert_eq!(with, want, "query::<With<&A, &B>>");
 
@@ -830,7 +834,7 @@ impl WorldModel {
             .collect();
         let want: HashMap<Entity, i32> = model
             .iter()
-            .filter_map(|(&e, s)| match (s.a, s.b) {
+            .filter_map(|(&e, cs)| match (cs.a, cs.b) {
                 (Some(v), None) => Some((e, v)),
                 _ => None,
             })
@@ -844,8 +848,8 @@ impl WorldModel {
             .collect();
         let want: HashMap<Entity, (Option<i32>, Option<i32>)> = model
             .iter()
-            .filter(|(_, s)| s.a.is_some() || s.b.is_some())
-            .map(|(&e, s)| (e, (s.a, s.b)))
+            .filter(|(_, cs)| cs.a.is_some() || cs.b.is_some())
+            .map(|(&e, cs)| (e, (cs.a, cs.b)))
             .collect();
         assert_eq!(or, want, "query::<Or<&A, &B>>");
 
@@ -856,7 +860,7 @@ impl WorldModel {
             .collect();
         let want: HashMap<Entity, Option<i32>> = model
             .iter()
-            .filter_map(|(&e, s)| s.a.map(|_| (e, s.b)))
+            .filter_map(|(&e, cs)| cs.a.map(|_| (e, cs.b)))
             .collect();
         assert_eq!(opt, want, "query::<(&A, Option<&B>)>");
     }
@@ -865,12 +869,12 @@ impl WorldModel {
     /// including the `Unsatisfied` and `NoSuchEntity` distinction.
     #[invariant]
     fn per_entity_access_matches_model(&self, _: TestCase) {
-        for (&e, s) in &self.model {
+        for (&e, cs) in &self.model {
             match self.world.query_one::<&A>(e).get() {
-                Ok(a) => assert_eq!(Some(a.0), s.a, "query_one::<&A> value for {e:?}"),
+                Ok(a) => assert_eq!(Some(a.0), cs.a, "query_one::<&A> value for {e:?}"),
                 Err(QueryOneError::Unsatisfied) => {
                     assert!(
-                        s.a.is_none(),
+                        cs.a.is_none(),
                         "query_one::<&A> unsatisfied but A modelled for {e:?}"
                     )
                 }
@@ -879,10 +883,14 @@ impl WorldModel {
             // `with`/`without` filter the same query by another component's
             // presence without borrowing it.
             match self.world.query_one::<&A>(e).with::<&B>().get() {
-                Ok(a) => assert_eq!((Some(a.0), true), (s.a, s.b.is_some()), "with::<&B> {e:?}"),
+                Ok(a) => assert_eq!(
+                    (Some(a.0), true),
+                    (cs.a, cs.b.is_some()),
+                    "with::<&B> {e:?}"
+                ),
                 Err(QueryOneError::Unsatisfied) => {
                     assert!(
-                        s.a.is_none() || s.b.is_none(),
+                        cs.a.is_none() || cs.b.is_none(),
                         "with::<&B> unsatisfied for {e:?}"
                     )
                 }
@@ -891,12 +899,12 @@ impl WorldModel {
             match self.world.query_one::<&A>(e).without::<&B>().get() {
                 Ok(a) => assert_eq!(
                     (Some(a.0), false),
-                    (s.a, s.b.is_some()),
+                    (cs.a, cs.b.is_some()),
                     "without::<&B> {e:?}"
                 ),
                 Err(QueryOneError::Unsatisfied) => {
                     assert!(
-                        s.a.is_none() || s.b.is_some(),
+                        cs.a.is_none() || cs.b.is_some(),
                         "without::<&B> unsatisfied for {e:?}"
                     )
                 }
@@ -904,36 +912,36 @@ impl WorldModel {
             }
             assert_eq!(
                 self.world.satisfies::<&A>(e),
-                s.a.is_some(),
+                cs.a.is_some(),
                 "satisfies::<&A> {e:?}"
             );
             assert_eq!(
                 self.world.satisfies::<(&A, &B)>(e),
-                s.a.is_some() && s.b.is_some(),
+                cs.a.is_some() && cs.b.is_some(),
                 "satisfies::<(&A,&B)> {e:?}"
             );
 
             let eref = self.world.entity(e).expect("live modelled entity");
             assert_eq!(eref.entity(), e, "EntityRef::entity");
-            assert_eq!(eref.has::<A>(), s.a.is_some(), "EntityRef::has::<A> {e:?}");
-            assert_eq!(eref.has::<C>(), s.c, "EntityRef::has::<C> {e:?}");
-            assert_eq!(eref.len(), s.component_count(), "EntityRef::len {e:?}");
+            assert_eq!(eref.has::<A>(), cs.a.is_some(), "EntityRef::has::<A> {e:?}");
+            assert_eq!(eref.has::<C>(), cs.c, "EntityRef::has::<C> {e:?}");
+            assert_eq!(eref.len(), cs.component_count(), "EntityRef::len {e:?}");
             assert_eq!(
                 eref.is_empty(),
-                s.component_count() == 0,
+                cs.component_count() == 0,
                 "EntityRef::is_empty {e:?}"
             );
             assert_eq!(
                 eref.component_types().count(),
-                s.component_count(),
+                cs.component_count(),
                 "EntityRef::component_types {e:?}"
             );
         }
 
         let view = self.world.view::<&A>();
-        for (&e, s) in &self.model {
-            assert_eq!(view.get(e).map(|a| a.0), s.a, "view.get {e:?}");
-            assert_eq!(view.contains(e), s.a.is_some(), "view.contains {e:?}");
+        for (&e, cs) in &self.model {
+            assert_eq!(view.get(e).map(|a| a.0), cs.a, "view.get {e:?}");
+            assert_eq!(view.contains(e), cs.a.is_some(), "view.contains {e:?}");
         }
     }
 
