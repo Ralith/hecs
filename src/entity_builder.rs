@@ -265,6 +265,7 @@ unsafe impl DynamicBundleClone for &'_ BuiltEntityClone {
 
 impl From<EntityBuilderClone> for BuiltEntityClone {
     fn from(mut x: EntityBuilderClone) -> Self {
+        // Invalidates x.inner.indices, which can't be accessed via BuiltEntityClone anyway
         x.inner.info.sort_unstable_by_key(|y| y.0);
         x.inner.ids.extend(x.inner.info.iter().map(|y| y.0.id()));
         Self(x.inner)
@@ -274,6 +275,14 @@ impl From<EntityBuilderClone> for BuiltEntityClone {
 impl From<BuiltEntityClone> for EntityBuilderClone {
     fn from(mut x: BuiltEntityClone) -> Self {
         x.0.ids.clear();
+        // Rebuild indices to allow component access via EntityBuilderClone API
+        x.0.indices.clear();
+        x.0.indices.extend(
+            x.0.info
+                .iter()
+                .enumerate()
+                .map(|(i, info)| (info.0.id(), i)),
+        );
         EntityBuilderClone { inner: x.0 }
     }
 }
@@ -440,5 +449,19 @@ mod tests {
     fn empty_clone() {
         let ebc = EntityBuilderClone::new();
         _ = ebc.clone();
+    }
+
+    #[test]
+    fn unbuild_clone() {
+        #[derive(Clone, Debug, Eq, PartialEq)]
+        struct Small(u8);
+        #[derive(Clone)]
+        struct Big(#[expect(dead_code)] u64);
+
+        let mut b = EntityBuilderClone::new();
+        b.add(Small(7));
+        b.add(Big(0x4242_4242_4242_4242));
+        let rebuilt: EntityBuilderClone = b.build().into();
+        assert_eq!(rebuilt.get::<&Small>(), Some(&Small(7)));
     }
 }
