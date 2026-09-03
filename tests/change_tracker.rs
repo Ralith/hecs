@@ -77,32 +77,44 @@ struct TrackerModel {
 }
 
 /// What the next poll must report, derived from the model alone.
-type Expected = (
-    HashMap<Entity, i32>,
-    HashMap<Entity, (i32, i32)>,
-    HashMap<Entity, i32>,
-);
+struct Expected {
+    added: HashMap<Entity, i32>,
+    changed: HashMap<Entity, (i32, i32)>,
+    removed: HashMap<Entity, i32>,
+}
+
+/// One of the three reports `Changes` offers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, hegel::PrettyPrintable)]
+enum Report {
+    Added,
+    Changed,
+    Removed,
+}
+
+const REPORTS: [Report; 3] = [Report::Added, Report::Changed, Report::Removed];
 
 impl TrackerModel {
     fn expected(&self) -> Expected {
-        let mut added = HashMap::new();
-        let mut changed = HashMap::new();
-        let mut removed = HashMap::new();
+        let mut expected = Expected {
+            added: HashMap::new(),
+            changed: HashMap::new(),
+            removed: HashMap::new(),
+        };
         for (&e, m) in &self.model {
             match (m.current, m.snapshot) {
                 (Some(v), None) => {
-                    added.insert(e, v);
+                    expected.added.insert(e, v);
                 }
                 (Some(new), Some(old)) if new != old => {
-                    changed.insert(e, (old, new));
+                    expected.changed.insert(e, (old, new));
                 }
                 (None, Some(old)) => {
-                    removed.insert(e, old);
+                    expected.removed.insert(e, old);
                 }
                 _ => {}
             }
         }
-        (added, changed, removed)
+        expected
     }
 
     fn draw_handle(&self, tc: &TestCase) -> Entity {
@@ -133,6 +145,15 @@ fn check_added(changes: &mut Changes<'_, Tracked>, want: &HashMap<Entity, i32>) 
         );
     }
     assert_eq!(got, *want, "added()");
+}
+
+/// Pull one element of `added()` and leave the rest to `Changes::drop`.
+fn peek_added(changes: &mut Changes<'_, Tracked>, want: &HashMap<Entity, i32>) {
+    let mut it = changes.added();
+    assert_eq!(it.len(), want.len(), "added().len()");
+    if let Some((e, t)) = it.next() {
+        assert_eq!(want.get(&e), Some(&t.value), "first element of added()");
+    }
 }
 
 fn check_changed(changes: &mut Changes<'_, Tracked>, want: &HashMap<Entity, (i32, i32)>) {
@@ -321,64 +342,31 @@ impl TrackerModel {
         self.model.clear();
     }
 
-    /// Poll the tracker and check its three reports against the model, then
-    /// advance the model's snapshots.
+    /// Poll the tracker, check the reports the caller pulls against the
+    /// model, and advance the model's snapshots.
     ///
-    /// The drawn mode picks one of the six orders the iterators can be called
-    /// in, or leaves `added` half-consumed, or drops `Changes` without touching
-    /// anything — the snapshot must advance regardless, which the next poll and
-    /// the live-count invariant check.
+    /// `pulled` is which reports the caller asks for and in what order; the
+    /// rest are left to `Changes::drop`, which must drain them so that the
+    /// snapshot advances regardless. The next poll and the live-count
+    /// invariant check that it did.
     #[rule]
     fn poll(&mut self, tc: TestCase) {
-        let (added, changed, removed) = self.expected();
-        let mode = tc.draw(gs::integers::<u8>().min_value(0).max_value(7));
-        {
-            let mut changes = self.tracker.track(&mut self.world);
-            match mode {
-                0 => {
-                    check_added(&mut changes, &added);
-                    check_changed(&mut changes, &changed);
-                    check_removed(&mut changes, &removed);
-                }
-                1 => {
-                    check_added(&mut changes, &added);
-                    check_removed(&mut changes, &removed);
-                    check_changed(&mut changes, &changed);
-                }
-                2 => {
-                    check_changed(&mut changes, &changed);
-                    check_added(&mut changes, &added);
-                    check_removed(&mut changes, &removed);
-                }
-                3 => {
-                    check_changed(&mut changes, &changed);
-                    check_removed(&mut changes, &removed);
-                    check_added(&mut changes, &added);
-                }
-                4 => {
-                    check_removed(&mut changes, &removed);
-                    check_added(&mut changes, &added);
-                    check_changed(&mut changes, &changed);
-                }
-                5 => {
-                    check_removed(&mut changes, &removed);
-                    check_changed(&mut changes, &changed);
-                    check_added(&mut changes, &added);
-                }
-                6 => {
-                    {
-                        let mut it = changes.added();
-                        assert_eq!(it.len(), added.len(), "added().len()");
-                        if let Some((e, t)) = it.next() {
-                            assert_eq!(added.get(&e), Some(&t.value), "first element of added()");
-                        }
-                    }
-                    check_changed(&mut changes, &changed);
-                    check_removed(&mut changes, &removed);
-                }
-                _ => {}
+        let expected = self.expected();
+        let pulled = tc.draw(gs::samples(&REPORTS[..]).without_replacement());
+        let peek_added_only = tc.draw(gs::booleans());
+        tc.note(&format!(
+            "poll: pulled {pulled:?}, peek_added_only = {peek_added_only}"
+        ));
+        let mut changes = self.tracker.track(&mut self.world);
+        for report in pulled {
+            match report {
+                Report::Added if peek_added_only => peek_added(&mut changes, &expected.added),
+                Report::Added => check_added(&mut changes, &expected.added),
+                Report::Changed => check_changed(&mut changes, &expected.changed),
+                Report::Removed => check_removed(&mut changes, &expected.removed),
             }
         }
+        drop(changes);
         for m in self.model.values_mut() {
             m.snapshot = m.current;
         }
