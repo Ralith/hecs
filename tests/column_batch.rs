@@ -18,9 +18,8 @@ use hegel::generators as gs;
 /// One entity's worth of batch data: payloads for its `A` and `D` columns.
 type Row = (i32, i32);
 
-fn draw_rows(tc: &hegel::TestCase, max: usize) -> Vec<Row> {
-    let n = tc.draw(gs::integers::<usize>().min_value(0).max_value(max));
-    (0..n).map(|_| (tc.draw(val()), tc.draw(val()))).collect()
+fn rows_up_to(max: usize) -> impl gs::PrintableGenerator<Vec<Row>> {
+    gs::vecs(hegel::tuples!(val(), val())).max_size(max)
 }
 
 /// Build a complete `{A, D}` batch from `rows`, exercising the writer surface
@@ -75,32 +74,16 @@ fn multiset(world: &World) -> Vec<Spec> {
 #[hegel::test(settings())]
 fn column_batch_matches_individual_spawns(tc: hegel::TestCase) {
     assert_d_balanced_at_start();
-    let mut batched = World::new();
-    let mut individually = World::new();
-
-    let seeded = tc.draw(gs::integers::<u32>().min_value(0).max_value(6));
-    let mut seed_handles = Vec::new();
-    for _ in 0..seeded {
-        let s = tc.draw(specs());
-        let e = batched.spawn(make_builder(s).build());
-        assert_eq!(
-            e,
-            individually.spawn(make_builder(s).build()),
-            "seeding diverged"
-        );
-        seed_handles.push(e);
-    }
-    for &e in &seed_handles {
-        if tc.draw(gs::booleans()) {
-            batched.despawn(e).expect("despawn of a live seed");
-            individually.despawn(e).expect("despawn of a live seed");
-        }
-    }
+    let history = tc.draw(histories(0, 6));
+    let (mut worlds, _pool) = build_twins(&history, 2);
+    let mut individually = worlds.pop().unwrap();
+    let mut batched = worlds.pop().unwrap();
 
     // Two successive batches, so the second one merges into the archetype the
     // first one created.
-    for _ in 0..tc.draw(gs::integers::<u8>().min_value(1).max_value(2)) {
-        let rows = draw_rows(&tc, 12);
+    let batches = tc.draw(gs::integers::<u8>().min_value(1).max_value(2));
+    for _ in 0..batches {
+        let rows = tc.draw(rows_up_to(12));
         let len_before = batched.len();
         let mut seen: HashSet<Entity> = batched.iter().map(|eref| eref.entity()).collect();
 
@@ -147,12 +130,32 @@ fn d_in(world: &World) -> i64 {
     world.query::<&D>().iter().count() as i64
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Target {
+#[derive(Clone, Copy, Debug, PartialEq, Eq, hegel::PrettyPrintable)]
+enum Kind {
     /// Live, with components the batch does not supply; they must not survive.
     Live,
     /// Spawned and then despawned; the batch resurrects the exact handle.
     Despawned,
+}
+
+/// A batch target. Every target starts with a full component set, so the
+/// batch has to remove B and C as well as overwrite A and D.
+#[derive(Clone, Copy, Debug, hegel::PrettyPrintable)]
+struct Target {
+    kind: Kind,
+    a: i32,
+    b: i32,
+    d: i32,
+}
+
+#[hegel::composite]
+fn batch_targets(tc: &hegel::TestCase) -> Target {
+    Target {
+        kind: tc.draw(gs::sampled_from(vec![Kind::Despawned, Kind::Live])),
+        a: tc.draw(val()),
+        b: tc.draw(val()),
+        d: tc.draw(val()),
+    }
 }
 
 /// `spawn_column_batch_at` places row `i` on handle `i`, replacing whatever
@@ -172,47 +175,46 @@ fn column_batch_at_places_each_row_on_its_handle(tc: hegel::TestCase) {
     // Bystanders first, then targets, then despawns: every id stays distinct,
     // so a repeated handle in the batch list is the only way two rows can
     // collide.
-    let mut bystanders: Vec<(Entity, Spec)> = Vec::new();
-    for _ in 0..tc.draw(gs::integers::<u32>().min_value(0).max_value(4)) {
-        let s = Spec {
-            b: Some(tc.draw(val())),
-            ..Spec::default()
-        };
-        bystanders.push((world.spawn(make_builder(s).build()), s));
-    }
-
-    let kinds: Vec<Target> = (0..tc.draw(gs::integers::<usize>().min_value(0).max_value(6)))
-        .map(|_| {
-            if tc.draw(gs::booleans()) {
-                Target::Live
-            } else {
-                Target::Despawned
-            }
+    let bystander_bs: Vec<i32> = tc.draw(gs::vecs(val()).max_size(4));
+    let bystanders: Vec<(Entity, Spec)> = bystander_bs
+        .iter()
+        .map(|&b| {
+            let s = Spec {
+                b: Some(b),
+                ..Spec::default()
+            };
+            (world.spawn(make_builder(s).build()), s)
         })
         .collect();
-    let mut targets: Vec<Entity> = Vec::new();
-    for _ in &kinds {
-        // Every target starts with a full component set, so the batch has to
-        // remove B and C as well as overwrite A and D.
-        let s = Spec {
-            a: Some(tc.draw(val())),
-            b: Some(tc.draw(val())),
-            c: true,
-            d: Some(tc.draw(val())),
-        };
-        targets.push(world.spawn(make_builder(s).build()));
-    }
-    for (&kind, &e) in kinds.iter().zip(&targets) {
-        if kind == Target::Despawned {
+
+    let targets: Vec<Target> = tc.draw(gs::vecs(batch_targets()).max_size(6));
+    let target_handles: Vec<Entity> = targets
+        .iter()
+        .map(|t| {
+            let s = Spec {
+                a: Some(t.a),
+                b: Some(t.b),
+                c: true,
+                d: Some(t.d),
+            };
+            world.spawn(make_builder(s).build())
+        })
+        .collect();
+    for (t, &e) in targets.iter().zip(&target_handles) {
+        if t.kind == Kind::Despawned {
             world.despawn(e).expect("despawn of a live target");
         }
     }
 
-    if targets.is_empty() {
+    if target_handles.is_empty() {
         return;
     }
-    let rows = draw_rows(&tc, 8);
-    let handles: Vec<Entity> = rows.iter().map(|_| pick(&tc, &targets).unwrap()).collect();
+    let rows = tc.draw(rows_up_to(8));
+    let handles: Vec<Entity> = tc.draw(
+        gs::vecs(pick(&target_handles))
+            .min_size(rows.len())
+            .max_size(rows.len()),
+    );
 
     let before = fingerprint(&world);
     let d_before = d_live();
@@ -238,8 +240,8 @@ fn column_batch_at_places_each_row_on_its_handle(tc: hegel::TestCase) {
         placed.push((e, spec));
     }
     let replaced: HashSet<u32> = handles.iter().map(|e| e.id()).collect();
-    for (&kind, &e) in kinds.iter().zip(&targets) {
-        if kind == Target::Live && !replaced.contains(&e.id()) {
+    for (t, &e) in targets.iter().zip(&target_handles) {
+        if t.kind == Kind::Live && !replaced.contains(&e.id()) {
             expected.push((e, before[&e]));
         }
     }
@@ -273,7 +275,7 @@ fn column_batch_at_places_each_row_on_its_handle(tc: hegel::TestCase) {
 #[hegel::test(settings())]
 fn the_ways_of_declaring_a_batch_type_agree(tc: hegel::TestCase) {
     assert_d_balanced_at_start();
-    let rows = draw_rows(&tc, 8);
+    let rows = tc.draw(rows_up_to(8));
 
     let mut individually = ColumnBatchType::new();
     individually.add::<A>();
@@ -363,8 +365,12 @@ fn an_underfilled_batch_is_refused(tc: hegel::TestCase) {
 #[hegel::test(settings())]
 fn dropping_an_unbuilt_batch_drops_its_components(tc: hegel::TestCase) {
     assert_d_balanced_at_start();
-    let capacity = tc.draw(gs::integers::<u32>().min_value(0).max_value(8));
-    let written = tc.draw(gs::integers::<u32>().min_value(0).max_value(capacity));
+    let written: Vec<i32> = tc.draw(gs::vecs(val()).max_size(8));
+    let capacity = tc.draw(
+        gs::integers::<u32>()
+            .min_value(written.len() as u32)
+            .max_value(8),
+    );
 
     let mut types = ColumnBatchType::new();
     types.add::<A>();
@@ -372,22 +378,21 @@ fn dropping_an_unbuilt_batch_drops_its_components(tc: hegel::TestCase) {
     let builder = types.into_batch(capacity);
     {
         let mut writer = builder.writer::<D>().expect("D is in the batch type");
-        for _ in 0..written {
-            writer
-                .push(D::new(tc.draw(val())))
-                .expect("push within capacity");
+        for &d in &written {
+            writer.push(D::new(d)).expect("push within capacity");
         }
     }
     assert_eq!(
         d_live(),
-        written as i64,
+        written.len() as i64,
         "the builder is not holding what was written"
     );
     drop(builder);
     assert_eq!(
         d_live(),
         0,
-        "dropping an unbuilt batch leaked {written} components"
+        "dropping an unbuilt batch leaked {} components",
+        written.len()
     );
 }
 

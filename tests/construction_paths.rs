@@ -14,7 +14,7 @@ mod common;
 
 use common::*;
 use hecs::{CommandBuffer, Entity, World};
-use hegel::generators as gs;
+use hegel::generators::{self as gs, Generator};
 
 const ROUTES: usize = 5;
 
@@ -123,10 +123,10 @@ fn construction_routes_are_observationally_equal(tc: hegel::TestCase) {
     assert_d_balanced_at_start();
     // A shared history puts every allocator into the same non-trivial state
     // (non-empty freelist, advanced generations) before the routes diverge.
-    let (mut worlds, mut pool) = build_twins(&tc, ROUTES, MAX_ENTITIES);
+    let history = tc.draw(histories(0, MAX_ENTITIES));
+    let (mut worlds, mut pool) = build_twins(&history, ROUTES);
 
-    let n = tc.draw(gs::integers::<u32>().min_value(0).max_value(MAX_ENTITIES));
-    let specs: Vec<Spec> = (0..n).map(|_| tc.draw(specs())).collect();
+    let specs: Vec<Spec> = tc.draw(gs::vecs(specs()).max_size(MAX_ENTITIES as usize));
 
     let mut buffer = CommandBuffer::new();
     for &s in &specs {
@@ -195,9 +195,12 @@ fn construction_routes_are_observationally_equal(tc: hegel::TestCase) {
         "drop imbalance across construction routes"
     );
 
+    if pool.is_empty() {
+        return;
+    }
     let steps = tc.draw(gs::integers::<u32>().min_value(0).max_value(MAX_ENTITIES));
     for _ in 0..steps {
-        let Some(e) = pick(&tc, &pool) else { break };
+        let e = tc.draw(pick(&pool));
         let m = tc.draw(mutations());
         let mut results = worlds.iter_mut().map(|w| apply(w, e, m));
         let first = results.next().expect("at least one world");
@@ -236,6 +239,26 @@ enum Command {
     RemoveCD(Entity),
     RemoveOne(Entity, u8),
     Despawn(Entity),
+}
+
+/// A command on a handle from `pool`, or a spawn. Two of the eight kinds
+/// spawn, so the pool grows fast enough for the other commands to have
+/// entities to act on. An empty pool only gets spawns.
+#[hegel::composite]
+fn commands_on(tc: &hegel::TestCase, pool: &[Entity]) -> Command {
+    let which = gs::integers::<u8>().min_value(0).max_value(3);
+    let kinds = gs::integers::<u8>()
+        .min_value(0)
+        .max_value(if pool.is_empty() { 1 } else { 7 });
+    match tc.draw(kinds) {
+        0 | 1 => Command::Spawn(tc.draw(specs())),
+        2 => Command::Insert(tc.draw(pick(pool)), tc.draw(specs())),
+        3 => Command::InsertOne(tc.draw(pick(pool)), tc.draw(which), tc.draw(val())),
+        4 => Command::RemoveAB(tc.draw(pick(pool))),
+        5 => Command::RemoveCD(tc.draw(pick(pool))),
+        6 => Command::RemoveOne(tc.draw(pick(pool)), tc.draw(which)),
+        _ => Command::Despawn(tc.draw(pick(pool))),
+    }
 }
 
 fn record(buffer: &mut CommandBuffer, c: Command) {
@@ -306,59 +329,26 @@ fn pending_d(commands: &[Command]) -> i64 {
 #[hegel::test(settings())]
 fn command_buffer_matches_eager_application(tc: hegel::TestCase) {
     assert_d_balanced_at_start();
-    let (mut worlds, mut pool) = build_twins(&tc, 2, MAX_ENTITIES);
+    let history = tc.draw(histories(0, MAX_ENTITIES));
+    let (mut worlds, mut pool) = build_twins(&history, 2);
 
     // `CommandBuffer::insert` documents `reserve_entity` as the way to obtain a
     // handle for an entity that does not exist yet.
-    if tc.draw(gs::booleans()) {
-        let k = tc.draw(gs::integers::<u32>().min_value(1).max_value(3));
-        for _ in 0..k {
-            let eager = worlds[0].reserve_entity();
-            let buffered = worlds[1].reserve_entity();
-            assert_eq!(eager, buffered, "reserve_entity was not deterministic");
-            pool.push(eager);
-        }
+    let reserved = tc.draw(gs::integers::<u32>().min_value(0).max_value(3));
+    for _ in 0..reserved {
+        let eager = worlds[0].reserve_entity();
+        let buffered = worlds[1].reserve_entity();
+        assert_eq!(eager, buffered, "reserve_entity was not deterministic");
+        pool.push(eager);
     }
 
     let mut buffer = CommandBuffer::new();
     let rounds = tc.draw(gs::integers::<u32>().min_value(1).max_value(4));
     for _ in 0..rounds {
-        let mut commands: Vec<Command> = Vec::new();
-        let n = tc.draw(gs::integers::<u32>().min_value(0).max_value(12));
-        for _ in 0..n {
-            let which = gs::integers::<u8>().min_value(0).max_value(3);
-            // Weighted rather than a `one_of!`: two of the eight indices spawn,
-            // so the pool grows fast enough for the other commands to have
-            // entities to act on.
-            let c = match tc.draw(gs::integers::<u8>().min_value(0).max_value(7)) {
-                0 | 1 => Command::Spawn(tc.draw(specs())),
-                2 => match pick(&tc, &pool) {
-                    Some(e) => Command::Insert(e, tc.draw(specs())),
-                    None => continue,
-                },
-                3 => match pick(&tc, &pool) {
-                    Some(e) => Command::InsertOne(e, tc.draw(which), tc.draw(val())),
-                    None => continue,
-                },
-                4 => match pick(&tc, &pool) {
-                    Some(e) => Command::RemoveAB(e),
-                    None => continue,
-                },
-                5 => match pick(&tc, &pool) {
-                    Some(e) => Command::RemoveCD(e),
-                    None => continue,
-                },
-                6 => match pick(&tc, &pool) {
-                    Some(e) => Command::RemoveOne(e, tc.draw(which)),
-                    None => continue,
-                },
-                _ => match pick(&tc, &pool) {
-                    Some(e) => Command::Despawn(e),
-                    None => continue,
-                },
-            };
+        let commands: Vec<Command> =
+            tc.draw(gs::vecs(commands_on(&pool).print_as_debug()).max_size(12));
+        for &c in &commands {
             record(&mut buffer, c);
-            commands.push(c);
         }
 
         // Recording must not touch either world, and every `D` handed to the
@@ -374,7 +364,8 @@ fn command_buffer_matches_eager_application(tc: hegel::TestCase) {
             "a buffered D was dropped early or leaked"
         );
 
-        match tc.draw(gs::integers::<u8>().min_value(0).max_value(3)) {
+        let outcome = tc.draw(gs::integers::<u8>().min_value(0).max_value(3));
+        match outcome {
             0 | 1 => {
                 buffer.run_on(&mut worlds[1]);
                 for &c in &commands {

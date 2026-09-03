@@ -35,7 +35,8 @@ fn collect(it: impl Iterator<Item = (Entity, i32)>, label: &str) -> BTreeMap<Ent
 /// for entities with no components at all.
 #[hegel::test(settings())]
 fn satisfies_reports_query_matching_for_every_entity(tc: hegel::TestCase) {
-    let (worlds, _pool) = build_twins(&tc, 1, MAX_ENTITIES);
+    let history = tc.draw(histories(0, MAX_ENTITIES));
+    let (worlds, _pool) = build_twins(&history, 1);
     let fp = fingerprint(&worlds[0]);
 
     let mut got: BTreeMap<Entity, (bool, bool)> = BTreeMap::new();
@@ -60,7 +61,8 @@ fn satisfies_reports_query_matching_for_every_entity(tc: hegel::TestCase) {
 /// `ExactSizeIterator`, so its length must be the number of matches.
 #[hegel::test(settings())]
 fn writes_through_a_unique_query_are_visible(tc: hegel::TestCase) {
-    let (mut worlds, _pool) = build_twins(&tc, 1, MAX_ENTITIES);
+    let history = tc.draw(histories(0, MAX_ENTITIES));
+    let (mut worlds, _pool) = build_twins(&history, 1);
     let world = &mut worlds[0];
     let mut fp = fingerprint(world);
     let v = tc.draw(val());
@@ -100,7 +102,8 @@ fn writes_through_a_unique_query_are_visible(tc: hegel::TestCase) {
 /// `split`, `left`, `right`, and `cloned().as_mut()`.
 #[hegel::test(settings())]
 fn or_accessors_agree_with_the_matched_variant(tc: hegel::TestCase) {
-    let (worlds, _pool) = build_twins(&tc, 1, MAX_ENTITIES);
+    let history = tc.draw(histories(0, MAX_ENTITIES));
+    let (worlds, _pool) = build_twins(&history, 1);
     let fp = fingerprint(&worlds[0]);
 
     let mut seen = 0usize;
@@ -141,7 +144,8 @@ fn or_accessors_agree_with_the_matched_variant(tc: hegel::TestCase) {
 /// unique-borrow (`QueryMut`) paths.
 #[hegel::test(settings())]
 fn query_filters_select_by_component_presence(tc: hegel::TestCase) {
-    let (mut worlds, _pool) = build_twins(&tc, 1, MAX_ENTITIES);
+    let history = tc.draw(histories(0, MAX_ENTITIES));
+    let (mut worlds, _pool) = build_twins(&history, 1);
     let world = &mut worlds[0];
     let fp = fingerprint(world);
 
@@ -202,7 +206,8 @@ fn query_filters_select_by_component_presence(tc: hegel::TestCase) {
 /// exactly what flat iteration does, whatever the batch size.
 #[hegel::test(settings())]
 fn batched_iteration_partitions_the_matches(tc: hegel::TestCase) {
-    let (mut worlds, _pool) = build_twins(&tc, 1, MAX_ENTITIES);
+    let history = tc.draw(histories(0, MAX_ENTITIES));
+    let (mut worlds, _pool) = build_twins(&history, 1);
     let world = &mut worlds[0];
     let want = expected_a(&fingerprint(world));
     // A batch size of 0 is documented to panic.
@@ -235,7 +240,8 @@ fn batched_iteration_partitions_the_matches(tc: hegel::TestCase) {
 /// matches as a query.
 #[hegel::test(settings())]
 fn view_iteration_visits_every_match(tc: hegel::TestCase) {
-    let (mut worlds, _pool) = build_twins(&tc, 1, MAX_ENTITIES);
+    let history = tc.draw(histories(0, MAX_ENTITIES));
+    let (mut worlds, _pool) = build_twins(&history, 1);
     let world = &mut worlds[0];
     let want = expected_a(&fingerprint(world));
 
@@ -275,9 +281,12 @@ fn view_iteration_visits_every_match(tc: hegel::TestCase) {
 /// component, and miss exactly the entities the query does not match.
 #[hegel::test(settings())]
 fn random_access_views_agree_with_iteration(tc: hegel::TestCase) {
-    let (mut worlds, pool) = build_twins(&tc, 1, MAX_ENTITIES);
+    let history = tc.draw(histories(1, MAX_ENTITIES));
+    let (mut worlds, pool) = build_twins(&history, 1);
     let world = &mut worlds[0];
     let fp = fingerprint(world);
+    let e1 = tc.draw(pick(&pool));
+    let e2 = tc.draw(pick(&pool));
 
     {
         let mut q = world.query::<&A>();
@@ -314,20 +323,18 @@ fn random_access_views_agree_with_iteration(tc: hegel::TestCase) {
                 "ViewBorrow::get_unchecked({e:?})"
             );
         }
-        if let (Some(e1), Some(e2)) = (pick(&tc, &pool), pick(&tc, &pool)) {
-            if e1 != e2 {
-                let [first, second] = view.get_disjoint_mut([e1, e2]);
-                assert_eq!(
-                    first.map(|(_, a)| a.0),
-                    fp.get(&e1).and_then(|o| o.a),
-                    "ViewBorrow::get_disjoint_mut({e1:?})"
-                );
-                assert_eq!(
-                    second.map(|(_, a)| a.0),
-                    fp.get(&e2).and_then(|o| o.a),
-                    "ViewBorrow::get_disjoint_mut({e2:?})"
-                );
-            }
+        if e1 != e2 {
+            let [first, second] = view.get_disjoint_mut([e1, e2]);
+            assert_eq!(
+                first.map(|(_, a)| a.0),
+                fp.get(&e1).and_then(|o| o.a),
+                "ViewBorrow::get_disjoint_mut({e1:?})"
+            );
+            assert_eq!(
+                second.map(|(_, a)| a.0),
+                fp.get(&e2).and_then(|o| o.a),
+                "ViewBorrow::get_disjoint_mut({e2:?})"
+            );
         }
     }
     {
@@ -347,20 +354,18 @@ fn random_access_views_agree_with_iteration(tc: hegel::TestCase) {
                 "PreparedView::get_unchecked({e:?})"
             );
         }
-        if let (Some(e1), Some(e2)) = (pick(&tc, &pool), pick(&tc, &pool)) {
-            if e1 != e2 {
-                let [first, second] = view.get_disjoint_mut([e1, e2]);
-                assert_eq!(
-                    first.map(|(_, a)| a.0),
-                    fp.get(&e1).and_then(|o| o.a),
-                    "PreparedView::get_disjoint_mut({e1:?})"
-                );
-                assert_eq!(
-                    second.map(|(_, a)| a.0),
-                    fp.get(&e2).and_then(|o| o.a),
-                    "PreparedView::get_disjoint_mut({e2:?})"
-                );
-            }
+        if e1 != e2 {
+            let [first, second] = view.get_disjoint_mut([e1, e2]);
+            assert_eq!(
+                first.map(|(_, a)| a.0),
+                fp.get(&e1).and_then(|o| o.a),
+                "PreparedView::get_disjoint_mut({e1:?})"
+            );
+            assert_eq!(
+                second.map(|(_, a)| a.0),
+                fp.get(&e2).and_then(|o| o.a),
+                "PreparedView::get_disjoint_mut({e2:?})"
+            );
         }
     }
 

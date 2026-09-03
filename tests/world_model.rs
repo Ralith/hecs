@@ -652,10 +652,7 @@ impl WorldModel {
     #[rule]
     fn spawn_clone_builder(&mut self, tc: TestCase) {
         self.flush_model();
-        let s = Spec {
-            d: None,
-            ..tc.draw(specs())
-        };
+        let s = tc.draw(specs_without_d());
         let mut builder = EntityBuilderClone::new();
         if let Some(v) = s.a {
             builder.add(A(v));

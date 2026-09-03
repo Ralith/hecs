@@ -194,10 +194,7 @@ fn observe(world: &World, e: Entity) -> Spec {
 /// them all across.
 #[hegel::test(settings())]
 fn add_bundle_matches_individual_adds(tc: hegel::TestCase) {
-    let s = Spec {
-        d: None,
-        ..tc.draw(specs())
-    };
+    let s = tc.draw(specs_without_d());
     let expected = s;
     let mut world = World::new();
 
@@ -240,10 +237,7 @@ fn add_bundle_matches_individual_adds(tc: hegel::TestCase) {
 /// the original still spawns correctly afterwards.
 #[hegel::test(settings())]
 fn a_cloned_builder_spawns_the_same_entity(tc: hegel::TestCase) {
-    let s = Spec {
-        d: None,
-        ..tc.draw(specs())
-    };
+    let s = tc.draw(specs_without_d());
     let mut world = World::new();
 
     let mut original = EntityBuilderClone::new();
@@ -317,7 +311,8 @@ fn ref_projections_read_and_write_the_component(tc: hegel::TestCase) {
 #[hegel::test(settings())]
 fn archetype_columns_agree_with_per_entity_reads(tc: hegel::TestCase) {
     assert_d_balanced_at_start();
-    let (mut worlds, _pool) = build_twins(&tc, 1, MAX_ENTITIES);
+    let history = tc.draw(histories(0, MAX_ENTITIES));
+    let (mut worlds, _pool) = build_twins(&history, 1);
     let world = &mut worlds[0];
     let before = fingerprint(world);
 

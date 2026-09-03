@@ -10,7 +10,7 @@ use std::cell::Cell;
 use std::collections::{BTreeMap, HashSet};
 
 use hecs::{Entity, EntityBuilder, World};
-use hegel::generators as gs;
+use hegel::generators::{self as gs, Generator};
 use serde::{Deserialize, Deserializer, Serialize};
 
 /// Component universe: two same-shaped payload components, a zero-sized marker,
@@ -99,17 +99,10 @@ pub fn val() -> impl gs::PrintableGenerator<i32> {
     gs::integers::<i32>().min_value(-3).max_value(3)
 }
 
-/// Draw from `pool`, which deliberately retains despawned handles.
-pub fn pick(tc: &hegel::TestCase, pool: &[Entity]) -> Option<Entity> {
-    if pool.is_empty() {
-        return None;
-    }
-    let i = tc.draw(
-        gs::integers::<usize>()
-            .min_value(0)
-            .max_value(pool.len() - 1),
-    );
-    Some(pool[i])
+/// A handle from `pool`, which deliberately retains despawned handles. `pool`
+/// must not be empty.
+pub fn pick(pool: &[Entity]) -> impl gs::PrintableGenerator<Entity> + '_ {
+    gs::sampled_from(pool).print_as_debug()
 }
 
 /// An arbitrary subset of the component universe, as drawn payloads. `D`
@@ -142,6 +135,12 @@ pub fn specs(tc: &hegel::TestCase) -> Spec {
         c: tc.draw(gs::booleans()),
         d: tc.draw(gs::optional(val())),
     }
+}
+
+/// `specs()` without `D`, which is not `Clone` and so cannot go into an
+/// `EntityBuilderClone`.
+pub fn specs_without_d() -> impl gs::PrintableGenerator<Spec> {
+    specs().map(|s| Spec { d: None, ..s })
 }
 
 pub fn make_builder(s: Spec) -> EntityBuilder {
@@ -228,38 +227,67 @@ pub fn check_archetypes(world: &World, label: &str) {
     );
 }
 
-/// Build `n_worlds` observationally identical worlds by replaying one drawn
-/// history (spawns of arbitrary specs, then a drawn subset of despawns) into
-/// each, and return them with a target pool that retains the despawned handles.
+/// One step of a world's history: spawn an entity from a spec, or despawn the
+/// `i`th entity spawned so far, which is still live at that point.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, hegel::PrettyPrintable)]
+pub enum Step {
+    Spawn(Spec),
+    Despawn(usize),
+}
+
+/// Between `min_steps` and `max_steps` steps, so at most `max_steps` entities.
+/// Despawns are interleaved with the spawns so that ids get recycled and
+/// generations advance. The first step is always a spawn, so a nonzero
+/// `min_steps` guarantees a non-empty handle pool.
+#[hegel::composite]
+pub fn histories(tc: &hegel::TestCase, min_steps: u32, max_steps: u32) -> Vec<Step> {
+    let n = tc.draw(
+        gs::integers::<u32>()
+            .min_value(min_steps)
+            .max_value(max_steps),
+    );
+    let mut steps = Vec::new();
+    let mut live: Vec<usize> = Vec::new();
+    let mut spawned = 0;
+    for _ in 0..n {
+        if !live.is_empty() && tc.draw(gs::weighted_booleans(0.25)) {
+            let i = tc.draw(gs::sampled_from(&live));
+            live.retain(|&l| l != i);
+            steps.push(Step::Despawn(i));
+        } else {
+            steps.push(Step::Spawn(tc.draw(specs())));
+            live.push(spawned);
+            spawned += 1;
+        }
+    }
+    steps
+}
+
+/// Replay `history` into `n_worlds` fresh worlds and return them with the pool
+/// of every handle spawned, despawned ones included.
 ///
 /// `World` is not `Clone`, so this is how a relation between two executions
 /// "from the same state" is set up. It relies on hecs allocating handles
 /// deterministically, which the `deterministic_ids` test in src/world.rs pins.
 /// The assertions below fail if it ever stops holding.
-pub fn build_twins(
-    tc: &hegel::TestCase,
-    n_worlds: usize,
-    max_entities: u32,
-) -> (Vec<World>, Vec<Entity>) {
+pub fn build_twins(history: &[Step], n_worlds: usize) -> (Vec<World>, Vec<Entity>) {
     let mut worlds: Vec<World> = (0..n_worlds).map(|_| World::new()).collect();
     let mut pool: Vec<Entity> = Vec::new();
-
-    let n = tc.draw(gs::integers::<u32>().min_value(0).max_value(max_entities));
-    for _ in 0..n {
-        let s = tc.draw(specs());
-        let mut handles = worlds.iter_mut().map(|w| w.spawn(make_builder(s).build()));
-        let first = handles.next().expect("at least one world");
-        for h in handles {
-            assert_eq!(first, h, "twin worlds allocated different handles");
-        }
-        pool.push(first);
-    }
-    for &e in &pool {
-        if tc.draw(gs::booleans()) {
-            let mut oks = worlds.iter_mut().map(|w| w.despawn(e).is_ok());
-            let first = oks.next().expect("at least one world");
-            for ok in oks {
-                assert_eq!(first, ok, "twin despawn disagreed for {e:?}");
+    for step in history {
+        match *step {
+            Step::Spawn(s) => {
+                let mut handles = worlds.iter_mut().map(|w| w.spawn(make_builder(s).build()));
+                let first = handles.next().expect("at least one world");
+                for h in handles {
+                    assert_eq!(first, h, "twin worlds allocated different handles");
+                }
+                pool.push(first);
+            }
+            Step::Despawn(i) => {
+                for w in &mut worlds {
+                    w.despawn(pool[i])
+                        .expect("a history only despawns live entities");
+                }
             }
         }
     }
@@ -268,4 +296,9 @@ pub fn build_twins(
         assert_eq!(fp0, fingerprint(w), "twin world {i} diverged during setup");
     }
     (worlds, pool)
+}
+
+/// One world replayed from `history`.
+pub fn build_world(history: &[Step]) -> World {
+    build_twins(history, 1).0.pop().expect("one world")
 }

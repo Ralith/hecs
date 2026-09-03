@@ -219,33 +219,11 @@ const WORLD_SIZE: u32 = 3;
 #[cfg(not(miri))]
 const WORLD_SIZE: u32 = 24;
 
-/// A world whose entities cover arbitrary component subsets, with despawns
-/// interleaved so ids get recycled and generations advance — which is what
-/// makes handle preservation a non-trivial claim.
-fn arbitrary_world(tc: &hegel::TestCase, max_entities: u32) -> World {
-    let mut world = World::new();
-    let mut live: Vec<Entity> = Vec::new();
-    for _ in 0..tc.draw(gs::integers::<u32>().min_value(0).max_value(max_entities)) {
-        if !live.is_empty() && tc.draw(gs::weighted_booleans(0.25)) {
-            let i = tc.draw(
-                gs::integers::<usize>()
-                    .min_value(0)
-                    .max_value(live.len() - 1),
-            );
-            world
-                .despawn(live.swap_remove(i))
-                .expect("despawn of a live entity");
-        } else {
-            live.push(world.spawn(make_builder(tc.draw(specs())).build()));
-        }
-    }
-    world
-}
-
 #[hegel::test(settings())]
 fn row_format_roundtrips(tc: hegel::TestCase) {
     assert_d_balanced_at_start();
-    let world = arbitrary_world(&tc, WORLD_SIZE);
+    let history = tc.draw(histories(0, WORLD_SIZE));
+    let world = build_world(&history);
     let restored = row_world(&row_bytes(&world)).expect("row deserialize");
     assert_eq!(
         fingerprint(&world),
@@ -257,7 +235,8 @@ fn row_format_roundtrips(tc: hegel::TestCase) {
 #[hegel::test(settings())]
 fn column_format_roundtrips(tc: hegel::TestCase) {
     assert_d_balanced_at_start();
-    let world = arbitrary_world(&tc, WORLD_SIZE);
+    let history = tc.draw(histories(0, WORLD_SIZE));
+    let world = build_world(&history);
     let restored = column_world(&column_bytes(&world)).expect("column deserialize");
     assert_eq!(
         fingerprint(&world),
@@ -271,7 +250,8 @@ fn column_format_roundtrips(tc: hegel::TestCase) {
 #[hegel::test(settings())]
 fn row_serialize_satisfying_keeps_exactly_the_matching_entities(tc: hegel::TestCase) {
     assert_d_balanced_at_start();
-    let world = arbitrary_world(&tc, WORLD_SIZE);
+    let history = tc.draw(histories(0, WORLD_SIZE));
+    let world = build_world(&history);
     let restored = row_world(&row_satisfying_bytes::<&A>(&world)).expect("row deserialize");
     let want: Fingerprint = fingerprint(&world)
         .into_iter()
@@ -287,7 +267,8 @@ fn row_serialize_satisfying_keeps_exactly_the_matching_entities(tc: hegel::TestC
 #[hegel::test(settings())]
 fn column_serialize_satisfying_keeps_exactly_the_matching_entities(tc: hegel::TestCase) {
     assert_d_balanced_at_start();
-    let world = arbitrary_world(&tc, WORLD_SIZE);
+    let history = tc.draw(histories(0, WORLD_SIZE));
+    let world = build_world(&history);
     let restored =
         column_world(&column_satisfying_bytes::<&A>(&world)).expect("column deserialize");
     let want: Fingerprint = fingerprint(&world)
@@ -307,7 +288,8 @@ fn column_serialize_satisfying_keeps_exactly_the_matching_entities(tc: hegel::Te
 #[hegel::test(settings())]
 fn row_truncated_input_is_rejected_without_leaking(tc: hegel::TestCase) {
     assert_d_balanced_at_start();
-    let world = arbitrary_world(&tc, WORLD_SIZE);
+    let history = tc.draw(histories(0, WORLD_SIZE));
+    let world = build_world(&history);
     let bytes = row_bytes(&world);
     assert_eq!(
         fingerprint(&world),
@@ -339,7 +321,8 @@ fn row_truncated_input_is_rejected_without_leaking(tc: hegel::TestCase) {
 #[hegel::test(settings())]
 fn column_truncated_input_is_rejected_without_leaking(tc: hegel::TestCase) {
     assert_d_balanced_at_start();
-    let world = arbitrary_world(&tc, WORLD_SIZE);
+    let history = tc.draw(histories(0, WORLD_SIZE));
+    let world = build_world(&history);
     let bytes = column_bytes(&world);
     assert_eq!(
         fingerprint(&world),
@@ -364,21 +347,25 @@ fn column_truncated_input_is_rejected_without_leaking(tc: hegel::TestCase) {
     );
 }
 
-/// Flip the low two bits of a few drawn positions. This still reaches unknown
-/// enum discriminants, invalid entity bit patterns, colliding entity ids,
-/// bincode length-marker mutations and corrupted payloads, while bounding every
-/// count and id the parser can derive from the stream: both deserializers size
-/// allocations from untrusted integers before validating them (row grows the
-/// entity metadata table up to the deserialized id, column reserves from
-/// `entity_count`), so a full-byte overwrite can ask for tens of gigabytes.
-fn corrupt(tc: &hegel::TestCase, bytes: &mut [u8]) {
-    for _ in 0..tc.draw(gs::integers::<u32>().min_value(1).max_value(3)) {
-        let at = tc.draw(
-            gs::integers::<usize>()
-                .min_value(0)
-                .max_value(bytes.len() - 1),
-        );
-        let mask = tc.draw(gs::integers::<u8>().min_value(1).max_value(3));
+/// One to three `(position, mask)` pairs flipping the low two bits of a byte in
+/// a stream of `len` bytes. This still reaches unknown enum discriminants,
+/// invalid entity bit patterns, colliding entity ids, bincode length-marker
+/// mutations and corrupted payloads, while bounding every count and id the
+/// parser can derive from the stream: both deserializers size allocations from
+/// untrusted integers before validating them (row grows the entity metadata
+/// table up to the deserialized id, column reserves from `entity_count`), so a
+/// full-byte overwrite can ask for tens of gigabytes.
+fn corruptions(len: usize) -> impl gs::PrintableGenerator<Vec<(usize, u8)>> {
+    gs::vecs(hegel::tuples!(
+        gs::integers::<usize>().min_value(0).max_value(len - 1),
+        gs::integers::<u8>().min_value(1).max_value(3),
+    ))
+    .min_size(1)
+    .max_size(3)
+}
+
+fn corrupt(bytes: &mut [u8], flips: &[(usize, u8)]) {
+    for &(at, mask) in flips {
         bytes[at] ^= mask;
     }
 }
@@ -394,9 +381,11 @@ fn corrupt(tc: &hegel::TestCase, bytes: &mut [u8]) {
 #[hegel::test(settings())]
 fn row_corrupted_input_is_rejected_or_usable(tc: hegel::TestCase) {
     assert_d_balanced_at_start();
-    let world = arbitrary_world(&tc, WORLD_SIZE);
+    let history = tc.draw(histories(0, WORLD_SIZE));
+    let world = build_world(&history);
     let mut bytes = row_bytes(&world);
-    corrupt(&tc, &mut bytes);
+    let flips = tc.draw(corruptions(bytes.len()));
+    corrupt(&mut bytes, &flips);
     let outcome = catch_unwind(AssertUnwindSafe(|| row_world(&bytes)));
     match outcome {
         Ok(Ok(restored)) => drop(fingerprint(&restored)),
@@ -414,9 +403,11 @@ fn row_corrupted_input_is_rejected_or_usable(tc: hegel::TestCase) {
 #[hegel::test(settings())]
 fn column_corrupted_input_is_rejected_or_usable(tc: hegel::TestCase) {
     assert_d_balanced_at_start();
-    let world = arbitrary_world(&tc, WORLD_SIZE);
+    let history = tc.draw(histories(0, WORLD_SIZE));
+    let world = build_world(&history);
     let mut bytes = column_bytes(&world);
-    corrupt(&tc, &mut bytes);
+    let flips = tc.draw(corruptions(bytes.len()));
+    corrupt(&mut bytes, &flips);
     let outcome = catch_unwind(AssertUnwindSafe(|| column_world(&bytes)));
     match outcome {
         Ok(Ok(restored)) => drop(fingerprint(&restored)),
