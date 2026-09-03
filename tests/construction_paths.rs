@@ -14,9 +14,26 @@ use fixtures::*;
 use hecs::{CommandBuffer, Entity, World};
 use hegel::generators::{self as gs, Generator};
 
-const ROUTES: usize = 5;
+/// The routes that spawn drawn components and return the handle. The
+/// `CommandBuffer` route is driven separately, since `CommandBuffer::spawn`
+/// does not return one.
+const ROUTES: [(&str, fn(&mut World, Components, &DropTracker) -> Entity); 4] = [
+    ("EntityBuilder", spawn_builder),
+    ("static tuple", spawn_tuple),
+    ("reserve_entity + insert", spawn_reserved),
+    ("insert_one chain", spawn_incrementally),
+];
 
-/// Route 2: the static `Bundle` impls, one concrete tuple type per subset of
+/// The name of the `i`th twin world: a `ROUTES` entry, then the buffer world.
+fn route_name(i: usize) -> &'static str {
+    ROUTES.get(i).map_or("CommandBuffer", |route| route.0)
+}
+
+fn spawn_builder(world: &mut World, cs: Components, ds: &DropTracker) -> Entity {
+    world.spawn(cs.builder(ds).build())
+}
+
+/// The static `Bundle` impls, one concrete tuple type per subset of
 /// `{A, B, C, D}`.
 fn spawn_tuple(world: &mut World, cs: Components, ds: &DropTracker) -> Entity {
     match (cs.a, cs.b, cs.c, cs.d) {
@@ -39,8 +56,15 @@ fn spawn_tuple(world: &mut World, cs: Components, ds: &DropTracker) -> Entity {
     }
 }
 
-/// Route 5: an empty entity migrated through one intermediate archetype per
-/// component.
+fn spawn_reserved(world: &mut World, cs: Components, ds: &DropTracker) -> Entity {
+    let e = world.reserve_entity();
+    world
+        .insert(e, cs.builder(ds).build())
+        .expect("insert on a freshly reserved entity");
+    e
+}
+
+/// An empty entity migrated through one intermediate archetype per component.
 fn spawn_incrementally(world: &mut World, cs: Components, ds: &DropTracker) -> Entity {
     let e = world.spawn(());
     if let Some(v) = cs.a {
@@ -76,7 +100,7 @@ fn construction_routes_are_observationally_equal(tc: hegel::TestCase) {
     // A shared history puts every allocator into the same non-trivial state
     // (non-empty freelist, advanced generations) before the routes diverge.
     let history = tc.draw(histories(0, MAX_ENTITIES));
-    let (mut worlds, mut pool) = build_twins(&history, ROUTES, &ds);
+    let (mut worlds, mut pool) = build_twins(&history, ROUTES.len() + 1, &ds);
 
     let to_spawn: Vec<Components> = tc.draw(gs::vecs(components()).max_size(MAX_ENTITIES as usize));
 
@@ -85,43 +109,20 @@ fn construction_routes_are_observationally_equal(tc: hegel::TestCase) {
         buffer.spawn(cs.builder(&ds).build());
     }
 
-    let mut handles: Vec<Vec<Entity>> = Vec::with_capacity(ROUTES);
-    handles.push(
-        to_spawn
-            .iter()
-            .map(|&cs| worlds[0].spawn(cs.builder(&ds).build()))
-            .collect(),
-    );
-    handles.push(
-        to_spawn
-            .iter()
-            .map(|&cs| spawn_tuple(&mut worlds[1], cs, &ds))
-            .collect(),
-    );
-    handles.push(
-        to_spawn
-            .iter()
-            .map(|&cs| {
-                let e = worlds[2].reserve_entity();
-                worlds[2]
-                    .insert(e, cs.builder(&ds).build())
-                    .expect("insert on a freshly reserved entity");
-                e
-            })
-            .collect(),
-    );
+    let handles: Vec<Vec<Entity>> = ROUTES
+        .iter()
+        .zip(&mut worlds)
+        .map(|(&(_, route), world)| to_spawn.iter().map(|&cs| route(world, cs, &ds)).collect())
+        .collect();
     // CommandBuffer does not surface the handles it allocates; they are
     // recovered from the fingerprint comparison below.
-    buffer.run_on(&mut worlds[3]);
-    handles.push(
-        to_spawn
-            .iter()
-            .map(|&cs| spawn_incrementally(&mut worlds[4], cs, &ds))
-            .collect(),
-    );
+    buffer.run_on(&mut worlds[ROUTES.len()]);
 
-    for (i, route) in handles.iter().enumerate().skip(1) {
-        assert_eq!(&handles[0], route, "route {i} allocated different handles");
+    for (&(name, _), route) in ROUTES.iter().zip(&handles).skip(1) {
+        assert_eq!(
+            &handles[0], route,
+            "the {name} route allocated different handles"
+        );
     }
     pool.extend(handles[0].iter().copied());
 
@@ -137,7 +138,8 @@ fn construction_routes_are_observationally_equal(tc: hegel::TestCase) {
         assert_eq!(
             expected,
             fingerprint(w),
-            "route {i} built an observationally different world"
+            "the {} route built an observationally different world",
+            route_name(i)
         );
         check_archetypes(w, "constructed world");
     }
@@ -160,8 +162,8 @@ fn construction_routes_are_observationally_equal(tc: hegel::TestCase) {
             assert_eq!(
                 first,
                 r,
-                "{m:?} on {e:?} returned a different result in route {}",
-                i + 1
+                "{m:?} on {e:?} returned a different result in the {} route",
+                route_name(i + 1)
             );
         }
         let after = fingerprint(&worlds[0]);
@@ -169,7 +171,8 @@ fn construction_routes_are_observationally_equal(tc: hegel::TestCase) {
             assert_eq!(
                 after,
                 fingerprint(w),
-                "route {i} diverged after {m:?} on {e:?}"
+                "the {} route diverged after {m:?} on {e:?}",
+                route_name(i)
             );
         }
     }
