@@ -517,24 +517,22 @@ impl WorldModel {
     #[rule]
     fn spawn_batch(&mut self, tc: TestCase) {
         self.flush_model();
-        let n = tc.draw(gs::integers::<u32>().min_value(0).max_value(5));
-        let v = tc.draw(val());
+        let payloads: Vec<(i32, i32)> = tc.draw(gs::vecs(hegel::tuples!(val(), val())).max_size(5));
         let handles: Vec<Entity> = self
             .world
-            .spawn_batch((0..n).map(|_| (A(v), B(v))))
+            .spawn_batch(payloads.iter().map(|&(a, b)| (A(a), B(b))))
             .collect();
         assert_eq!(
             handles.len(),
-            n as usize,
+            payloads.len(),
             "spawn_batch yielded the wrong count"
         );
-        let cs = Components {
-            a: Some(v),
-            b: Some(v),
-            c: false,
-            d: None,
-        };
-        for e in handles {
+        for (e, &(a, b)) in handles.into_iter().zip(&payloads) {
+            let cs = Components {
+                a: Some(a),
+                b: Some(b),
+                ..Components::default()
+            };
             assert!(
                 self.model.insert(e, cs).is_none(),
                 "spawn_batch reused {e:?}"
