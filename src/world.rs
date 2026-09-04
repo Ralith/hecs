@@ -280,7 +280,7 @@ impl World {
                 // This entity ID was already assigned
                 unsafe {
                     if let Some(moved) = archetype.remove(index as u32, true) {
-                        self.entities.meta[moved as usize].location.index = moved;
+                        self.entities.meta[moved as usize].location.index = index as u32;
                     }
                 }
                 continue;
@@ -1500,17 +1500,21 @@ mod tests {
         // A column batch of two entities in the unit (no-component) archetype.
         let mut batch = crate::ColumnBatchType::new();
         batch.add::<String>();
-        let batch = batch.into_batch(2);
+        let batch = batch.into_batch(3);
         {
             let mut writer = batch.writer::<String>().unwrap();
             writer.push("a".into()).unwrap();
             writer.push("b".into()).unwrap();
+            writer.push("c".into()).unwrap();
         }
         let batch = batch.build().unwrap();
 
-        let e = Entity::from_bits(1 << 32).unwrap(); // id 0, generation 1
-        world.spawn_column_batch_at(&[e, e], batch); // the same handle twice
-        assert_eq!(world.iter().count(), 1);
-        assert_eq!(&*world.get::<&String>(e).unwrap(), "b");
+        let e0 = Entity::from_bits(1 << 32).unwrap(); // id 0, generation 1
+        let e1 = Entity::from_bits(1 << 32 | 1).unwrap(); // id 1, generation 1
+        world.spawn_column_batch_at(&[e1, e0, e1], batch); // the same handle twice
+        assert_eq!(world.len(), 2);
+        assert_eq!(world.iter().count(), 2);
+        assert_eq!(&*world.get::<&String>(e0).unwrap(), "b");
+        assert_eq!(&*world.get::<&String>(e1).unwrap(), "c");
     }
 }
