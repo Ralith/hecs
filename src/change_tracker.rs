@@ -82,7 +82,7 @@ where
     pub fn added(&mut self) -> impl ExactSizeIterator<Item = (Entity, &T)> + '_ {
         self.tracker.added_components.clear();
         self.added = true;
-        DrainOnDrop(
+        DrainOnDrop::new(
             self.tracker
                 .added
                 .query_mut(self.world)
@@ -94,7 +94,7 @@ where
     /// [`PartialEq`] after the preceding [`track`](ChangeTracker::track) call
     pub fn changed(&mut self) -> impl Iterator<Item = (Entity, T, &T)> + '_ {
         self.changed = true;
-        DrainOnDrop(
+        DrainOnDrop::new(
             self.tracker
                 .changed
                 .query_mut(self.world)
@@ -117,7 +117,7 @@ where
         self.tracker
             .removed_components
             .extend(self.tracker.removed.query_mut(self.world));
-        DrainOnDrop(
+        DrainOnDrop::new(
             self.tracker
                 .removed_components
                 .drain(..)
@@ -148,25 +148,45 @@ where
 
 /// Helper to ensure an iterator visits every element so that we can rely on the iterator's side
 /// effects
-struct DrainOnDrop<T: Iterator>(T);
+struct DrainOnDrop<T: Iterator>(Option<T>);
+
+impl<T: Iterator> DrainOnDrop<T> {
+    fn new(iter: T) -> Self {
+        Self(Some(iter))
+    }
+}
 
 impl<T: Iterator> Iterator for DrainOnDrop<T> {
     type Item = T::Item;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.0.next()
+        self.0.as_mut()?.next()
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.0.as_ref().map_or((0, Some(0)), Iterator::size_hint)
+    }
+
+    fn fold<B, F>(mut self, init: B, f: F) -> B
+    where
+        F: FnMut(B, Self::Item) -> B,
+    {
+        // Forward to the inner iterator so that hecs's per-archetype `fold` fast path is used.
+        self.0.take().into_iter().flatten().fold(init, f)
     }
 }
 
 impl<T: ExactSizeIterator> ExactSizeIterator for DrainOnDrop<T> {
     fn len(&self) -> usize {
-        self.0.len()
+        self.0.as_ref().map_or(0, ExactSizeIterator::len)
     }
 }
 
 impl<T: Iterator> Drop for DrainOnDrop<T> {
     fn drop(&mut self) {
-        for _ in &mut self.0 {}
+        if let Some(iter) = self.0.take() {
+            iter.for_each(drop);
+        }
     }
 }
 
