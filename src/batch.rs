@@ -128,7 +128,11 @@ impl Drop for ColumnBatchBuilder {
             for ty in archetype.types() {
                 let fill = *self.fill.get_mut(&ty.id()).unwrap().get_mut();
                 unsafe {
-                    let scratch = alloc(ty.layout());
+                    let layout = ty.layout();
+                    let scratch = match layout.size() {
+                        0 => layout.align() as *mut u8,
+                        _ => alloc(layout),
+                    };
                     let base = archetype.get_dynamic(ty.id(), 0, 0).unwrap();
                     for i in 0..fill {
                         scratch.copy_from_nonoverlapping(
@@ -137,7 +141,9 @@ impl Drop for ColumnBatchBuilder {
                         );
                         ty.drop(scratch);
                     }
-                    dealloc(scratch, ty.layout());
+                    if layout.size() != 0 {
+                        dealloc(scratch, ty.layout());
+                    }
                 }
             }
         }
@@ -288,5 +294,14 @@ mod tests {
         }
         assert!(builder.build().is_err());
         assert_eq!(Arc::strong_count(&value), 1);
+    }
+
+    #[test]
+    fn drop_zst_elements() {
+        struct Zst;
+        let mut ty = ColumnBatchType::new();
+        ty.add::<Zst>();
+        let batch = ty.into_batch(1);
+        _ = batch.writer().unwrap().push(Zst);
     }
 }
