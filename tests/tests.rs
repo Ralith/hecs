@@ -825,6 +825,44 @@ fn clear_does_not_double_drop_when_a_destructor_panics() {
 }
 
 #[test]
+fn command_buffer_does_not_double_drop_when_a_command_panics() {
+    use std::panic::{catch_unwind, AssertUnwindSafe};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    static DROPS: AtomicUsize = AtomicUsize::new(0);
+
+    struct Tracked;
+
+    impl Drop for Tracked {
+        fn drop(&mut self) {
+            DROPS.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    let mut world = World::new();
+    let mut buffer = CommandBuffer::new();
+
+    // Handed to the world by the first command.
+    buffer.spawn((Tracked,));
+    // Unwinds before run_on can wipe the component list.
+    buffer.queue(|_| panic!("boom"));
+    // Never reached; still owned by the buffer.
+    buffer.spawn((Tracked,));
+
+    let unwound = catch_unwind(AssertUnwindSafe(|| buffer.run_on(&mut world)));
+    assert!(unwound.is_err());
+
+    drop(buffer);
+    drop(world);
+
+    assert_eq!(
+        DROPS.load(Ordering::SeqCst),
+        2,
+        "a component moved into the world must not be destroyed by the buffer"
+    );
+}
+
+#[test]
 fn remove_missing() {
     let mut world = World::new();
     let e = world.spawn(("abc", 123));
