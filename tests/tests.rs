@@ -863,6 +863,53 @@ fn command_buffer_does_not_double_drop_when_a_command_panics() {
 }
 
 #[test]
+fn despawn_does_not_double_drop_when_a_destructor_panics() {
+    use std::panic::{catch_unwind, AssertUnwindSafe};
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+
+    static DROPS: AtomicUsize = AtomicUsize::new(0);
+    static ARMED: AtomicBool = AtomicBool::new(true);
+
+    struct Bomb(bool);
+    struct Tracked;
+
+    impl Drop for Bomb {
+        fn drop(&mut self) {
+            DROPS.fetch_add(1, Ordering::SeqCst);
+            if self.0 && ARMED.swap(false, Ordering::SeqCst) {
+                panic!("boom");
+            }
+        }
+    }
+
+    impl Drop for Tracked {
+        fn drop(&mut self) {
+            DROPS.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    let mut world = World::new();
+    let victim = world.spawn((Bomb(true), Tracked));
+    world.spawn((Bomb(false), Tracked));
+    world.spawn((Bomb(false), Tracked));
+
+    let unwound = catch_unwind(AssertUnwindSafe(|| {
+        let _ = world.despawn(victim);
+    }));
+    assert!(unwound.is_err());
+
+    drop(world);
+
+    // Six components exist. Whatever the unwind skips is leaked, but nothing
+    // may be destroyed twice.
+    assert!(
+        DROPS.load(Ordering::SeqCst) <= 6,
+        "components destroyed {} times, at most 6 exist",
+        DROPS.load(Ordering::SeqCst)
+    );
+}
+
+#[test]
 fn remove_missing() {
     let mut world = World::new();
     let e = world.spawn(("abc", 123));

@@ -324,19 +324,68 @@ impl Archetype {
     /// Returns the ID of the entity moved into `index`, if any
     pub(crate) unsafe fn remove(&mut self, index: u32, drop: bool) -> Option<u32> {
         let last = self.len - 1;
-        for (ty, data) in self.types.iter().zip(&*self.data) {
-            let removed = data.storage.as_ptr().add(index as usize * ty.layout.size());
-            if drop {
-                (ty.drop)(removed);
-            }
-            if index != last {
-                let moved = data.storage.as_ptr().add(last as usize * ty.layout.size());
-                ptr::copy_nonoverlapping(moved, removed, ty.layout.size());
+
+        // Each iteration destroys the component at `index` and then backfills
+        // it from `last`, leaving a bitwise duplicate behind until `self.len`
+        // is committed. If a destructor unwinds partway through, the guard
+        // finishes the backfill for the remaining types without running any
+        // further destructors, then commits the length. Components of the
+        // removed entity that were not reached are leaked, which is safe.
+        struct Guard<'a> {
+            archetype: &'a mut Archetype,
+            index: u32,
+            last: u32,
+            progress: usize,
+        }
+
+        impl Drop for Guard<'_> {
+            fn drop(&mut self) {
+                let (index, last) = (self.index, self.last);
+                if index != last {
+                    for i in self.progress..self.archetype.types.len() {
+                        let ty = &self.archetype.types[i];
+                        let data = &self.archetype.data[i];
+                        unsafe {
+                            let removed =
+                                data.storage.as_ptr().add(index as usize * ty.layout.size());
+                            let moved =
+                                data.storage.as_ptr().add(last as usize * ty.layout.size());
+                            ptr::copy_nonoverlapping(moved, removed, ty.layout.size());
+                        }
+                    }
+                    self.archetype.entities[index as usize] =
+                        self.archetype.entities[last as usize];
+                }
+                self.archetype.len = last;
             }
         }
-        self.len = last;
+
+        let mut guard = Guard {
+            archetype: self,
+            index,
+            last,
+            progress: 0,
+        };
+
+        for i in 0..guard.archetype.types.len() {
+            {
+                let ty = &guard.archetype.types[i];
+                let data = &guard.archetype.data[i];
+                let removed = data.storage.as_ptr().add(index as usize * ty.layout.size());
+                if drop {
+                    (ty.drop)(removed);
+                }
+                if index != last {
+                    let moved = data.storage.as_ptr().add(last as usize * ty.layout.size());
+                    ptr::copy_nonoverlapping(moved, removed, ty.layout.size());
+                }
+            }
+            guard.progress = i + 1;
+        }
+
+        core::mem::drop(guard);
+
         if index != last {
-            self.entities[index as usize] = self.entities[last as usize];
             Some(self.entities[last as usize])
         } else {
             None
