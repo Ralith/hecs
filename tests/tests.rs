@@ -788,6 +788,43 @@ fn clear() {
 }
 
 #[test]
+fn clear_does_not_double_drop_when_a_destructor_panics() {
+    use std::panic::{catch_unwind, AssertUnwindSafe};
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+
+    static DROPS: AtomicUsize = AtomicUsize::new(0);
+    static ARMED: AtomicBool = AtomicBool::new(true);
+
+    struct Bomb(usize);
+
+    impl Drop for Bomb {
+        fn drop(&mut self) {
+            DROPS.fetch_add(1, Ordering::SeqCst);
+            // Fire once. A second panic while unwinding would abort.
+            if self.0 == 2 && ARMED.swap(false, Ordering::SeqCst) {
+                panic!("boom");
+            }
+        }
+    }
+
+    let mut world = World::new();
+    for i in 0..4 {
+        world.spawn((Bomb(i),));
+    }
+
+    let unwound = catch_unwind(AssertUnwindSafe(|| world.clear()));
+    assert!(unwound.is_err());
+
+    drop(world);
+
+    assert_eq!(
+        DROPS.load(Ordering::SeqCst),
+        3,
+        "components destroyed before the unwind must not be destroyed again"
+    );
+}
+
+#[test]
 fn remove_missing() {
     let mut world = World::new();
     let e = world.spawn(("abc", 123));

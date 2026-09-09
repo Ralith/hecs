@@ -66,15 +66,20 @@ impl Archetype {
     }
 
     pub(crate) fn clear(&mut self) {
+        // Take the length before running any destructor. `Drop for Archetype`
+        // calls this function, so if a component's `Drop` unwinds and the
+        // length is still set, every component is destroyed a second time.
+        // Components not reached before the unwind are leaked instead.
+        let len = self.len;
+        self.len = 0;
         for (ty, data) in self.types.iter().zip(&*self.data) {
-            for index in 0..self.len {
+            for index in 0..len {
                 unsafe {
                     let removed = data.storage.as_ptr().add(index as usize * ty.layout.size());
                     (ty.drop)(removed);
                 }
             }
         }
-        self.len = 0;
     }
 
     /// Whether this archetype contains `T` components
