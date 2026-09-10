@@ -787,29 +787,78 @@ fn clear() {
     assert_eq!(world.iter().count(), 0);
 }
 
-#[test]
-fn clear_does_not_double_drop_when_a_destructor_panics() {
-    use std::panic::{catch_unwind, AssertUnwindSafe};
-    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::Arc;
 
-    static DROPS: AtomicUsize = AtomicUsize::new(0);
-    static ARMED: AtomicBool = AtomicBool::new(true);
+/// Shared state for the panic-safety tests below.
+///
+/// The fire-once flag lives here rather than in the component. A double drop
+/// is exactly what these tests look for, so an armed component can be dropped
+/// twice, and a second panic while unwinding would abort the process before
+/// the assertion runs.
+#[derive(Default)]
+struct DropLog {
+    drops: AtomicUsize,
+    fired: AtomicBool,
+}
 
-    struct Bomb(usize);
+impl DropLog {
+    fn count(&self) -> usize {
+        self.drops.load(Ordering::Relaxed)
+    }
+}
 
-    impl Drop for Bomb {
-        fn drop(&mut self) {
-            DROPS.fetch_add(1, Ordering::SeqCst);
-            // Fire once. A second panic while unwinding would abort.
-            if self.0 == 2 && ARMED.swap(false, Ordering::SeqCst) {
-                panic!("boom");
-            }
+/// Counts its own destruction, and panics once if armed.
+struct Bomb {
+    log: Arc<DropLog>,
+    armed: bool,
+}
+
+impl Bomb {
+    fn new(log: &Arc<DropLog>, armed: bool) -> Self {
+        Self {
+            log: Arc::clone(log),
+            armed,
         }
     }
+}
+
+impl Drop for Bomb {
+    fn drop(&mut self) {
+        self.log.drops.fetch_add(1, Ordering::Relaxed);
+        if self.armed && !self.log.fired.swap(true, Ordering::Relaxed) {
+            panic!("boom");
+        }
+    }
+}
+
+/// Counts its own destruction and nothing else.
+struct Tracked {
+    log: Arc<DropLog>,
+}
+
+impl Tracked {
+    fn new(log: &Arc<DropLog>) -> Self {
+        Self {
+            log: Arc::clone(log),
+        }
+    }
+}
+
+impl Drop for Tracked {
+    fn drop(&mut self) {
+        self.log.drops.fetch_add(1, Ordering::Relaxed);
+    }
+}
+
+#[test]
+fn clear_does_not_double_drop_when_a_destructor_panics() {
+    let log = Arc::new(DropLog::default());
 
     let mut world = World::new();
     for i in 0..4 {
-        world.spawn((Bomb(i),));
+        world.spawn((Bomb::new(&log, i == 2),));
     }
 
     let unwound = catch_unwind(AssertUnwindSafe(|| world.clear()));
@@ -817,8 +866,10 @@ fn clear_does_not_double_drop_when_a_destructor_panics() {
 
     drop(world);
 
+    // Three were destroyed before the unwind. The fourth is leaked, which is
+    // safe; destroying any of them twice is not.
     assert_eq!(
-        DROPS.load(Ordering::SeqCst),
+        log.count(),
         3,
         "components destroyed before the unwind must not be destroyed again"
     );
@@ -826,28 +877,17 @@ fn clear_does_not_double_drop_when_a_destructor_panics() {
 
 #[test]
 fn command_buffer_does_not_double_drop_when_a_command_panics() {
-    use std::panic::{catch_unwind, AssertUnwindSafe};
-    use std::sync::atomic::{AtomicUsize, Ordering};
-
-    static DROPS: AtomicUsize = AtomicUsize::new(0);
-
-    struct Tracked;
-
-    impl Drop for Tracked {
-        fn drop(&mut self) {
-            DROPS.fetch_add(1, Ordering::SeqCst);
-        }
-    }
+    let log = Arc::new(DropLog::default());
 
     let mut world = World::new();
     let mut buffer = CommandBuffer::new();
 
     // Handed to the world by the first command.
-    buffer.spawn((Tracked,));
+    buffer.spawn((Tracked::new(&log),));
     // Unwinds before run_on can wipe the component list.
     buffer.queue(|_| panic!("boom"));
     // Never reached; still owned by the buffer.
-    buffer.spawn((Tracked,));
+    buffer.spawn((Tracked::new(&log),));
 
     let unwound = catch_unwind(AssertUnwindSafe(|| buffer.run_on(&mut world)));
     assert!(unwound.is_err());
@@ -856,7 +896,7 @@ fn command_buffer_does_not_double_drop_when_a_command_panics() {
     drop(world);
 
     assert_eq!(
-        DROPS.load(Ordering::SeqCst),
+        log.count(),
         2,
         "a component moved into the world must not be destroyed by the buffer"
     );
@@ -864,34 +904,12 @@ fn command_buffer_does_not_double_drop_when_a_command_panics() {
 
 #[test]
 fn despawn_does_not_double_drop_when_a_destructor_panics() {
-    use std::panic::{catch_unwind, AssertUnwindSafe};
-    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-
-    static DROPS: AtomicUsize = AtomicUsize::new(0);
-    static ARMED: AtomicBool = AtomicBool::new(true);
-
-    struct Bomb(bool);
-    struct Tracked;
-
-    impl Drop for Bomb {
-        fn drop(&mut self) {
-            DROPS.fetch_add(1, Ordering::SeqCst);
-            if self.0 && ARMED.swap(false, Ordering::SeqCst) {
-                panic!("boom");
-            }
-        }
-    }
-
-    impl Drop for Tracked {
-        fn drop(&mut self) {
-            DROPS.fetch_add(1, Ordering::SeqCst);
-        }
-    }
+    let log = Arc::new(DropLog::default());
 
     let mut world = World::new();
-    let victim = world.spawn((Bomb(true), Tracked));
-    world.spawn((Bomb(false), Tracked));
-    world.spawn((Bomb(false), Tracked));
+    let victim = world.spawn((Bomb::new(&log, true), Tracked::new(&log)));
+    world.spawn((Bomb::new(&log, false), Tracked::new(&log)));
+    world.spawn((Bomb::new(&log, false), Tracked::new(&log)));
 
     let unwound = catch_unwind(AssertUnwindSafe(|| {
         let _ = world.despawn(victim);
@@ -900,12 +918,13 @@ fn despawn_does_not_double_drop_when_a_destructor_panics() {
 
     drop(world);
 
-    // Six components exist. Whatever the unwind skips is leaked, but nothing
-    // may be destroyed twice.
+    // Six components exist. How far the loop gets before the unwind depends on
+    // the order the archetype stores its types in, so anything the unwind
+    // skips is leaked; nothing may be destroyed twice.
     assert!(
-        DROPS.load(Ordering::SeqCst) <= 6,
+        log.count() <= 6,
         "components destroyed {} times, at most 6 exist",
-        DROPS.load(Ordering::SeqCst)
+        log.count()
     );
 }
 
