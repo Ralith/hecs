@@ -143,10 +143,33 @@ impl CommandBuffer {
 
     /// Run recorded commands on `world`, clearing the command buffer
     pub fn run_on(&mut self, world: &mut World) {
-        for i in 0..self.cmds.len() {
-            match mem::replace(&mut self.cmds[i], Cmd::Despawn(Entity::DANGLING)) {
+        // Components handed to `world` must not be destroyed by `clear`, so the
+        // count of consumed components is committed as the loop goes. Without
+        // this a panicking command leaves them owned twice.
+        struct Reset<'a> {
+            buffer: &'a mut CommandBuffer,
+            consumed: usize,
+        }
+
+        impl Drop for Reset<'_> {
+            fn drop(&mut self) {
+                // Already moved into the world: forget them here.
+                self.buffer.components.drain(..self.consumed);
+                // Still owned by the buffer: destroy them normally.
+                self.buffer.clear();
+            }
+        }
+
+        let mut state = Reset {
+            buffer: self,
+            consumed: 0,
+        };
+
+        for i in 0..state.buffer.cmds.len() {
+            match mem::replace(&mut state.buffer.cmds[i], Cmd::Despawn(Entity::DANGLING)) {
                 Cmd::SpawnOrInsert(entity) => {
-                    let components = self.build(entity.components);
+                    let end = entity.components.end;
+                    let components = state.buffer.build(entity.components);
                     match entity.entity {
                         Some(entity) => {
                             // If `entity` no longer exists, quietly drop the components.
@@ -156,6 +179,7 @@ impl CommandBuffer {
                             world.spawn(components);
                         }
                     }
+                    state.consumed = end;
                 }
                 Cmd::Remove(remove) => {
                     (remove.remove)(world, remove.entity);
@@ -168,10 +192,6 @@ impl CommandBuffer {
                 }
             }
         }
-        // Wipe out component references so `clear` doesn't try to double-free
-        self.components.clear();
-
-        self.clear();
     }
 
     fn build(&mut self, components: Range<usize>) -> RecordedEntity<'_> {

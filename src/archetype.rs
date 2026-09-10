@@ -66,15 +66,20 @@ impl Archetype {
     }
 
     pub(crate) fn clear(&mut self) {
+        // Take the length before running any destructor. `Drop for Archetype`
+        // calls this function, so if a component's `Drop` unwinds and the
+        // length is still set, every component is destroyed a second time.
+        // Components not reached before the unwind are leaked instead.
+        let len = self.len;
+        self.len = 0;
         for (ty, data) in self.types.iter().zip(&*self.data) {
-            for index in 0..self.len {
+            for index in 0..len {
                 unsafe {
                     let removed = data.storage.as_ptr().add(index as usize * ty.layout.size());
                     (ty.drop)(removed);
                 }
             }
         }
-        self.len = 0;
     }
 
     /// Whether this archetype contains `T` components
@@ -319,19 +324,57 @@ impl Archetype {
     /// Returns the ID of the entity moved into `index`, if any
     pub(crate) unsafe fn remove(&mut self, index: u32, drop: bool) -> Option<u32> {
         let last = self.len - 1;
-        for (ty, data) in self.types.iter().zip(&*self.data) {
-            let removed = data.storage.as_ptr().add(index as usize * ty.layout.size());
-            if drop {
-                (ty.drop)(removed);
-            }
-            if index != last {
-                let moved = data.storage.as_ptr().add(last as usize * ty.layout.size());
-                ptr::copy_nonoverlapping(moved, removed, ty.layout.size());
+        // Each iteration destroys the component at `index` and backfills it
+        // from `last`, leaving a bitwise duplicate behind until `self.len` is
+        // committed. If a destructor unwinds partway through, the guard
+        // backfills the types it did not reach and commits the length, without
+        // running any further destructors. Components of the removed entity
+        // that were not reached are leaked, which is safe.
+        struct Guard<'a> {
+            archetype: &'a mut Archetype,
+            index: u32,
+            last: u32,
+            /// Number of types already backfilled.
+            progress: usize,
+        }
+        impl Drop for Guard<'_> {
+            fn drop(&mut self) {
+                for i in self.progress..self.archetype.types.len() {
+                    unsafe {
+                        remove_one(
+                            &self.archetype.types[i],
+                            &self.archetype.data[i],
+                            self.index,
+                            self.last,
+                            false,
+                        );
+                    }
+                }
+                if self.index != self.last {
+                    self.archetype.entities[self.index as usize] =
+                        self.archetype.entities[self.last as usize];
+                }
+                self.archetype.len = self.last;
             }
         }
-        self.len = last;
+        let mut guard = Guard {
+            archetype: self,
+            index,
+            last,
+            progress: 0,
+        };
+        for i in 0..guard.archetype.types.len() {
+            remove_one(
+                &guard.archetype.types[i],
+                &guard.archetype.data[i],
+                index,
+                last,
+                drop,
+            );
+            guard.progress = i + 1;
+        }
+        core::mem::drop(guard);
         if index != last {
-            self.entities[index as usize] = self.entities[last as usize];
             Some(self.entities[last as usize])
         } else {
             None
@@ -437,6 +480,21 @@ impl Drop for Archetype {
                 }
             }
         }
+    }
+}
+
+/// Destroys the component at `index` and backfills it from `last`.
+///
+/// `drop` is false while unwinding. The backfill still has to run so the slot
+/// at `index` holds a valid value, but another destructor could panic again.
+unsafe fn remove_one(ty: &TypeInfo, data: &Data, index: u32, last: u32, drop: bool) {
+    let removed = data.storage.as_ptr().add(index as usize * ty.layout.size());
+    if drop {
+        (ty.drop)(removed);
+    }
+    if index != last {
+        let moved = data.storage.as_ptr().add(last as usize * ty.layout.size());
+        ptr::copy_nonoverlapping(moved, removed, ty.layout.size());
     }
 }
 

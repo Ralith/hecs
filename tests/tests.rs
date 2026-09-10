@@ -787,6 +787,123 @@ fn clear() {
     assert_eq!(world.iter().count(), 0);
 }
 
+use std::cell::Cell;
+use std::panic::{catch_unwind, AssertUnwindSafe};
+
+thread_local! {
+    /// Destructor invocations, counted by the components below.
+    ///
+    /// Thread-local rather than a `static`: each test runs on its own thread,
+    /// so this is per-test state without the components having to hold an
+    /// `Arc`. An `Arc` would be leaked by the very paths these tests exercise,
+    /// and Miri reports that as an error.
+    static DROPS: Cell<usize> = const { Cell::new(0) };
+
+    /// Set once an armed component has panicked.
+    ///
+    /// A double drop is what these tests look for, so an armed component can
+    /// be dropped twice, and a second panic while unwinding would abort before
+    /// the assertion runs.
+    static FIRED: Cell<bool> = const { Cell::new(false) };
+}
+
+fn drops() -> usize {
+    DROPS.get()
+}
+
+/// Counts its own destruction, and panics once if armed.
+struct Bomb {
+    armed: bool,
+}
+
+impl Drop for Bomb {
+    fn drop(&mut self) {
+        DROPS.set(DROPS.get() + 1);
+        if self.armed && !FIRED.replace(true) {
+            panic!("boom");
+        }
+    }
+}
+
+/// Counts its own destruction and nothing else.
+struct Tracked;
+
+impl Drop for Tracked {
+    fn drop(&mut self) {
+        DROPS.set(DROPS.get() + 1);
+    }
+}
+
+#[test]
+fn clear_does_not_double_drop_when_a_destructor_panics() {
+    let mut world = World::new();
+    for i in 0..4 {
+        world.spawn((Bomb { armed: i == 2 },));
+    }
+
+    let unwound = catch_unwind(AssertUnwindSafe(|| world.clear()));
+    assert!(unwound.is_err());
+
+    drop(world);
+
+    // Three were destroyed before the unwind. The fourth is leaked, which is
+    // safe; destroying any of them twice is not.
+    assert_eq!(
+        drops(),
+        3,
+        "components destroyed before the unwind must not be destroyed again"
+    );
+}
+
+#[test]
+fn command_buffer_does_not_double_drop_when_a_command_panics() {
+    let mut world = World::new();
+    let mut buffer = CommandBuffer::new();
+
+    // Handed to the world by the first command.
+    buffer.spawn((Tracked,));
+    // Unwinds before run_on can wipe the component list.
+    buffer.queue(|_| panic!("boom"));
+    // Never reached; still owned by the buffer.
+    buffer.spawn((Tracked,));
+
+    let unwound = catch_unwind(AssertUnwindSafe(|| buffer.run_on(&mut world)));
+    assert!(unwound.is_err());
+
+    drop(buffer);
+    drop(world);
+
+    assert_eq!(
+        drops(),
+        2,
+        "a component moved into the world must not be destroyed by the buffer"
+    );
+}
+
+#[test]
+fn despawn_does_not_double_drop_when_a_destructor_panics() {
+    let mut world = World::new();
+    let victim = world.spawn((Bomb { armed: true }, Tracked));
+    world.spawn((Bomb { armed: false }, Tracked));
+    world.spawn((Bomb { armed: false }, Tracked));
+
+    let unwound = catch_unwind(AssertUnwindSafe(|| {
+        let _ = world.despawn(victim);
+    }));
+    assert!(unwound.is_err());
+
+    drop(world);
+
+    // Six components exist. How far the loop gets before the unwind depends on
+    // the order the archetype stores its types in, so anything the unwind
+    // skips is leaked; nothing may be destroyed twice.
+    assert!(
+        drops() <= 6,
+        "components destroyed {} times, at most 6 exist",
+        drops()
+    );
+}
+
 #[test]
 fn remove_missing() {
     let mut world = World::new();
