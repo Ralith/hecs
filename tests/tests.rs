@@ -890,6 +890,38 @@ fn command_buffer_does_not_double_drop_when_a_command_panics() {
 }
 
 #[test]
+fn command_buffer_does_not_double_drop_when_a_moved_component_panics() {
+    reset_drops();
+    let mut world = World::new();
+
+    // A dead entity: `run_on` hands the components to `World::insert`, which
+    // drops them in place because the entity no longer exists. That drop
+    // unwinds while `run_on` is applying the command.
+    let e = world.spawn(());
+    world.despawn(e).unwrap();
+
+    let mut buffer = CommandBuffer::new();
+    buffer.insert(e, (Bomb { armed: true },));
+    // Still owned by the buffer when the unwind reaches `run_on`.
+    buffer.spawn((Tracked,));
+
+    let unwound = catch_unwind(AssertUnwindSafe(|| buffer.run_on(&mut world)));
+    assert!(unwound.is_err());
+
+    drop(buffer);
+    drop(world);
+
+    // Unless `consumed` is committed before the move, the buffer's `clear`
+    // destroys the Bomb a second time, giving three drops instead of two.
+    // Leaks are safe; a double drop is not.
+    assert_eq!(
+        drops(),
+        2,
+        "a component moved into the world must not be destroyed again by the buffer"
+    );
+}
+
+#[test]
 fn despawn_does_not_double_drop_when_a_destructor_panics() {
     reset_drops();
     let mut world = World::new();

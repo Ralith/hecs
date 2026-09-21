@@ -169,6 +169,12 @@ impl CommandBuffer {
             match mem::replace(&mut state.buffer.cmds[i], Cmd::Despawn(Entity::DANGLING)) {
                 Cmd::SpawnOrInsert(entity) => {
                     let end = entity.components.end;
+                    // Mark these components consumed before moving them into the
+                    // world. `insert` / `spawn` take ownership and run the
+                    // components' `Drop` on their own paths; if one panics there,
+                    // the guard must already count them as handed over, or
+                    // `clear` would destroy them a second time.
+                    state.consumed = end;
                     let components = state.buffer.build(entity.components);
                     match entity.entity {
                         Some(entity) => {
@@ -179,7 +185,6 @@ impl CommandBuffer {
                             world.spawn(components);
                         }
                     }
-                    state.consumed = end;
                 }
                 Cmd::Remove(remove) => {
                     (remove.remove)(world, remove.entity);
