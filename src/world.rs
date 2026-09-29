@@ -501,6 +501,24 @@ impl World {
         unsafe { Ok(Q::get(&self.entities.meta, &fetch, loc.index as usize)) }
     }
 
+    /// Query a single entity without dynamic borrow checks
+    ///
+    /// # Safety
+    ///
+    /// Caller must guarantee that no other live borrow conflicts with `Q`.
+    pub unsafe fn query_one_unchecked<Q: Query>(
+        &self,
+        entity: Entity,
+    ) -> Result<Q::Item<'_>, QueryOneError> {
+        assert_borrow::<Q>();
+
+        let loc = self.entities.get(entity)?;
+        let archetype = &self.archetypes.archetypes[loc.archetype as usize];
+        let state = Q::Fetch::prepare(archetype).ok_or(QueryOneError::Unsatisfied)?;
+        let fetch = Q::Fetch::execute(archetype, state);
+        unsafe { Ok(Q::get(&self.entities.meta, &fetch, loc.index as usize)) }
+    }
+
     /// Query a fixed number of distinct entities in a uniquely borrowed world
     ///
     /// Like [`query_one_mut`](Self::query_one_mut), but for multiple entities, which would
