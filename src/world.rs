@@ -642,6 +642,73 @@ impl World {
         graph_origin: u32,
         loc: Location,
     ) {
+        /// Guard object to ensure that we finish creating the new entity, and cleaning up the old
+        /// one, even if a component's drop panics
+        struct Guard<'a, T: DynamicBundle> {
+            archetypes: &'a mut ArchetypeSet,
+            entities: &'a mut Entities,
+            /// `entity`'s previous location
+            loc: Location,
+            /// `entity`'s new archetype, and information about components affected
+            target: &'a InsertTarget,
+            /// `entity`'s new ID, if moved
+            target_index: u32,
+            /// Components being updated
+            components: Option<T>,
+        }
+
+        impl<T: DynamicBundle> Drop for Guard<'_, T> {
+            fn drop(&mut self) {
+                if self.target.index == self.loc.archetype {
+                    // Update components in the current archetype
+                    let arch = &mut self.archetypes.archetypes[self.loc.archetype as usize];
+                    unsafe {
+                        self.components.take().unwrap().put(|ptr, ty| {
+                            arch.put_dynamic(ptr, ty.id(), ty.layout().size(), self.loc.index);
+                        });
+                    }
+
+                    return;
+                }
+
+                let (source_arch, target_arch) = index2(
+                    &mut self.archetypes.archetypes,
+                    self.loc.archetype as usize,
+                    self.target.index as usize,
+                );
+
+                unsafe {
+                    // Move the new components
+                    self.components.take().unwrap().put(|ptr, ty| {
+                        target_arch.put_dynamic(
+                            ptr,
+                            ty.id(),
+                            ty.layout().size(),
+                            self.target_index,
+                        );
+                    });
+
+                    // Move the components we're keeping
+                    for &ty in &self.target.retained {
+                        let src = source_arch
+                            .get_dynamic(ty.id(), ty.layout().size(), self.loc.index)
+                            .unwrap();
+                        target_arch.put_dynamic(
+                            src.as_ptr(),
+                            ty.id(),
+                            ty.layout().size(),
+                            self.target_index,
+                        )
+                    }
+
+                    // Free storage in the old archetype
+                    if let Some(moved) = source_arch.remove(self.loc.index, false) {
+                        self.entities.meta[moved as usize].location.index = self.loc.index;
+                    }
+                }
+            }
+        }
+
         let target_storage;
         let target = match components.key() {
             None => {
@@ -657,7 +724,26 @@ impl World {
             },
         };
 
-        let source_arch = &mut self.archetypes.archetypes[loc.archetype as usize];
+        let mut target_index = 0;
+        if target.index != loc.archetype {
+            // Allocate storage in the archetype and update the entity's location to address it
+            target_index =
+                unsafe { self.archetypes.archetypes[target.index as usize].allocate(entity.id) };
+            let meta = &mut self.entities.meta[entity.id as usize];
+            meta.location.archetype = target.index;
+            meta.location.index = target_index;
+        }
+
+        let guard = Guard {
+            archetypes: &mut self.archetypes,
+            entities: &mut self.entities,
+            loc,
+            target,
+            target_index,
+            components: Some(components),
+        };
+
+        let source_arch = &mut guard.archetypes.archetypes[loc.archetype as usize];
         unsafe {
             // Drop the components we're overwriting
             for &ty in &target.replaced {
@@ -665,45 +751,6 @@ impl World {
                     .get_dynamic(ty.id(), ty.layout().size(), loc.index)
                     .unwrap();
                 ty.drop(ptr.as_ptr());
-            }
-
-            if target.index == loc.archetype {
-                // Update components in the current archetype
-                let arch = &mut self.archetypes.archetypes[loc.archetype as usize];
-                components.put(|ptr, ty| {
-                    arch.put_dynamic(ptr, ty.id(), ty.layout().size(), loc.index);
-                });
-                return;
-            }
-
-            let (source_arch, target_arch) = index2(
-                &mut self.archetypes.archetypes,
-                loc.archetype as usize,
-                target.index as usize,
-            );
-
-            // Allocate storage in the archetype and update the entity's location to address it
-            let target_index = target_arch.allocate(entity.id);
-            let meta = &mut self.entities.meta[entity.id as usize];
-            meta.location.archetype = target.index;
-            meta.location.index = target_index;
-
-            // Move the new components
-            components.put(|ptr, ty| {
-                target_arch.put_dynamic(ptr, ty.id(), ty.layout().size(), target_index);
-            });
-
-            // Move the components we're keeping
-            for &ty in &target.retained {
-                let src = source_arch
-                    .get_dynamic(ty.id(), ty.layout().size(), loc.index)
-                    .unwrap();
-                target_arch.put_dynamic(src.as_ptr(), ty.id(), ty.layout().size(), target_index)
-            }
-
-            // Free storage in the old archetype
-            if let Some(moved) = source_arch.remove(loc.index, false) {
-                self.entities.meta[moved as usize].location.index = loc.index;
             }
         }
     }
@@ -1389,6 +1436,8 @@ impl Hasher for IndexTypeIdHasher {
 
 #[cfg(test)]
 mod tests {
+    use core::{mem, panic::AssertUnwindSafe};
+
     use super::*;
 
     #[test]
@@ -1516,5 +1565,32 @@ mod tests {
         assert_eq!(world.iter().count(), 2);
         assert_eq!(&*world.get::<&String>(e0).unwrap(), "b");
         assert_eq!(&*world.get::<&String>(e1).unwrap(), "c");
+    }
+
+    /// Verify that insert has the expected effect even if a component panics on drop
+    #[test]
+    #[cfg(feature = "std")]
+    fn panic_on_insert_drop() {
+        use std::panic::catch_unwind;
+
+        struct Bomb;
+        impl Drop for Bomb {
+            fn drop(&mut self) {
+                panic!();
+            }
+        }
+
+        let mut world = World::new();
+        let e = world.spawn((Bomb,));
+
+        // Overwrite e's Bomb with a new Bomb, causing the old one to be dropped and panic
+        assert!(catch_unwind(AssertUnwindSafe(|| world.insert(e, (Bomb, true)))).is_err());
+        // Confirm the bool still got inserted
+        assert!(*world.get::<&bool>(e).unwrap());
+        // Confirm the old entity location got cleaned up
+        assert_eq!(world.iter().count(), 1);
+
+        // Disarm remaining bomb so World drop doesn't panic
+        mem::forget(world.remove_one::<Bomb>(e));
     }
 }
