@@ -1,3 +1,15 @@
+# 0.11.2
+
+### Changed
+
+- Further optimized `QueryIter::fold` (thanks @Koranir!)
+
+### Fixed
+
+- A panic in a component's `Drop` implementation could lead to undefined behavior (thanks
+  @tooson9010-spec!)
+- Undefined behavior in miscellaneous other corner cases (thanks @DRMacIver!)
+
 # 0.11.1
 
 ### Added
