@@ -97,6 +97,24 @@ impl EntityBuilder {
     }
 }
 
+impl<B: DynamicBundle> From<B> for EntityBuilder {
+    /// Start a builder from `bundle`, equivalent to [`EntityBuilder::new`] followed by
+    /// [`EntityBuilder::add_bundle`].
+    ///
+    /// ```
+    /// # use hecs::*;
+    /// let mut builder: EntityBuilder = (123, "abc").into();
+    /// let mut world = World::new();
+    /// let e = world.spawn(builder.build());
+    /// assert_eq!(*world.get::<&i32>(e).unwrap(), 123);
+    /// ```
+    fn from(bundle: B) -> Self {
+        let mut builder = Self::new();
+        builder.add_bundle(bundle);
+        builder
+    }
+}
+
 /// The output of an [`EntityBuilder`], suitable for passing to
 /// [`World::spawn`](crate::World::spawn) or [`World::insert`](crate::World::insert)
 pub struct BuiltEntity<'a> {
@@ -223,6 +241,25 @@ impl EntityBuilderClone {
     /// be called.
     pub fn clear(&mut self) {
         self.inner.clear()
+    }
+}
+
+impl<B: DynamicBundleClone> From<B> for EntityBuilderClone {
+    /// Start a builder from `bundle`, equivalent to [`EntityBuilderClone::new`] followed by
+    /// [`EntityBuilderClone::add_bundle`].
+    ///
+    /// ```
+    /// # use hecs::*;
+    /// let builder: EntityBuilderClone = (123, "abc").into();
+    /// let bundle = builder.build();
+    /// let mut world = World::new();
+    /// let e = world.spawn(&bundle);
+    /// assert_eq!(*world.get::<&i32>(e).unwrap(), 123);
+    /// ```
+    fn from(bundle: B) -> Self {
+        let mut builder = Self::new();
+        builder.add_bundle(bundle);
+        builder
     }
 }
 
@@ -449,6 +486,31 @@ mod tests {
     fn empty_clone() {
         let ebc = EntityBuilderClone::new();
         _ = ebc.clone();
+    }
+
+    #[test]
+    fn builder_from_bundle() {
+        use crate::World;
+
+        let mut builder: EntityBuilder = (123, "abc").into();
+        let mut world = World::new();
+        let e = world.spawn(builder.build());
+        assert_eq!(*world.get::<&i32>(e).unwrap(), 123);
+        assert_eq!(*world.get::<&&str>(e).unwrap(), "abc");
+    }
+
+    #[test]
+    fn clone_builder_from_bundle() {
+        use crate::World;
+
+        let builder: EntityBuilderClone = (123, "abc").into();
+        let bundle = builder.build();
+        let mut world = World::new();
+        let e = world.spawn(&bundle);
+        let f = world.spawn(&bundle);
+        assert_eq!(*world.get::<&i32>(f).unwrap(), 123);
+        assert_eq!(*world.get::<&&str>(f).unwrap(), "abc");
+        assert_eq!(*world.get::<&i32>(e).unwrap(), 123);
     }
 
     #[test]
