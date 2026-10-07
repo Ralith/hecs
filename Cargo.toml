@@ -19,7 +19,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 maintenance = { status = "actively-developed" }
 
 [features]
-default = ["std"]
+default = ["std", "blanket-component"]
 std = []
 # Enables derive(Bundle) and derive(Query)
 macros = ["hecs-macros"]
@@ -27,6 +27,8 @@ macros = ["hecs-macros"]
 column-serialize = ["serde"]
 # Enables the serialize::row module
 row-serialize = ["serde"]
+# enables all T to implement Component
+blanket-component = []
 
 [dependencies]
 hecs-macros = { path = "macros", version = "0.11.1", optional = true }
