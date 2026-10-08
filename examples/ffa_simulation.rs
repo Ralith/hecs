@@ -19,18 +19,23 @@ struct Position {
     x: i32,
     y: i32,
 }
+impl Component for Position {}
 
 #[derive(Debug)]
 struct Health(i32);
+impl Component for Health {}
 
 #[derive(Debug)]
 struct Speed(i32);
+impl Component for Speed {}
 
 #[derive(Debug)]
 struct Damage(i32);
+impl Component for Damage {}
 
 #[derive(Debug)]
 struct KillCount(i32);
+impl Component for KillCount {}
 
 fn manhattan_dist(x0: i32, x1: i32, y0: i32, y1: i32) -> i32 {
     let dx = (x0 - x1).abs();

@@ -7,8 +7,14 @@ use hecs::*;
 
 #[derive(Clone)]
 struct Position(f32);
+impl Component for Position {}
 #[derive(Clone)]
 struct Velocity(f32);
+impl Component for Velocity {}
+
+/// Stand-in component used to populate worlds with interesting archetype shapes
+struct Extra<const N: usize>;
+impl<const N: usize> Component for Extra<N> {}
 
 fn spawn_tuple(c: &mut Criterion) {
     let mut world = World::new();
@@ -108,8 +114,8 @@ fn insert_remove(c: &mut Criterion) {
         b.iter(|| {
             let e = *entities.next().unwrap();
             world.remove_one::<Velocity>(e).unwrap();
-            world.insert_one(e, true).unwrap();
-            world.remove_one::<bool>(e).unwrap();
+            world.insert_one(e, Extra::<0>).unwrap();
+            world.remove_one::<Extra<0>>(e).unwrap();
             world.insert_one(e, Velocity(0.0)).unwrap();
         })
     });
@@ -124,8 +130,8 @@ fn exchange(c: &mut Criterion) {
     c.bench_function("exchange", |b| {
         b.iter(|| {
             let e = *entities.next().unwrap();
-            world.exchange_one::<Velocity, _>(e, true).unwrap();
-            world.exchange_one::<bool, _>(e, Velocity(0.0)).unwrap();
+            world.exchange_one::<Velocity, _>(e, Extra::<0>).unwrap();
+            world.exchange_one::<Extra<0>, _>(e, Velocity(0.0)).unwrap();
         })
     });
 }
@@ -212,8 +218,8 @@ fn for_each_batched_100k(c: &mut Criterion) {
 
 fn spawn_100_by_50(world: &mut World) {
     fn spawn_two<const N: usize>(world: &mut World, i: i32) {
-        world.spawn((Position(-(i as f32)), Velocity(i as f32), [(); N]));
-        world.spawn((Position(-(i as f32)), [(); N]));
+        world.spawn((Position(-(i as f32)), Velocity(i as f32), Extra::<N>));
+        world.spawn((Position(-(i as f32)), Extra::<N>));
     }
 
     for i in 0..2 {
@@ -264,7 +270,7 @@ fn iterate_uncached_1_of_100_by_50(c: &mut Criterion) {
         b.iter(|| {
             for (pos, vel) in world
                 .query::<(&mut Position, &Velocity)>()
-                .with::<&[(); 0]>()
+                .with::<&Extra<0>>()
                 .iter()
             {
                 pos.0 += vel.0;
@@ -339,9 +345,9 @@ fn build_cloneable(c: &mut Criterion) {
 fn access_view(c: &mut Criterion) {
     let mut world = World::new();
     let _enta = world.spawn((Position(0.0), Velocity(0.0)));
-    let _entb = world.spawn((true, 12));
+    let _entb = world.spawn((Extra::<0>, Extra::<1>));
     let entc = world.spawn((Position(3.0),));
-    let _entd = world.spawn((13, true, 4.0));
+    let _entd = world.spawn((Extra::<1>, Extra::<2>, Extra::<3>));
     let mut query = PreparedQuery::<&Position>::new();
     let mut query = query.query(&world);
     let view = query.view();
