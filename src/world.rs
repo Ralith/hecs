@@ -438,6 +438,15 @@ impl World {
         QueryMut::new(self)
     }
 
+    /// Query a world without dynamic borrow checks
+    ///
+    /// # Safety
+    ///
+    /// Caller must guarantee that no other live borrow conflicts with `Q`.
+    pub unsafe fn query_unchecked<Q: Query>(&self) -> QueryMut<'_, Q> {
+        QueryMut::new(self)
+    }
+
     pub(crate) fn memo(&self) -> (u64, u32) {
         (self.id, self.archetypes.generation())
     }
@@ -499,6 +508,24 @@ impl World {
     /// query's results directly.
     pub fn query_one_mut<Q: Query>(
         &mut self,
+        entity: Entity,
+    ) -> Result<Q::Item<'_>, QueryOneError> {
+        assert_borrow::<Q>();
+
+        let loc = self.entities.get(entity)?;
+        let archetype = &self.archetypes.archetypes[loc.archetype as usize];
+        let state = Q::Fetch::prepare(archetype).ok_or(QueryOneError::Unsatisfied)?;
+        let fetch = Q::Fetch::execute(archetype, state);
+        unsafe { Ok(Q::get(&self.entities.meta, &fetch, loc.index as usize)) }
+    }
+
+    /// Query a single entity without dynamic borrow checks
+    ///
+    /// # Safety
+    ///
+    /// Caller must guarantee that no other live borrow conflicts with `Q`.
+    pub unsafe fn query_one_unchecked<Q: Query>(
+        &self,
         entity: Entity,
     ) -> Result<Q::Item<'_>, QueryOneError> {
         assert_borrow::<Q>();

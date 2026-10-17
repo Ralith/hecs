@@ -871,12 +871,12 @@ impl<Q: Query> ExactSizeIterator for QueryIter<'_, Q> {
 
 /// A query builder that's convertible directly into an iterator
 pub struct QueryMut<'q, Q: Query> {
-    world: &'q mut World,
+    world: &'q World,
     _marker: PhantomData<fn() -> Q>,
 }
 
 impl<'q, Q: Query> QueryMut<'q, Q> {
-    pub(crate) fn new(world: &'q mut World) -> Self {
+    pub(crate) fn new(world: &'q World) -> Self {
         assert_borrow::<Q>();
         Self {
             world,
