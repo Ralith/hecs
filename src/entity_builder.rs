@@ -55,13 +55,26 @@ impl EntityBuilder {
 
     /// Construct a `Bundle` suitable for spawning
     pub fn build(&mut self) -> BuiltEntity<'_> {
+        self.finalize();
+        BuiltEntity {
+            builder: &mut self.inner,
+        }
+    }
+
+    /// Construct a `Bundle` that owns its components.
+    ///
+    /// Prefer [`build`](Self::build) when builder can be reused. Use this when the bundle
+    /// must outlive the builder (e.g. to return it from function as `impl DynamicBundle`).
+    pub fn into_bundle(mut self) -> OwnedBuiltEntity {
+        self.finalize();
+        OwnedBuiltEntity(self.inner)
+    }
+
+    fn finalize(&mut self) {
         self.inner.info.sort_unstable_by_key(|x| x.0);
         self.inner
             .ids
             .extend(self.inner.info.iter().map(|x| x.0.id()));
-        BuiltEntity {
-            builder: &mut self.inner,
-        }
     }
 
     /// Checks to see if the component of type `T` exists
@@ -148,6 +161,39 @@ impl Drop for BuiltEntity<'_> {
         // Ensures components aren't leaked if `store` was never called, and prepares the builder
         // for reuse.
         self.builder.clear();
+    }
+}
+
+/// An owned variant of [`BuiltEntity`], produced by [`EntityBuilder::into_bundle`].
+///
+/// Unlike [`BuiltEntity`], this doesn't borrow the builder so it can be returned from function
+/// as `impl DynamicBundle` at the cost of not being able to reuse builder's allocations.
+pub struct OwnedBuiltEntity(Common<()>);
+
+unsafe impl DynamicBundle for OwnedBuiltEntity {
+    fn has<T: Component>(&self) -> bool {
+        self.0.has::<T>()
+    }
+
+    fn with_ids<T>(&self, f: impl FnOnce(&[TypeId]) -> T) -> T {
+        f(&self.0.ids)
+    }
+
+    fn type_info(&self) -> Vec<TypeInfo> {
+        self.0.info.iter().map(|x| x.0).collect()
+    }
+
+    unsafe fn put(mut self, mut f: impl FnMut(*mut u8, TypeInfo)) {
+        for (ty, offset, ()) in self.0.info.drain(..) {
+            let ptr = self.0.storage.as_ptr().add(offset);
+            f(ptr, ty);
+        }
+    }
+}
+
+impl From<EntityBuilder> for OwnedBuiltEntity {
+    fn from(builder: EntityBuilder) -> Self {
+        builder.into_bundle()
     }
 }
 

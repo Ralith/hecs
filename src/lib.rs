@@ -90,7 +90,9 @@ pub use bundle::{
 pub use change_tracker::{ChangeTracker, Changes};
 pub use command_buffer::CommandBuffer;
 pub use entities::{Entity, NoSuchEntity};
-pub use entity_builder::{BuiltEntity, BuiltEntityClone, EntityBuilder, EntityBuilderClone};
+pub use entity_builder::{
+    BuiltEntity, BuiltEntityClone, EntityBuilder, EntityBuilderClone, OwnedBuiltEntity,
+};
 pub use entity_ref::{ComponentRef, ComponentRefShared, EntityRef, Ref, RefMut};
 pub use query::{
     Access, Batch, BatchedIter, Or, PreparedQuery, PreparedQueryBorrow, PreparedQueryIter,
