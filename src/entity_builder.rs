@@ -65,6 +65,28 @@ impl EntityBuilder {
     ///
     /// Prefer [`build`](Self::build) when builder can be reused. Use this when the bundle
     /// must outlive the builder (e.g. to return it from function as `impl DynamicBundle`).
+    ///
+    /// ```
+    /// # use hecs::*;
+    /// fn make_bundle(name: Option<&'static str>) -> impl DynamicBundle {
+    ///     let mut builder = EntityBuilder::new();
+    ///     builder.add(123);
+    ///     if let Some(name) = name {
+    ///         builder.add(name);
+    ///     }
+    ///     builder.into_bundle()
+    /// }
+    ///
+    /// let mut world = World::new();
+    ///
+    /// let foo = world.spawn(make_bundle(Some("foo")));
+    /// let foo_name = world.get::<&&str>(foo);
+    /// assert!(foo_name.is_ok_and(|name| *name == "foo"));
+    ///
+    /// let bar = world.spawn(make_bundle(None));
+    /// let bar_name = world.get::<&&str>(bar);
+    /// assert!(bar_name.is_err_and(|err| matches!(err, ComponentError::MissingComponent(_))));
+    /// ```
     pub fn into_bundle(mut self) -> OwnedBuiltEntity {
         self.finalize();
         OwnedBuiltEntity(self.inner)
