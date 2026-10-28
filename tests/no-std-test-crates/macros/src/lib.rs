@@ -3,14 +3,20 @@
 #![no_std]
 #![allow(clippy::disallowed_names)]
 
-use hecs::{Bundle, Query};
+use hecs::{Bundle, Component, Query};
+
+#[derive(Component)]
+pub struct Comp;
+
+#[derive(Component)]
+pub struct Generic<T>(T);
 
 #[derive(Bundle)]
 pub struct Foo {
-    pub foo: i32,
+    pub foo: Comp,
 }
 
 #[derive(Query)]
 pub struct Quux<'a> {
-    pub foo: &'a Foo,
+    pub foo: &'a Comp,
 }

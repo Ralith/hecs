@@ -7,6 +7,7 @@ mod query;
 pub(crate) mod common;
 
 use proc_macro::TokenStream;
+use quote::quote;
 use syn::{parse_macro_input, DeriveInput};
 
 /// Implement `Bundle` for a struct
@@ -17,15 +18,23 @@ use syn::{parse_macro_input, DeriveInput};
 /// # Example
 /// ```
 /// # use hecs::*;
+/// #[derive(Debug, PartialEq)]
+/// struct X(i32);
+/// impl Component for X {}
+///
+/// #[derive(Debug, PartialEq)]
+/// struct Y(char);
+/// impl Component for Y {}
+///
 /// #[derive(Bundle)]
 /// struct Foo {
-///     x: i32,
-///     y: char,
+///     x: X,
+///     y: Y,
 /// }
 ///
 /// let mut world = World::new();
-/// let e = world.spawn(Foo { x: 42, y: 'a' });
-/// assert_eq!(*world.get::<&i32>(e).unwrap(), 42);
+/// let e = world.spawn(Foo { x: X(42), y: Y('a') });
+/// assert_eq!(*world.get::<&X>(e).unwrap(), X(42));
 /// ```
 #[proc_macro_derive(Bundle)]
 pub fn derive_bundle(input: TokenStream) -> TokenStream {
@@ -68,19 +77,27 @@ pub fn derive_dynamic_bundle_clone(input: TokenStream) -> TokenStream {
 /// # Example
 /// ```
 /// # use hecs::*;
+/// #[derive(Debug, PartialEq)]
+/// struct X(i32);
+/// impl Component for X {}
+///
+/// #[derive(Debug, PartialEq)]
+/// struct Y(bool);
+/// impl Component for Y {}
+///
 /// #[derive(Query, Debug, PartialEq)]
 /// struct Foo<'a> {
-///     x: &'a i32,
-///     y: &'a mut bool,
+///     x: &'a X,
+///     y: &'a mut Y,
 /// }
 ///
 /// let mut world = World::new();
-/// let e = world.spawn((42, false));
+/// let e = world.spawn((X(42), Y(false)));
 /// assert_eq!(
 ///     world.query_one_mut::<Foo>(e).unwrap(),
 ///     Foo {
-///         x: &42,
-///         y: &mut false
+///         x: &X(42),
+///         y: &mut Y(false)
 ///     }
 /// );
 /// ```
@@ -92,4 +109,25 @@ pub fn derive_query(input: TokenStream) -> TokenStream {
         Err(e) => e.to_compile_error(),
     }
     .into()
+}
+
+/// Implement `Component` for some type.
+///
+/// Convenience short-hand for `impl Component for T {}`.
+///
+/// Generic type parameters automatically receive the `Send + Sync + 'static` bounds required by the
+/// trait's supertraits. When this is inappropriate, use a manual implementation instead.
+#[proc_macro_derive(Component)]
+pub fn derive_component(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    let ident = input.ident;
+    let mut generics = input.generics;
+    for param in generics.type_params_mut() {
+        param.bounds.push(syn::parse_quote!(::core::marker::Send));
+        param.bounds.push(syn::parse_quote!(::core::marker::Sync));
+        param.bounds.push(syn::parse_quote!('static));
+    }
+    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
+
+    quote! { impl #impl_generics ::hecs::Component for #ident #ty_generics #where_clause {} }.into()
 }

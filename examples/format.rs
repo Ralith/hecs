@@ -3,12 +3,36 @@
 
 type FormattingFunction = &'static dyn Fn(hecs::EntityRef<'_>) -> Option<String>;
 
+struct Number(i32);
+impl hecs::Component for Number {}
+impl std::fmt::Display for Number {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+struct Flag(bool);
+impl hecs::Component for Flag {}
+impl std::fmt::Display for Flag {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+struct Ratio(f64);
+impl hecs::Component for Ratio {}
+impl std::fmt::Display for Ratio {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
 fn format_entity(entity: hecs::EntityRef<'_>) -> String {
     fn fmt<T: hecs::Component + std::fmt::Display>(entity: hecs::EntityRef<'_>) -> Option<String> {
         Some(entity.get::<&T>()?.to_string())
     }
 
-    const FUNCTIONS: &[FormattingFunction] = &[&fmt::<i32>, &fmt::<bool>, &fmt::<f64>];
+    const FUNCTIONS: &[FormattingFunction] = &[&fmt::<Number>, &fmt::<Flag>, &fmt::<Ratio>];
 
     let mut out = String::new();
     for f in FUNCTIONS {
@@ -31,6 +55,6 @@ fn format_entity(entity: hecs::EntityRef<'_>) -> String {
 
 fn main() {
     let mut world = hecs::World::new();
-    let e = world.spawn((42, true));
+    let e = world.spawn((Number(42), Flag(true)));
     println!("{}", format_entity(world.entity(e).unwrap()));
 }

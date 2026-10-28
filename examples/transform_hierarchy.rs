@@ -12,6 +12,7 @@ struct Parent {
     /// Converts child-relative coordinates to parent-relative coordinates
     from_child: Transform,
 }
+impl Component for Parent {}
 
 fn main() {
     let mut world = World::new();
@@ -100,6 +101,7 @@ fn evaluate_relative_transforms(world: &mut World) {
 // In practice this would usually also include rotation, or even be a general homogeneous matrix
 #[derive(Debug, Copy, Clone, Default, Eq, PartialEq)]
 struct Transform(i32, i32);
+impl Component for Transform {}
 
 impl std::ops::Mul for Transform {
     type Output = Transform;

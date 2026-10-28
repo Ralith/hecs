@@ -1,27 +1,39 @@
-use hecs::{Bundle, Query};
+use hecs::{Bundle, Component, Query};
+
+struct A(i32);
+impl Component for A {}
+
+struct B(bool);
+impl Component for B {}
+
+struct S(String);
+impl Component for S {}
+
+struct T(&'static str);
+impl Component for T {}
 
 #[derive(Bundle)]
 struct Foo {
-    foo: i32,
+    foo: A,
 }
 
 #[derive(Bundle)]
 struct Bar {
-    foo: i32,
-    bar: String,
+    foo: A,
+    bar: S,
 }
 
 #[derive(Bundle)]
 struct Baz {
-    foo: i32,
-    bar: String,
-    baz: &'static str,
+    foo: A,
+    bar: S,
+    baz: T,
 }
 
 #[derive(Query)]
 struct Quux<'a> {
-    foo: &'a i32,
-    bar: &'a mut bool,
+    foo: &'a A,
+    bar: &'a mut B,
 }
 
 fn main() {}
