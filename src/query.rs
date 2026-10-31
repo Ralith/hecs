@@ -1195,6 +1195,14 @@ pub struct PreparedQuery<Q: Query> {
     fetch: Box<[Option<Q::Fetch>]>,
 }
 
+// Safety: `Fetch::State` is `Send`, and cached fetches encode access to query
+// items, which this bound permits transferring between threads.
+unsafe impl<Q: Query> Send for PreparedQuery<Q> where for<'a> Q::Item<'a>: Send {}
+
+// Safety: `Fetch::State` is `Sync`, and cached fetches cannot be accessed
+// through a shared reference because every such method requires `&mut self`.
+unsafe impl<Q: Query> Sync for PreparedQuery<Q> {}
+
 impl<Q: Query> Default for PreparedQuery<Q> {
     fn default() -> Self {
         Self::new()
