@@ -290,6 +290,53 @@ unsafe impl<T: Fetch> Fetch for TryFetch<T> {
 }
 
 /// Holds an `L`, or an `R`, or both
+/// 
+/// This type can be used as-is but is particularly useful for queries, where it can be
+/// used to check if type `L` or type `R` match a query.
+/// 
+/// ```
+/// # use hecs::World;
+/// 
+/// let mut ecs = hecs::World::new();
+/// 
+/// let f_entity = ecs.spawn((5.0f32,));
+/// let i_entity = ecs.spawn((10i32,));
+/// let both_entity = ecs.spawn((10i32, 10.0f32));
+/// let none_entity = ecs.spawn((64u64,));
+/// 
+/// assert_eq!(
+///     3,
+///     ecs.query_mut::<hecs::Or<&f32, &i32>>().into_iter().count()
+/// );
+/// 
+/// assert!(ecs.satisfies::<hecs::Or<&f32, &i32>>(f_entity));
+/// assert!(ecs.satisfies::<hecs::Or<&f32, &i32>>(i_entity));
+/// assert!(ecs.satisfies::<hecs::Or<&f32, &i32>>(both_entity));
+/// assert!(!ecs.satisfies::<hecs::Or<&f32, &i32>>(none_entity));
+/// ```
+/// 
+/// Notice in particular that there is a non-blanket implementation for [`Or`],
+/// but that `&Or` uses the typical implementation of components, which can cause a good
+/// degree on confusion, since querying for `&Or` is checking for a literal `Or` inside the ECS.
+/// This is analogous to how hecs handles `Option` queries as well.
+/// 
+/// ```
+/// # use hecs::World;
+/// 
+/// let mut ecs = hecs::World::new();
+/// 
+/// let f_entity = ecs.spawn((5.0f32,));
+/// let odd_entity = ecs.spawn((hecs::Or::<f32, i32>::Left(15.0f32),));
+/// 
+/// // we have either an i32 or an f32, or both, in this entity.
+/// assert!(ecs.satisfies::<hecs::Or<&f32, &i32>>(f_entity));
+/// 
+/// // we don't have a literal `Or` inside us
+/// assert!(!ecs.satisfies::<&hecs::Or<f32, i32>>(f_entity));
+/// 
+/// // we do literally (and unusually) have an `Or` inside World here.
+/// assert!(ecs.satisfies::<&hecs::Or<f32, i32>>(odd_entity));
+/// ```
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub enum Or<L, R> {
     /// Just an `L`
