@@ -309,10 +309,17 @@ unsafe impl<T: Fetch> Fetch for TryFetch<T> {
 ///     world.query_mut::<hecs::Or<&f32, &i32>>().into_iter().count()
 /// );
 /// 
+/// // each entity contains either an f32 or an i32 or both...
 /// assert!(world.satisfies::<hecs::Or<&f32, &i32>>(f_entity));
 /// assert!(world.satisfies::<hecs::Or<&f32, &i32>>(i_entity));
 /// assert!(world.satisfies::<hecs::Or<&f32, &i32>>(both_entity));
+/// 
+/// // ...except this one
 /// assert!(!world.satisfies::<hecs::Or<&f32, &i32>>(none_entity));
+/// 
+/// // we can grab one out in particular and see its value::
+/// let found_value = world.query_one_mut::<hecs::Or<&f32, &i32>>(i_entity).unwrap();
+/// assert_eq!(*found_value.right().unwrap(), 10);
 /// ```
 /// 
 /// Notice in particular that there is a non-blanket implementation for [`Or`],
