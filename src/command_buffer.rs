@@ -95,9 +95,27 @@ impl CommandBuffer {
         self.insert(entity, (component,));
     }
 
-    /// Remove components from `entity` if they exist
+    /// Remove all components in `T` from `entity`
+    ///
+    /// If `entity` does not exist or is missing any component in `T`, no components are removed.
+    /// Errors from [`World::remove`] are silently ignored.
     ///
     /// When removing a single component, see [`remove_one`](Self::remove_one) for convenience.
+    ///
+    /// ```
+    /// # use hecs::*;
+    /// let mut world = World::new();
+    /// let complete = world.spawn((42i32, true));
+    /// let partial = world.spawn((17i32,));
+    /// let mut commands = CommandBuffer::new();
+    /// commands.remove::<(i32, bool)>(complete);
+    /// commands.remove::<(i32, bool)>(partial);
+    /// commands.run_on(&mut world);
+    ///
+    /// assert!(world.get::<&i32>(complete).is_err());
+    /// assert!(world.get::<&bool>(complete).is_err());
+    /// assert_eq!(*world.get::<&i32>(partial).unwrap(), 17);
+    /// ```
     pub fn remove<T: Bundle + 'static>(&mut self, ent: Entity) {
         fn remove_bundle_and_ignore_result<T: Bundle + 'static>(world: &mut World, ents: Entity) {
             let _ = world.remove::<T>(ents);
