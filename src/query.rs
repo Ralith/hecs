@@ -290,6 +290,60 @@ unsafe impl<T: Fetch> Fetch for TryFetch<T> {
 }
 
 /// Holds an `L`, or an `R`, or both
+///
+/// This type can be used as-is but is particularly useful for queries, where it can be
+/// used to check if type `L` or type `R` match a query.
+///
+/// ```
+/// # use hecs::World;
+///
+/// let mut world = hecs::World::new();
+///
+/// let f_entity = world.spawn((5.0f32,));
+/// let i_entity = world.spawn((10i32,));
+/// let both_entity = world.spawn((10i32, 10.0f32));
+/// let none_entity = world.spawn((64u64,));
+///
+/// assert_eq!(
+///     3,
+///     world.query_mut::<hecs::Or<&f32, &i32>>().into_iter().count()
+/// );
+///
+/// // each entity contains either an f32 or an i32 or both...
+/// assert!(world.satisfies::<hecs::Or<&f32, &i32>>(f_entity));
+/// assert!(world.satisfies::<hecs::Or<&f32, &i32>>(i_entity));
+/// assert!(world.satisfies::<hecs::Or<&f32, &i32>>(both_entity));
+///
+/// // ...except this one
+/// assert!(!world.satisfies::<hecs::Or<&f32, &i32>>(none_entity));
+///
+/// // we can grab one out in particular and see its value::
+/// let found_value = world.query_one_mut::<hecs::Or<&f32, &i32>>(i_entity).unwrap();
+/// assert_eq!(*found_value.right().unwrap(), 10);
+/// ```
+///
+/// Notice in particular that there is a non-blanket implementation for [`Or`],
+/// but that `&Or` uses the typical implementation of components, which can cause a good
+/// degree on confusion, since querying for `&Or` is checking for a literal `Or` inside the World.
+/// This is analogous to how hecs handles `Option` queries as well.
+///
+/// ```
+/// # use hecs::World;
+///
+/// let mut world = hecs::World::new();
+///
+/// let f_entity = world.spawn((5.0f32,));
+/// let odd_entity = world.spawn((hecs::Or::<f32, i32>::Left(15.0f32),));
+///
+/// // we have either an i32 or an f32, or both, in this entity.
+/// assert!(world.satisfies::<hecs::Or<&f32, &i32>>(f_entity));
+///
+/// // we don't have a literal `Or` inside us
+/// assert!(!world.satisfies::<&hecs::Or<f32, i32>>(f_entity));
+///
+/// // we do literally (and unusually) have an `Or` inside World here.
+/// assert!(world.satisfies::<&hecs::Or<f32, i32>>(odd_entity));
+/// ```
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub enum Or<L, R> {
     /// Just an `L`
