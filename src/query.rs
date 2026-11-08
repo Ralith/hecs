@@ -292,7 +292,7 @@ unsafe impl<T: Fetch> Fetch for TryFetch<T> {
 /// Holds an `L`, or an `R`, or both
 ///
 /// This type can be used as-is but is particularly useful for queries, where it can be
-/// used to check if type `L` or type `R` match a query.
+/// used to create a query which matches entities which have `L`, `R`, or both.
 ///
 /// ```
 /// # use hecs::World;
