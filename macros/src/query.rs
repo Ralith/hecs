@@ -138,7 +138,9 @@ fn derive_struct(
 
                 type Fetch = #fetch_ident;
 
-                #[allow(unused_variables)]
+                // The intermediate bindings are named after the fields they initialize, which
+                // would otherwise emit `clippy::redundant_field_names` in the caller's crate
+                #[allow(unused_variables, clippy::redundant_field_names)]
                 unsafe fn get<'q>(meta: &[::hecs::EntityMeta], fetch: &Self::Fetch, n: usize) -> Self::Item<'q> {
                     #(
                         let #intermediates: <#queries as ::hecs::Query>::Item<'q> = <#queries as ::hecs::Query>::get(meta, &fetch.#fields, n);
@@ -405,7 +407,8 @@ fn derive_enum(
 
                 type Fetch = #fetch_ident;
 
-                #[allow(unused_variables)]
+                // Variant bindings are named after the fields they initialize; see above
+                #[allow(unused_variables, clippy::redundant_field_names)]
                 unsafe fn get<'q>(meta: &[::hecs::EntityMeta], fetch: &Self::Fetch, n: usize) -> Self::Item<'q> {
                     match fetch {
                         #query_get_variants
