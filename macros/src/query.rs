@@ -138,8 +138,6 @@ fn derive_struct(
 
                 type Fetch = #fetch_ident;
 
-                // The intermediate bindings are named after the fields they initialize, which
-                // would otherwise emit `clippy::redundant_field_names` in the caller's crate
                 #[allow(unused_variables, clippy::redundant_field_names)]
                 unsafe fn get<'q>(meta: &[::hecs::EntityMeta], fetch: &Self::Fetch, n: usize) -> Self::Item<'q> {
                     #(
@@ -407,7 +405,6 @@ fn derive_enum(
 
                 type Fetch = #fetch_ident;
 
-                // Variant bindings are named after the fields they initialize; see above
                 #[allow(unused_variables, clippy::redundant_field_names)]
                 unsafe fn get<'q>(meta: &[::hecs::EntityMeta], fetch: &Self::Fetch, n: usize) -> Self::Item<'q> {
                     match fetch {
