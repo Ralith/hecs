@@ -1,0 +1,967 @@
+//! Model-based property test for `World`: a drawn sequence of operations is
+//! applied to both a `World` and a `HashMap<Entity, Components>` reference
+//! model, and the two must agree.
+//!
+//! Each rule asserts the postcondition it establishes (the operation's
+//! `Ok`/`Err` against modelled liveness, and the touched entity's resulting
+//! component set). The global oracles — full bidirectional equivalence, the
+//! archetype partition, the drop count, and the query surface — are
+//! invariants.
+//!
+//! The handle pool deliberately retains despawned handles, so operations
+//! against dead entities are common and their error paths are exercised.
+
+use std::collections::HashMap;
+
+use fixtures::*;
+use hecs::{Entity, Or, PreparedQuery, QueryOneError, With, Without, World};
+use hegel::generators as gs;
+use hegel::stateful::{pool, Pool};
+use hegel::TestCase;
+
+/// Rule applications per generated run.
+const STEPS: i64 = if cfg!(miri) { 8 } else { 150 };
+
+struct WorldModel {
+    world: World,
+    model: HashMap<Entity, Components>,
+    /// Every handle ever handed out, including despawned ones.
+    handles: Pool<Entity>,
+    /// Handles from `reserve_entity`/`reserve_entities` awaiting a flush.
+    reserved: Vec<Entity>,
+    /// Handles whose entity was destroyed. `despawn` reuses the id but
+    /// advances the generation, so none of these may resolve again; `clear`
+    /// and `spawn_at` are the documented exceptions.
+    retired: Vec<Entity>,
+    /// Held across the whole run, so the archetype state they cache goes
+    /// stale under every rule that adds or removes archetypes.
+    prepared: PreparedQuery<(Entity, &'static A)>,
+    prepared_view: PreparedQuery<&'static A>,
+    ds: DropTracker,
+}
+
+impl WorldModel {
+    /// Mirror hecs's implicit flush: reserved handles become componentless
+    /// entities. Called by every rule that runs an operation documented to
+    /// flush (all variations of spawn, despawn, insert and remove).
+    fn flush_model(&mut self) {
+        for e in self.reserved.drain(..) {
+            self.model.insert(e, Components::default());
+        }
+    }
+
+    fn draw_handle(&self, tc: &TestCase) -> Entity {
+        tc.draw(handle_from(&self.handles))
+    }
+
+    /// The component set the model predicts for `e`, or `None` if dead.
+    fn expect(&self, e: Entity) -> Option<Components> {
+        self.model.get(&e).copied()
+    }
+
+    /// Everything observable about `e` right now.
+    fn observe(&self, e: Entity) -> Option<Components> {
+        self.world.entity(e).ok().map(Components::observed)
+    }
+
+    fn check_entity(&self, e: Entity, label: &str) {
+        // An unflushed handle is not modelled yet, but it must not show
+        // components.
+        if self.reserved.contains(&e) {
+            self.check_reserved(e, label);
+            return;
+        }
+        assert_eq!(self.observe(e), self.expect(e), "{label}: {e:?}");
+    }
+
+    /// Before the flush, a reserved handle with a fresh id resolves to the
+    /// empty archetype, while one with a recycled id fails to resolve: its
+    /// generation matches the metadata table (`reserve_entity` copies it),
+    /// but `free` left the freed marker in its location. Which arm applies
+    /// depends on freelist state the model does not track, so only the
+    /// disjunction is asserted: either way it never shows components.
+    fn check_reserved(&self, e: Entity, label: &str) {
+        let observed = self.observe(e);
+        assert!(
+            observed.is_none() || observed == Some(Components::default()),
+            "{label}: reserved {e:?} shows components before flush: {observed:?}"
+        );
+    }
+}
+
+/// Collect `(Entity, value)` pairs, failing on a repeated entity.
+fn unique<V>(pairs: impl IntoIterator<Item = (Entity, V)>, label: &str) -> HashMap<Entity, V> {
+    let mut got = HashMap::new();
+    for (e, v) in pairs {
+        assert!(got.insert(e, v).is_none(), "{label} yielded {e:?} twice");
+    }
+    got
+}
+
+/// `query_one::<&A>(e)` on a live entity, against the `A` the model predicts
+/// once the query's filters are applied.
+fn check_query_one(got: Result<&A, QueryOneError>, want: Option<i32>, label: &str) {
+    match got {
+        Ok(a) => assert_eq!(Some(a.0), want, "{label}"),
+        Err(QueryOneError::Unsatisfied) => assert!(want.is_none(), "{label} unsatisfied"),
+        Err(QueryOneError::NoSuchEntity) => panic!("{label} on a live entity"),
+    }
+}
+
+// Driven by `world_matches_model` below.
+#[hegel::state_machine]
+impl WorldModel {
+    /// `spawn` reports a fresh handle carrying exactly the bundle's
+    /// components.
+    #[rule]
+    fn spawn(&mut self, tc: TestCase) {
+        self.flush_model();
+        let cs = tc.draw(components());
+        let mut builder = cs.builder(&self.ds);
+        let e = self.world.spawn(builder.build());
+        assert!(
+            self.model.insert(e, cs).is_none(),
+            "spawn reused a live handle {e:?}"
+        );
+        assert!(
+            !self.retired.contains(&e),
+            "spawn reused a retired handle {e:?}"
+        );
+        self.handles.add(e);
+        self.check_entity(e, "spawn");
+    }
+
+    /// `spawn_at` makes exactly `handle` live, destroying whatever entity
+    /// shared its id.
+    #[rule]
+    fn spawn_at(&mut self, tc: TestCase) {
+        self.flush_model();
+        let handle = self.draw_handle(&tc);
+        let cs = tc.draw(components());
+        let mut builder = cs.builder(&self.ds);
+        self.world.spawn_at(handle, builder.build());
+        // Whatever entity shared the id is destroyed, whatever its
+        // generation, and the id is no longer forbidden.
+        self.model.retain(|k, _| k.id() != handle.id());
+        self.model.insert(handle, cs);
+        self.retired.retain(|r| r.id() != handle.id());
+        self.check_entity(handle, "spawn_at");
+        assert!(
+            self.world.contains(handle),
+            "spawn_at target is not contained"
+        );
+    }
+
+    /// `spawn_at` at an id past the end of the metadata table grows it and
+    /// leaves the intervening ids reusable. The offset is small to bound the
+    /// test's memory, not because hecs limits it.
+    #[rule]
+    fn spawn_at_fresh_id(&mut self, tc: TestCase) {
+        self.flush_model();
+        // The largest id any live, reserved, or retired handle carries.
+        // Together those cover every id the metadata table has held.
+        let max_id = self
+            .model
+            .keys()
+            .chain(&self.reserved)
+            .chain(&self.retired)
+            .map(|e| e.id())
+            .max()
+            .unwrap_or(0);
+        let offset = tc.draw(gs::integers::<u32>().min_value(1).max_value(8));
+        let generation = tc.draw(gs::integers::<u32>().min_value(1).max_value(3));
+        let bits = (u64::from(generation) << 32) | u64::from(max_id + offset);
+        let handle = Entity::from_bits(bits).expect("nonzero generation");
+        assert_eq!(
+            handle.id(),
+            max_id + offset,
+            "from_bits decoded a different id"
+        );
+        let cs = tc.draw(components());
+        let mut builder = cs.builder(&self.ds);
+        self.world.spawn_at(handle, builder.build());
+        self.model.retain(|k, _| k.id() != handle.id());
+        self.model.insert(handle, cs);
+        self.retired.retain(|r| r.id() != handle.id());
+        self.handles.add(handle);
+        self.check_entity(handle, "spawn_at_fresh_id");
+    }
+
+    /// `despawn` succeeds exactly for live handles and leaves the handle dead.
+    #[rule]
+    fn despawn(&mut self, tc: TestCase) {
+        self.flush_model();
+        let e = self.draw_handle(&tc);
+        let ok = self.world.despawn(e).is_ok();
+        assert_eq!(
+            ok,
+            self.model.remove(&e).is_some(),
+            "despawn disagreed for {e:?}"
+        );
+        if ok {
+            assert!(
+                !self.world.contains(e),
+                "despawned {e:?} is still contained"
+            );
+            self.retired.push(e);
+        }
+        self.check_entity(e, "despawn");
+    }
+
+    /// `insert_one` succeeds exactly for live handles, and overwrites any
+    /// existing component of that type.
+    #[rule]
+    fn insert_one(&mut self, tc: TestCase) {
+        self.flush_model();
+        let e = self.draw_handle(&tc);
+        let live = self.model.contains_key(&e);
+        let kind = tc.draw(kinds());
+        let v = tc.draw(val());
+        // On a dead target the component is dropped rather than stored, so
+        // the drop count stays balanced either way.
+        let ok = kind.insert_one(&mut self.world, e, v, &self.ds).is_ok();
+        if let Some(m) = self.model.get_mut(&e) {
+            *m = m.with(kind, v);
+        }
+        assert_eq!(ok, live, "insert_one disagreed for {e:?}");
+        self.check_entity(e, "insert_one");
+    }
+
+    /// `insert` of a multi-component bundle adds every member in one migration.
+    #[rule]
+    fn insert_bundle(&mut self, tc: TestCase) {
+        self.flush_model();
+        let e = self.draw_handle(&tc);
+        let live = self.model.contains_key(&e);
+        let cs = tc.draw(components());
+        let mut builder = cs.builder(&self.ds);
+        let ok = self.world.insert(e, builder.build()).is_ok();
+        assert_eq!(ok, live, "insert bundle disagreed for {e:?}");
+        if let Some(m) = self.model.get_mut(&e) {
+            m.a = cs.a.or(m.a);
+            m.b = cs.b.or(m.b);
+            m.c |= cs.c;
+            m.d = cs.d.or(m.d);
+        }
+        self.check_entity(e, "insert_bundle");
+    }
+
+    /// `remove_one` succeeds exactly when the component was present, and
+    /// returns the value it removed.
+    #[rule]
+    fn remove_one(&mut self, tc: TestCase) {
+        self.flush_model();
+        let e = self.draw_handle(&tc);
+        let before = self.expect(e);
+        let kind = tc.draw(kinds());
+        match kind {
+            Kind::A => assert_eq!(
+                self.world.remove_one::<A>(e).ok().map(|A(v)| v),
+                before.and_then(|cs| cs.a),
+                "remove_one::<A> {e:?}"
+            ),
+            Kind::B => assert_eq!(
+                self.world.remove_one::<B>(e).ok().map(|B(v)| v),
+                before.and_then(|cs| cs.b),
+                "remove_one::<B> {e:?}"
+            ),
+            Kind::C => assert_eq!(
+                self.world.remove_one::<C>(e).is_ok(),
+                before.is_some_and(|cs| cs.c),
+                "remove_one::<C> {e:?}"
+            ),
+            // The removed D is returned and dropped here, matching the model.
+            Kind::D => assert_eq!(
+                self.world.remove_one::<D>(e).ok().map(|d| d.value),
+                before.and_then(|cs| cs.d),
+                "remove_one::<D> {e:?}"
+            ),
+        }
+        if let Some(m) = self.model.get_mut(&e) {
+            *m = m.without(kind);
+        }
+        self.check_entity(e, "remove_one");
+    }
+
+    /// `remove` of a bundle is all-or-nothing: if any member is missing it
+    /// returns `Err` and removes nothing.
+    #[rule]
+    fn remove_ab(&mut self, tc: TestCase) {
+        self.flush_model();
+        let e = self.draw_handle(&tc);
+        let had = self
+            .expect(e)
+            .is_some_and(|cs| cs.a.is_some() && cs.b.is_some());
+        assert_eq!(
+            self.world.remove::<(A, B)>(e).is_ok(),
+            had,
+            "remove::<(A,B)> {e:?}"
+        );
+        if had {
+            let m = self.model.get_mut(&e).unwrap();
+            m.a = None;
+            m.b = None;
+        }
+        self.check_entity(e, "remove_ab");
+    }
+
+    /// `remove_ab` for the `(C, D)` bundle, so the all-or-nothing check also
+    /// covers a zero-sized and a drop-tracked member.
+    #[rule]
+    fn remove_cd(&mut self, tc: TestCase) {
+        self.flush_model();
+        let e = self.draw_handle(&tc);
+        let had = self.expect(e).is_some_and(|cs| cs.c && cs.d.is_some());
+        assert_eq!(
+            self.world.remove::<(C, D)>(e).is_ok(),
+            had,
+            "remove::<(C,D)> {e:?}"
+        );
+        if had {
+            let m = self.model.get_mut(&e).unwrap();
+            m.c = false;
+            m.d = None;
+        }
+        self.check_entity(e, "remove_cd");
+    }
+
+    /// `exchange_one` needs the outgoing component present, returns it, and
+    /// leaves the incoming one in place.
+    #[rule]
+    fn exchange_a_to_b(&mut self, tc: TestCase) {
+        self.flush_model();
+        let e = self.draw_handle(&tc);
+        let v = tc.draw(val());
+        let got = self.world.exchange_one::<A, B>(e, B(v)).ok();
+        assert_eq!(
+            got.map(|A(x)| x),
+            self.expect(e).and_then(|cs| cs.a),
+            "exchange A->B {e:?}"
+        );
+        if got.is_some() {
+            let m = self.model.get_mut(&e).unwrap();
+            m.a = None;
+            m.b = Some(v);
+        }
+        self.check_entity(e, "exchange_a_to_b");
+    }
+
+    /// `exchange_a_to_b` with a drop-tracked outgoing component.
+    #[rule]
+    fn exchange_d_to_a(&mut self, tc: TestCase) {
+        self.flush_model();
+        let e = self.draw_handle(&tc);
+        let v = tc.draw(val());
+        let got = self.world.exchange_one::<D, A>(e, A(v)).ok();
+        assert_eq!(
+            got.as_ref().map(|d| d.value),
+            self.expect(e).and_then(|cs| cs.d),
+            "exchange D->A {e:?}"
+        );
+        if got.is_some() {
+            let m = self.model.get_mut(&e).unwrap();
+            m.d = None;
+            m.a = Some(v);
+        }
+        self.check_entity(e, "exchange_d_to_a");
+    }
+
+    /// `get::<&mut T>` resolves exactly the components the model holds, and a
+    /// write through it is visible to a subsequent read. This is a read path,
+    /// so it does not flush, and neither do the query and view rules below.
+    #[rule]
+    fn mutate_in_place(&mut self, tc: TestCase) {
+        let e = self.draw_handle(&tc);
+        let kind = tc.draw(kinds());
+        let v = tc.draw(val());
+        let had = self.model.get(&e).is_some_and(|m| m.has(kind));
+        let got = match kind {
+            Kind::A => self.world.get::<&mut A>(e).map(|mut a| a.0 = v).is_ok(),
+            Kind::B => self.world.get::<&mut B>(e).map(|mut b| b.0 = v).is_ok(),
+            Kind::C => self.world.get::<&mut C>(e).is_ok(),
+            // Editing D's payload constructs and drops nothing.
+            Kind::D => self.world.get::<&mut D>(e).map(|mut d| d.value = v).is_ok(),
+        };
+        assert_eq!(got, had, "get::<&mut {kind:?}> disagreed for {e:?}");
+        if had {
+            let m = self.model.get_mut(&e).unwrap();
+            *m = m.with(kind, v);
+        }
+        self.check_entity(e, "mutate_in_place");
+    }
+
+    /// A `query_mut` sweep reaches every entity with an `A`, and nothing else.
+    /// The written value folds in the entity id, so swept entities keep
+    /// distinct payloads and a later swap between them stays visible.
+    #[rule]
+    fn sweep_query_mut(&mut self, tc: TestCase) {
+        let v = tc.draw(val());
+        let mut swept = 0usize;
+        for (e, a) in self.world.query_mut::<(Entity, &mut A)>() {
+            a.0 = v.wrapping_add(e.id() as i32);
+            swept += 1;
+        }
+        let expected = self.model.values().filter(|m| m.a.is_some()).count();
+        assert_eq!(
+            swept, expected,
+            "query_mut::<&mut A> visited the wrong number of entities"
+        );
+        for (e, m) in self.model.iter_mut() {
+            if m.a.is_some() {
+                m.a = Some(v.wrapping_add(e.id() as i32));
+            }
+        }
+    }
+
+    /// Two distinct handles can be fetched concurrently, and each result
+    /// matches the model.
+    #[rule]
+    fn query_disjoint_mut(&mut self, tc: TestCase) {
+        let e1 = self.draw_handle(&tc);
+        let e2 = self.draw_handle(&tc);
+        // `query_disjoint_mut` documents a panic on repeated handles.
+        tc.assume(e1 != e2);
+        let (v1, v2) = (tc.draw(val()), tc.draw(val()));
+        let (got1, got2);
+        {
+            let [r1, r2] = self.world.query_disjoint_mut::<&mut A, 2>([e1, e2]);
+            got1 = r1.map(|a| std::mem::replace(&mut a.0, v1)).ok();
+            got2 = r2.map(|a| std::mem::replace(&mut a.0, v2)).ok();
+        }
+        for (e, v, got) in [(e1, v1, got1), (e2, v2, got2)] {
+            assert_eq!(
+                got,
+                self.expect(e).and_then(|cs| cs.a),
+                "query_disjoint_mut {e:?}"
+            );
+            if got.is_some() {
+                self.model.get_mut(&e).unwrap().a = Some(v);
+            }
+        }
+    }
+
+    /// A `View` reaches by handle exactly the entities a query iterates, and a
+    /// write through it is visible afterwards.
+    #[rule]
+    fn view_get_mut(&mut self, tc: TestCase) {
+        let e = self.draw_handle(&tc);
+        let v = tc.draw(val());
+        let got = self.world.view_mut::<&mut B>().get_mut(e).map(|b| b.0 = v);
+        assert_eq!(
+            got.is_some(),
+            self.expect(e).is_some_and(|cs| cs.b.is_some()),
+            "view B-presence {e:?}"
+        );
+        if got.is_some() {
+            self.model.get_mut(&e).unwrap().b = Some(v);
+        }
+        self.check_entity(e, "view_get_mut");
+    }
+
+    /// `View::get_disjoint_mut` resolves two distinct handles at once, each as
+    /// `get_mut` would.
+    #[rule]
+    fn view_get_disjoint_mut(&mut self, tc: TestCase) {
+        let e1 = self.draw_handle(&tc);
+        let e2 = self.draw_handle(&tc);
+        // Like `query_disjoint_mut`, `get_disjoint_mut` panics on repeated
+        // handles.
+        tc.assume(e1 != e2);
+        let (v1, v2) = (tc.draw(val()), tc.draw(val()));
+        let mut view = self.world.view_mut::<&mut B>();
+        let [r1, r2] = view.get_disjoint_mut([e1, e2]);
+        let got1 = r1.map(|b| b.0 = v1).is_some();
+        let got2 = r2.map(|b| b.0 = v2).is_some();
+        drop(view);
+        for (e, v, got) in [(e1, v1, got1), (e2, v2, got2)] {
+            assert_eq!(
+                got,
+                self.expect(e).is_some_and(|cs| cs.b.is_some()),
+                "view B-presence {e:?}"
+            );
+            if got {
+                self.model.get_mut(&e).unwrap().b = Some(v);
+            }
+            self.check_entity(e, "view_get_disjoint_mut");
+        }
+    }
+
+    /// `clear` empties the world. Entity values repeat afterwards, so pooled
+    /// handles may alias freshly spawned entities; the model is keyed by the
+    /// full handle, so that stays consistent.
+    #[rule]
+    fn clear(&mut self, _: TestCase) {
+        self.world.clear();
+        self.model.clear();
+        self.reserved.clear();
+        // `clear` documents that Entity values will repeat, so retired
+        // handles may legitimately become live again.
+        self.retired.clear();
+        assert_eq!(self.world.len(), 0, "clear left live entities");
+        assert_eq!(self.world.iter().count(), 0, "clear left iterable entities");
+    }
+
+    /// `spawn_batch` hands out one distinct handle per item, each carrying that
+    /// item's components.
+    #[rule]
+    fn spawn_batch(&mut self, tc: TestCase) {
+        self.flush_model();
+        let payloads: Vec<(i32, i32)> = tc.draw(gs::vecs(hegel::tuples!(val(), val())).max_size(5));
+        let handles: Vec<Entity> = self
+            .world
+            .spawn_batch(payloads.iter().map(|&(a, b)| (A(a), B(b))))
+            .collect();
+        assert_eq!(
+            handles.len(),
+            payloads.len(),
+            "spawn_batch yielded the wrong count"
+        );
+        for (e, &(a, b)) in handles.into_iter().zip(&payloads) {
+            let cs = Components {
+                a: Some(a),
+                b: Some(b),
+                ..Components::default()
+            };
+            assert!(
+                self.model.insert(e, cs).is_none(),
+                "spawn_batch reused {e:?}"
+            );
+            self.handles.add(e);
+            self.check_entity(e, "spawn_batch");
+        }
+    }
+
+    /// `reserve` is a capacity hint: it can create an empty archetype but
+    /// must not change any entity.
+    #[rule]
+    fn reserve_capacity(&mut self, tc: TestCase) {
+        // `reserve` flushes internally, so flush first: the before/after
+        // comparison must be about the reservation alone.
+        self.world.flush();
+        self.flush_model();
+        let before = fingerprint(&self.world);
+        let n = tc.draw(gs::integers::<u32>().max_value(8));
+        self.world.reserve::<(A, B)>(n);
+        assert_eq!(
+            fingerprint(&self.world),
+            before,
+            "reserve changed the entities"
+        );
+    }
+
+    /// Reserved handles are `contains`-true immediately but stay out of `len`,
+    /// `iter` and every query until a flush.
+    #[rule]
+    fn reserve_entity(&mut self, _: TestCase) {
+        let len_before = self.world.len();
+        let e = self.world.reserve_entity();
+        assert!(self.world.contains(e), "reserved {e:?} not contained");
+        self.reserved.push(e);
+        self.handles.add(e);
+        assert_eq!(
+            self.world.len(),
+            len_before,
+            "reserve_entity changed world.len()"
+        );
+    }
+
+    /// `reserve_entity`, through the batched `reserve_entities`.
+    #[rule]
+    fn reserve_entities(&mut self, tc: TestCase) {
+        let len_before = self.world.len();
+        let n = tc.draw(gs::integers::<u32>().max_value(4));
+        let fresh: Vec<Entity> = self.world.reserve_entities(n).collect();
+        assert_eq!(fresh.len(), n as usize, "reserve_entities yielded {n}");
+        for &e in &fresh {
+            assert!(self.world.contains(e), "reserved {e:?} not contained");
+            self.reserved.push(e);
+            self.handles.add(e);
+        }
+        assert_eq!(
+            self.world.len(),
+            len_before,
+            "reserve_entities changed world.len()"
+        );
+    }
+
+    /// An explicit `flush` turns reserved handles into componentless entities.
+    #[rule]
+    fn flush(&mut self, _: TestCase) {
+        let expected = self.reserved.clone();
+        self.world.flush();
+        self.flush_model();
+        for e in expected {
+            assert_eq!(
+                self.observe(e),
+                Some(Components::default()),
+                "flushed {e:?}"
+            );
+        }
+    }
+
+    /// `take` removes the entity; dropping the `TakenEntity` drops its
+    /// components.
+    #[rule]
+    fn take_and_drop(&mut self, tc: TestCase) {
+        self.flush_model();
+        let e = self.draw_handle(&tc);
+        let ok = self.world.take(e).is_ok();
+        assert_eq!(
+            ok,
+            self.model.remove(&e).is_some(),
+            "take disagreed for {e:?}"
+        );
+        if ok {
+            self.retired.push(e);
+        }
+        self.check_entity(e, "take_and_drop");
+    }
+
+    /// Spawning a `TakenEntity` into another world moves its components across
+    /// unchanged.
+    #[rule]
+    fn take_and_migrate(&mut self, tc: TestCase) {
+        self.flush_model();
+        let e = self.draw_handle(&tc);
+        let expected = self.expect(e);
+        match self.world.take(e) {
+            Ok(taken) => {
+                let mut scratch = World::new();
+                let moved = scratch.spawn(taken);
+                assert_eq!(
+                    scratch.len(),
+                    1,
+                    "scratch world holds more than the moved entity"
+                );
+                let obs = Components::observed(scratch.entity(moved).unwrap());
+                assert_eq!(Some(obs), expected, "migrated entity lost components");
+                self.model.remove(&e);
+                self.retired.push(e);
+            }
+            Err(_) => assert!(expected.is_none(), "take failed for live {e:?}"),
+        }
+    }
+
+    /// A `BuiltEntityClone` can be spawned repeatedly, producing entities with
+    /// identical components. `D` is not `Clone`, so this covers {A, B, C}.
+    #[rule]
+    fn spawn_clone_builder(&mut self, tc: TestCase) {
+        self.flush_model();
+        let cs = tc.draw(components_without_d());
+        let built = cs.clone_builder().build();
+        for _ in 0..2 {
+            let e = self.world.spawn(&built);
+            assert!(
+                self.model.insert(e, cs).is_none(),
+                "clone-builder spawn reused {e:?}"
+            );
+            self.handles.add(e);
+            self.check_entity(e, "spawn_clone_builder");
+        }
+    }
+
+    /// `find_entity_from_id` reconstructs the live handle for an id, so it must
+    /// return the handle the id came from.
+    #[rule]
+    fn find_entity_from_id(&mut self, tc: TestCase) {
+        // Flush first so the model's liveness answer below also covers
+        // handles that were only reserved.
+        self.world.flush();
+        self.flush_model();
+        let e = self.draw_handle(&tc);
+        tc.assume(self.model.contains_key(&e));
+        // SAFETY: `e` is live in the model, which the invariants keep equal
+        // to the world, so its id belongs to a live entity as
+        // `find_entity_from_id` requires.
+        let found = unsafe { self.world.find_entity_from_id(e.id()) };
+        assert_eq!(found, e, "find_entity_from_id");
+    }
+
+    // ---- global oracles ----
+
+    /// The world and the model describe the same entities with the same
+    /// components, in both directions.
+    #[invariant]
+    fn world_matches_model(&self, _: TestCase) {
+        assert_eq!(
+            self.world.len() as usize,
+            self.model.len(),
+            "world.len() != model.len()"
+        );
+        for (&e, cs) in &self.model {
+            assert!(self.world.contains(e), "world is missing modelled {e:?}");
+            assert_eq!(self.observe(e), Some(*cs), "components of {e:?}");
+        }
+        for eref in self.world.iter() {
+            assert!(
+                self.model.contains_key(&eref.entity()),
+                "world has unmodelled {:?}",
+                eref.entity()
+            );
+        }
+    }
+
+    #[invariant]
+    fn archetypes_partition_entities(&self, _: TestCase) {
+        check_archetypes(&self.world, "model world");
+    }
+
+    /// Exactly as many `D` values are alive as the model accounts for: a
+    /// component leaked or dropped twice by an archetype migration shows up
+    /// here.
+    #[invariant]
+    fn drops_balance(&self, _: TestCase) {
+        let expected = self.model.values().filter(|cs| cs.d.is_some()).count();
+        assert_eq!(self.ds.live(), expected, "live D count != modelled D count");
+    }
+
+    /// A destroyed handle never resolves again: `despawn` reuses the id but
+    /// advances the generation, which is what makes a stale handle safe to
+    /// keep around.
+    #[invariant]
+    fn retired_handles_never_resolve(&self, _: TestCase) {
+        for &e in &self.retired {
+            assert!(!self.world.contains(e), "retired {e:?} became live again");
+            assert!(
+                self.world.entity(e).is_err(),
+                "retired {e:?} resolved to an EntityRef"
+            );
+            assert!(
+                matches!(
+                    self.world.query_one::<&A>(e).get(),
+                    Err(QueryOneError::NoSuchEntity)
+                ),
+                "query_one on retired {e:?} did not report NoSuchEntity"
+            );
+            assert!(
+                !self.model.contains_key(&e),
+                "retired {e:?} is still modelled"
+            );
+        }
+    }
+
+    /// Reserved handles exist but are invisible to iteration and queries.
+    #[invariant]
+    fn reserved_handles_are_not_live(&self, _: TestCase) {
+        for &e in &self.reserved {
+            assert!(self.world.contains(e), "reserved {e:?} not contained");
+            self.check_reserved(e, "reserved_handles_are_not_live");
+            assert!(
+                !self.model.contains_key(&e),
+                "reserved {e:?} leaked into the model"
+            );
+            assert!(
+                self.world.iter().all(|eref| eref.entity() != e),
+                "reserved {e:?} appeared in iter()"
+            );
+        }
+    }
+
+    /// Every query shape yields exactly the entities and values the model
+    /// predicts, with no duplicates.
+    #[invariant]
+    fn query_shapes_match_model(&self, _: TestCase) {
+        let model = &self.model;
+        let world = &self.world;
+
+        let got = unique(
+            world.query::<(Entity, &A)>().iter().map(|(e, a)| (e, a.0)),
+            "query::<&A>",
+        );
+        let want: HashMap<Entity, i32> = model
+            .iter()
+            .filter_map(|(&e, cs)| cs.a.map(|v| (e, v)))
+            .collect();
+        assert_eq!(got, want, "query::<&A>");
+
+        let got = unique(
+            world
+                .query::<(Entity, &A, &B)>()
+                .iter()
+                .map(|(e, a, b)| (e, (a.0, b.0))),
+            "query::<(&A,&B)>",
+        );
+        let want: HashMap<Entity, (i32, i32)> = model
+            .iter()
+            .filter_map(|(&e, cs)| cs.a.zip(cs.b).map(|v| (e, v)))
+            .collect();
+        assert_eq!(got, want, "query::<(&A,&B)>");
+
+        let got = unique(
+            world
+                .query::<With<(Entity, &A), &B>>()
+                .iter()
+                .map(|(e, a)| (e, a.0)),
+            "query::<With<&A, &B>>",
+        );
+        let want: HashMap<Entity, i32> = model
+            .iter()
+            .filter_map(|(&e, cs)| cs.b.and(cs.a).map(|v| (e, v)))
+            .collect();
+        assert_eq!(got, want, "query::<With<&A, &B>>");
+
+        let got = unique(
+            world
+                .query::<Without<(Entity, &A), &B>>()
+                .iter()
+                .map(|(e, a)| (e, a.0)),
+            "query::<Without<&A, &B>>",
+        );
+        let want: HashMap<Entity, i32> = model
+            .iter()
+            .filter_map(|(&e, cs)| match (cs.a, cs.b) {
+                (Some(v), None) => Some((e, v)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(got, want, "query::<Without<&A, &B>>");
+
+        let got = unique(
+            world
+                .query::<(Entity, Or<&A, &B>)>()
+                .iter()
+                .map(|(e, ab)| (e, (ab.left().map(|a| a.0), ab.right().map(|b| b.0)))),
+            "query::<Or<&A, &B>>",
+        );
+        let want: HashMap<Entity, (Option<i32>, Option<i32>)> = model
+            .iter()
+            .filter(|(_, cs)| cs.a.is_some() || cs.b.is_some())
+            .map(|(&e, cs)| (e, (cs.a, cs.b)))
+            .collect();
+        assert_eq!(got, want, "query::<Or<&A, &B>>");
+
+        let got = unique(
+            world
+                .query::<(Entity, &A, Option<&B>)>()
+                .iter()
+                .map(|(e, _, b)| (e, b.map(|b| b.0))),
+            "query::<(&A, Option<&B>)>",
+        );
+        let want: HashMap<Entity, Option<i32>> = model
+            .iter()
+            .filter_map(|(&e, cs)| cs.a.map(|_| (e, cs.b)))
+            .collect();
+        assert_eq!(got, want, "query::<(&A, Option<&B>)>");
+    }
+
+    /// Per-entity access agrees with the model for every live entity,
+    /// including the `Unsatisfied` and `NoSuchEntity` distinction.
+    #[invariant]
+    fn per_entity_access_matches_model(&self, _: TestCase) {
+        for (&e, cs) in &self.model {
+            check_query_one(
+                self.world.query_one::<&A>(e).get(),
+                cs.a,
+                &format!("query_one::<&A> {e:?}"),
+            );
+            // `with`/`without` filter the same query by another component's
+            // presence without borrowing it.
+            check_query_one(
+                self.world.query_one::<&A>(e).with::<&B>().get(),
+                cs.a.filter(|_| cs.b.is_some()),
+                &format!("query_one::<&A>.with::<&B> {e:?}"),
+            );
+            check_query_one(
+                self.world.query_one::<&A>(e).without::<&B>().get(),
+                cs.a.filter(|_| cs.b.is_none()),
+                &format!("query_one::<&A>.without::<&B> {e:?}"),
+            );
+            assert_eq!(
+                self.world.satisfies::<&A>(e),
+                cs.a.is_some(),
+                "satisfies::<&A> {e:?}"
+            );
+            assert_eq!(
+                self.world.satisfies::<(&A, &B)>(e),
+                cs.a.is_some() && cs.b.is_some(),
+                "satisfies::<(&A,&B)> {e:?}"
+            );
+
+            let eref = self.world.entity(e).expect("live modelled entity");
+            assert_eq!(eref.entity(), e, "EntityRef::entity");
+            assert_eq!(eref.has::<A>(), cs.a.is_some(), "EntityRef::has::<A> {e:?}");
+            assert_eq!(eref.has::<C>(), cs.c, "EntityRef::has::<C> {e:?}");
+            assert_eq!(eref.len(), cs.component_count(), "EntityRef::len {e:?}");
+            assert_eq!(
+                eref.is_empty(),
+                cs.component_count() == 0,
+                "EntityRef::is_empty {e:?}"
+            );
+            assert_eq!(
+                eref.component_types().count(),
+                cs.component_count(),
+                "EntityRef::component_types {e:?}"
+            );
+        }
+
+        let view = self.world.view::<&A>();
+        for (&e, cs) in &self.model {
+            assert_eq!(view.get(e).map(|a| a.0), cs.a, "view.get {e:?}");
+            assert_eq!(view.contains(e), cs.a.is_some(), "view.contains {e:?}");
+        }
+    }
+
+    /// A `PreparedQuery` caches archetype state across calls, so the queries
+    /// held in the machine state must keep agreeing with a freshly built one
+    /// as archetypes come and go.
+    #[invariant]
+    fn prepared_query_matches_fresh_query(&mut self, _: TestCase) {
+        let fresh: HashMap<Entity, i32> = self
+            .world
+            .query::<(Entity, &A)>()
+            .iter()
+            .map(|(e, a)| (e, a.0))
+            .collect();
+        let prepared: HashMap<Entity, i32> = {
+            let mut borrow = self.prepared.query(&self.world);
+            borrow.iter().map(|(e, a)| (e, a.0)).collect()
+        };
+        assert_eq!(
+            prepared, fresh,
+            "PreparedQuery disagreed with a fresh query"
+        );
+
+        let view = self.prepared_view.view_mut(&mut self.world);
+        for (&e, cs) in &self.model {
+            assert_eq!(view.get(e).map(|a| a.0), cs.a, "PreparedView::get {e:?}");
+        }
+    }
+
+    /// Batched iteration visits exactly the same entities as flat iteration.
+    #[invariant]
+    fn batched_iteration_matches_flat(&self, tc: TestCase) {
+        let flat: HashMap<Entity, i32> = self
+            .world
+            .query::<(Entity, &A)>()
+            .iter()
+            .map(|(e, a)| (e, a.0))
+            .collect();
+        // A zero batch size is rejected: `iter_batched` requires it to be
+        // greater than 0.
+        let size = tc.draw(gs::integers::<u32>().min_value(1).max_value(4));
+        let mut q = self.world.query::<(Entity, &A)>();
+        let got = unique(
+            q.iter_batched(size).flatten().map(|(e, a)| (e, a.0)),
+            "iter_batched",
+        );
+        assert_eq!(
+            got, flat,
+            "iter_batched({size}) disagreed with flat iteration"
+        );
+    }
+}
+
+#[hegel::test(settings().stateful_step_count(STEPS))]
+fn world_matches_model(tc: TestCase) {
+    let machine = WorldModel {
+        world: World::new(),
+        model: HashMap::new(),
+        handles: pool(&tc),
+        reserved: Vec::new(),
+        retired: Vec::new(),
+        prepared: PreparedQuery::new(),
+        prepared_view: PreparedQuery::new(),
+        ds: DropTracker::new(),
+    };
+    hegel::stateful::run(machine, tc);
+}
