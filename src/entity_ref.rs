@@ -58,11 +58,14 @@ impl<'a> EntityRef<'a> {
     /// # Example
     /// ```
     /// # use hecs::*;
+    /// struct Size(i32);
+    /// impl Component for Size {}
+    ///
     /// let mut world = World::new();
-    /// let a = world.spawn((42, "abc"));
+    /// let a = world.spawn((Size(42),));
     /// let e = world.entity(a).unwrap();
-    /// *e.get::<&mut i32>().unwrap() = 17;
-    /// assert_eq!(*e.get::<&i32>().unwrap(), 17);
+    /// e.get::<&mut Size>().unwrap().0 = 17;
+    /// assert_eq!(e.get::<&Size>().unwrap().0, 17);
     /// ```
     ///
     /// Panics if `T` is a unique reference and the component is already borrowed, or if the
@@ -79,13 +82,18 @@ impl<'a> EntityRef<'a> {
     /// # Example
     /// ```
     /// # use hecs::*;
+    /// struct Age(i32);
+    /// impl Component for Age {}
+    /// struct Tall(bool);
+    /// impl Component for Tall {}
+    ///
     /// let mut world = World::new();
-    /// let a = world.spawn((123, true, "abc"));
+    /// let a = world.spawn((Age(123), Tall(true)));
     /// // The returned query must outlive the borrow made by `get`
-    /// let mut query = world.entity(a).unwrap().query::<(&mut i32, &bool)>();
-    /// let (number, flag) = query.get().unwrap();
-    /// if *flag { *number *= 2; }
-    /// assert_eq!(*number, 246);
+    /// let mut query = world.entity(a).unwrap().query::<(&mut Age, &Tall)>();
+    /// let (age, tall) = query.get().unwrap();
+    /// if tall.0 { age.0 *= 2; }
+    /// assert_eq!(age.0, 246);
     /// ```
     pub fn query<Q: Query>(&self) -> QueryOne<'a, Q> {
         unsafe { QueryOne::new(self.meta, self.archetype, self.index) }
@@ -148,14 +156,15 @@ impl<'a, T: ?Sized> Ref<'a, T> {
     /// # Examples
     ///
     /// ```no_run
-    /// # use hecs::{EntityRef, Ref};
-    /// struct Component {
+    /// # use hecs::{Component, EntityRef, Ref};
+    /// struct Data {
     ///     member: i32,
     /// }
+    /// impl Component for Data {}
     ///
     /// # fn example(entity_ref: EntityRef<'_>) {
-    /// let component_ref = entity_ref.get::<&Component>()
-    ///     .expect("Entity does not contain an instance of \"Component\"");
+    /// let component_ref = entity_ref.get::<&Data>()
+    ///     .expect("Entity does not contain an instance of \"Data\"");
     /// let member_ref = Ref::map(component_ref, |component| &component.member);
     /// println!("member = {:?}", *member_ref);
     /// # }
@@ -235,14 +244,15 @@ impl<'a, T: ?Sized> RefMut<'a, T> {
     /// # Examples
     ///
     /// ```no_run
-    /// # use hecs::{EntityRef, RefMut};
-    /// struct Component {
+    /// # use hecs::{Component, EntityRef, RefMut};
+    /// struct Data {
     ///     member: i32,
     /// }
+    /// impl Component for Data {}
     ///
     /// # fn example(entity_ref: EntityRef<'_>) {
-    /// let component_ref = entity_ref.get::<&mut Component>()
-    ///     .expect("Entity does not contain an instance of \"Component\"");
+    /// let component_ref = entity_ref.get::<&mut Data>()
+    ///     .expect("Entity does not contain an instance of \"Data\"");
     /// let mut member_ref = RefMut::map(component_ref, |component| &mut component.member);
     /// *member_ref = 21;
     /// println!("member = {:?}", *member_ref);

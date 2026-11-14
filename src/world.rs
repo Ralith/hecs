@@ -88,14 +88,19 @@ impl World {
     /// statically known. To spawn an entity with only one component, use a one-element tuple like
     /// `(x,)`.
     ///
-    /// Any type that satisfies `Send + Sync + 'static` can be used as a component.
+    /// All components must implement the [`Component`](crate::Component) trait.
     ///
     /// # Example
     /// ```
     /// # use hecs::*;
+    /// struct Idx(i32);
+    /// impl Component for Idx {}
+    /// struct Name(&'static str);
+    /// impl Component for Name {}
+    ///
     /// let mut world = World::new();
-    /// let a = world.spawn((123, "abc"));
-    /// let b = world.spawn((456, true));
+    /// let a = world.spawn((Idx(123), Name("abc")));
+    /// let b = world.spawn((Idx(456),));
     /// ```
     pub fn spawn(&mut self, components: impl DynamicBundle) -> Entity {
         // Ensure all entity allocations are accounted for so `self.entities` can realloc if
@@ -121,13 +126,18 @@ impl World {
     /// # Example
     /// ```
     /// # use hecs::*;
+    /// struct Idx(i32);
+    /// impl Component for Idx {}
+    /// struct Name(&'static str);
+    /// impl Component for Name {}
+    ///
     /// let mut world = World::new();
-    /// let a = world.spawn((123, "abc"));
-    /// let b = world.spawn((456, true));
+    /// let a = world.spawn((Idx(123), Name("abc")));
+    /// let b = world.spawn((Idx(456),));
     /// world.despawn(a);
     /// assert!(!world.contains(a));
     /// // all previous Entity values pointing to 'a' will be live again, instead pointing to the new entity.
-    /// world.spawn_at(a, (789, "ABC"));
+    /// world.spawn_at(a, (Idx(789), Name("ABC")));
     /// assert!(world.contains(a));
     /// ```
     pub fn spawn_at(&mut self, handle: Entity, components: impl DynamicBundle) {
@@ -179,10 +189,13 @@ impl World {
     /// # Example
     /// ```
     /// # use hecs::*;
+    /// struct Idx(i32);
+    /// impl Component for Idx {}
+    ///
     /// let mut world = World::new();
-    /// let entities = world.spawn_batch((0..1_000).map(|i| (i, "abc"))).collect::<Vec<_>>();
+    /// let entities = world.spawn_batch((0..1_000).map(|i| (Idx(i),))).collect::<Vec<_>>();
     /// for i in 0..1_000 {
-    ///     assert_eq!(*world.get::<&i32>(entities[i]).unwrap(), i as i32);
+    ///     assert_eq!(world.get::<&Idx>(entities[i]).unwrap().0, i as i32);
     /// }
     /// ```
     pub fn spawn_batch<I>(&mut self, iter: I) -> SpawnBatchIter<'_, I::IntoIter>
@@ -400,17 +413,24 @@ impl World {
     /// # Example
     /// ```
     /// # use hecs::*;
+    /// #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    /// struct Idx(i32);
+    /// impl Component for Idx {}
+    /// #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    /// struct Flag(bool);
+    /// impl Component for Flag {}
+    ///
     /// let mut world = World::new();
-    /// let a = world.spawn((123, true, "abc"));
-    /// let b = world.spawn((456, false));
-    /// let c = world.spawn((42, "def"));
-    /// let entities = world.query::<(Entity, &i32, &bool)>()
+    /// let a = world.spawn((Idx(123), Flag(true)));
+    /// let b = world.spawn((Idx(456), Flag(false)));
+    /// let c = world.spawn((Idx(42),));
+    /// let entities = world.query::<(Entity, &Idx, &Flag)>()
     ///     .iter()
-    ///     .map(|(e, &i, &b)| (e, i, b)) // Copy out of the world
+    ///     .map(|(e, i, b)| (e, *i, *b)) // Copy out of the world
     ///     .collect::<Vec<_>>();
     /// assert_eq!(entities.len(), 2);
-    /// assert!(entities.contains(&(a, 123, true)));
-    /// assert!(entities.contains(&(b, 456, false)));
+    /// assert!(entities.contains(&(a, Idx(123), Flag(true))));
+    /// assert!(entities.contains(&(b, Idx(456), Flag(false))));
     /// ```
     pub fn query<Q: Query>(&self) -> QueryBorrow<'_, Q> {
         QueryBorrow::new(self)
@@ -471,13 +491,18 @@ impl World {
     /// # Example
     /// ```
     /// # use hecs::*;
+    /// struct Idx(i32);
+    /// impl Component for Idx {}
+    /// struct Flag(bool);
+    /// impl Component for Flag {}
+    ///
     /// let mut world = World::new();
-    /// let a = world.spawn((123, true, "abc"));
+    /// let a = world.spawn((Idx(123), Flag(true)));
     /// // The returned query must outlive the borrow made by `get`
-    /// let mut query = world.query_one::<(&mut i32, &bool)>(a);
+    /// let mut query = world.query_one::<(&mut Idx, &Flag)>(a);
     /// let (number, flag) = query.get().unwrap();
-    /// if *flag { *number *= 2; }
-    /// assert_eq!(*number, 246);
+    /// if flag.0 { number.0 *= 2; }
+    /// assert_eq!(number.0, 246);
     /// ```
     pub fn query_one<Q: Query>(&self, entity: Entity) -> QueryOne<'_, Q> {
         let Ok(loc) = self.entities.get(entity) else {
@@ -612,11 +637,16 @@ impl World {
     /// # Example
     /// ```
     /// # use hecs::*;
+    /// struct Idx(i32);
+    /// impl Component for Idx {}
+    /// struct Flag(bool);
+    /// impl Component for Flag {}
+    ///
     /// let mut world = World::new();
-    /// let e = world.spawn((123, "abc"));
-    /// world.insert(e, (456, true));
-    /// assert_eq!(*world.get::<&i32>(e).unwrap(), 456);
-    /// assert_eq!(*world.get::<&bool>(e).unwrap(), true);
+    /// let e = world.spawn((Idx(123),));
+    /// world.insert(e, (Idx(456), Flag(true)));
+    /// assert_eq!(world.get::<&Idx>(e).unwrap().0, 456);
+    /// assert!(world.get::<&Flag>(e).unwrap().0);
     /// ```
     pub fn insert(
         &mut self,
@@ -778,12 +808,21 @@ impl World {
     /// # Example
     /// ```
     /// # use hecs::*;
+    /// #[derive(Debug, PartialEq)]
+    /// struct Idx(i32);
+    /// impl Component for Idx {}
+    /// #[derive(Debug, PartialEq)]
+    /// struct Name(&'static str);
+    /// impl Component for Name {}
+    /// struct Flag(bool);
+    /// impl Component for Flag {}
+    ///
     /// let mut world = World::new();
-    /// let e = world.spawn((123, "abc", true));
-    /// assert_eq!(world.remove::<(i32, &str)>(e), Ok((123, "abc")));
-    /// assert!(world.get::<&i32>(e).is_err());
-    /// assert!(world.get::<&&str>(e).is_err());
-    /// assert_eq!(*world.get::<&bool>(e).unwrap(), true);
+    /// let e = world.spawn((Idx(123), Name("abc"), Flag(true)));
+    /// assert_eq!(world.remove::<(Idx, Name)>(e), Ok((Idx(123), Name("abc"))));
+    /// assert!(world.get::<&Idx>(e).is_err());
+    /// assert!(world.get::<&Name>(e).is_err());
+    /// assert!(world.get::<&Flag>(e).unwrap().0);
     /// ```
     pub fn remove<T: Bundle + 'static>(&mut self, entity: Entity) -> Result<T, ComponentError> {
         self.flush();
@@ -976,9 +1015,12 @@ impl World {
     /// # Example
     /// ```
     /// # use hecs::*;
+    /// struct Idx(i32);
+    /// impl Component for Idx {}
+    ///
     /// let mut world = World::new();
     /// let initial_gen = world.archetypes_generation();
-    /// world.spawn((123, "abc"));
+    /// world.spawn((Idx(123),));
     /// assert_ne!(initial_gen, world.archetypes_generation());
     /// ```
     pub fn archetypes_generation(&self) -> ArchetypesGeneration {
@@ -1109,12 +1151,14 @@ impl From<NoSuchEntity> for QueryOneError {
     }
 }
 
-/// Types that can be components, implemented automatically for all `Send + Sync + 'static` types
+/// Types that can be components
 ///
-/// This is just a convenient shorthand for `Send + Sync + 'static`, and never needs to be
-/// implemented manually.
+/// Implement this marker trait for your components to allow them to be inserted into a [`World`].
+/// This requirement guards against accidental insertion of unintended types, such as when
+/// refactoring a component constructor to return `Result`.
+///
+/// Enable the `macros` feature to use `#[derive(Component)]` as a short-hand.
 pub trait Component: Send + Sync + 'static {}
-impl<T: Send + Sync + 'static> Component for T {}
 
 /// Iterator over all of a world's entities
 pub struct Iter<'a> {
@@ -1440,6 +1484,12 @@ mod tests {
 
     use super::*;
 
+    #[derive(Debug, PartialEq)]
+    struct I(i32);
+    impl Component for I {}
+    struct B(bool);
+    impl Component for B {}
+
     #[test]
     fn reuse_empty() {
         let mut world = World::new();
@@ -1478,27 +1528,27 @@ mod tests {
     #[test]
     fn reuse_populated() {
         let mut world = World::new();
-        let a = world.spawn((42,));
-        assert_eq!(*world.get::<&i32>(a).unwrap(), 42);
+        let a = world.spawn((I(42),));
+        assert_eq!(*world.get::<&I>(a).unwrap(), I(42));
         world.despawn(a).unwrap();
-        let b = world.spawn((true,));
+        let b = world.spawn((B(true),));
         assert_eq!(a.id, b.id);
         assert_ne!(a.generation, b.generation);
-        assert!(world.get::<&i32>(b).is_err());
-        assert!(*world.get::<&bool>(b).unwrap());
+        assert!(world.get::<&I>(b).is_err());
+        assert!(world.get::<&B>(b).unwrap().0);
     }
 
     #[test]
     fn remove_nothing() {
         let mut world = World::new();
-        let a = world.spawn(("abc", 123));
+        let a = world.spawn((B(true), I(123)));
         world.remove::<()>(a).unwrap();
     }
 
     #[test]
     fn bad_insert() {
         let mut world = World::new();
-        assert!(world.insert_one(Entity::DANGLING, ()).is_err());
+        assert!(world.insert_one(Entity::DANGLING, I(1)).is_err());
     }
 
     #[test]
@@ -1545,16 +1595,20 @@ mod tests {
     fn spawn_column_batch_at_redundant() {
         use alloc::string::String;
 
+        #[derive(Debug)]
+        struct Str(String);
+        impl Component for Str {}
+
         let mut world = World::new();
         // A column batch of two entities in the unit (no-component) archetype.
         let mut batch = crate::ColumnBatchType::new();
-        batch.add::<String>();
+        batch.add::<Str>();
         let batch = batch.into_batch(3);
         {
-            let mut writer = batch.writer::<String>().unwrap();
-            writer.push("a".into()).unwrap();
-            writer.push("b".into()).unwrap();
-            writer.push("c".into()).unwrap();
+            let mut writer = batch.writer::<Str>().unwrap();
+            writer.push(Str("a".into())).unwrap();
+            writer.push(Str("b".into())).unwrap();
+            writer.push(Str("c".into())).unwrap();
         }
         let batch = batch.build().unwrap();
 
@@ -1563,8 +1617,8 @@ mod tests {
         world.spawn_column_batch_at(&[e1, e0, e1], batch); // the same handle twice
         assert_eq!(world.len(), 2);
         assert_eq!(world.iter().count(), 2);
-        assert_eq!(&*world.get::<&String>(e0).unwrap(), "b");
-        assert_eq!(&*world.get::<&String>(e1).unwrap(), "c");
+        assert_eq!(world.get::<&Str>(e0).unwrap().0, "b");
+        assert_eq!(world.get::<&Str>(e1).unwrap().0, "c");
     }
 
     /// Verify that insert has the expected effect even if a component panics on drop
@@ -1574,19 +1628,23 @@ mod tests {
         use std::panic::catch_unwind;
 
         struct Bomb;
+        impl Component for Bomb {}
         impl Drop for Bomb {
             fn drop(&mut self) {
                 panic!();
             }
         }
 
+        struct Bool(bool);
+        impl Component for Bool {}
+
         let mut world = World::new();
         let e = world.spawn((Bomb,));
 
         // Overwrite e's Bomb with a new Bomb, causing the old one to be dropped and panic
-        assert!(catch_unwind(AssertUnwindSafe(|| world.insert(e, (Bomb, true)))).is_err());
+        assert!(catch_unwind(AssertUnwindSafe(|| world.insert(e, (Bomb, Bool(true))))).is_err());
         // Confirm the bool still got inserted
-        assert!(*world.get::<&bool>(e).unwrap());
+        assert!(world.get::<&Bool>(e).unwrap().0);
         // Confirm the old entity location got cleaned up
         assert_eq!(world.iter().count(), 1);
 

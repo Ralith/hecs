@@ -1,0 +1,74 @@
+error[E0277]: `Rc<()>` cannot be shared between threads safely
+ --> tests/derive/component_bounds.rs:4:8
+  |
+4 | struct NotSend(std::rc::Rc<()>);
+  |        ^^^^^^^ `Rc<()>` cannot be shared between threads safely
+  |
+  = help: within `NotSend`, the trait `Sync` is not implemented for `Rc<()>`
+note: required because it appears within the type `NotSend`
+ --> tests/derive/component_bounds.rs:4:8
+  |
+4 | struct NotSend(std::rc::Rc<()>);
+  |        ^^^^^^^
+note: required by a bound in `hecs::Component`
+ --> src/world.rs
+  |
+  | pub trait Component: Send + Sync + 'static {}
+  |                             ^^^^ required by this bound in `Component`
+
+error[E0277]: `Rc<()>` cannot be sent between threads safely
+ --> tests/derive/component_bounds.rs:4:8
+  |
+4 | struct NotSend(std::rc::Rc<()>);
+  |        ^^^^^^^ `Rc<()>` cannot be sent between threads safely
+  |
+  = help: within `NotSend`, the trait `Send` is not implemented for `Rc<()>`
+note: required because it appears within the type `NotSend`
+ --> tests/derive/component_bounds.rs:4:8
+  |
+4 | struct NotSend(std::rc::Rc<()>);
+  |        ^^^^^^^
+note: required by a bound in `hecs::Component`
+ --> src/world.rs
+  |
+  | pub trait Component: Send + Sync + 'static {}
+  |                      ^^^^ required by this bound in `Component`
+
+error[E0478]: lifetime bound not satisfied
+ --> tests/derive/component_bounds.rs:6:10
+  |
+6 | #[derive(Component)]
+  |          ^^^^^^^^^
+  |
+note: lifetime parameter instantiated with the lifetime `'a` as defined here
+ --> tests/derive/component_bounds.rs:7:18
+  |
+7 | struct NotStatic<'a>(&'a i32);
+  |                  ^^
+  = note: but lifetime parameter must outlive the static lifetime
+  = note: this error originates in the derive macro `Component` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0803]: cannot infer an appropriate lifetime for lifetime parameter `'a` due to conflicting requirements
+ --> tests/derive/component_bounds.rs:7:8
+  |
+7 | struct NotStatic<'a>(&'a i32);
+  |        ^^^^^^^^^^^^^
+  |
+note: first, the lifetime cannot outlive the lifetime `'a` as defined here...
+ --> tests/derive/component_bounds.rs:7:18
+  |
+7 | struct NotStatic<'a>(&'a i32);
+  |                  ^^
+note: ...so that the types are compatible
+ --> tests/derive/component_bounds.rs:7:8
+  |
+7 | struct NotStatic<'a>(&'a i32);
+  |        ^^^^^^^^^^^^^
+  = note: expected `<NotStatic<'a> as hecs::Component>`
+             found `<NotStatic<'_> as hecs::Component>`
+  = note: but, the lifetime must be valid for the static lifetime...
+note: ...so that the declared lifetime parameter bounds are satisfied
+ --> tests/derive/component_bounds.rs:7:8
+  |
+7 | struct NotStatic<'a>(&'a i32);
+  |        ^^^^^^^^^^^^^
