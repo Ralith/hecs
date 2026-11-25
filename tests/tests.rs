@@ -135,6 +135,128 @@ fn derived_enum_query_with_empty() {
 
 #[test]
 #[cfg(feature = "macros")]
+fn derived_generic_query() {
+    #[derive(Debug, PartialEq)]
+    struct NonClone(i32);
+
+    #[derive(Query, Debug, PartialEq)]
+    struct DrawQuery<'q, T: Component = NonClone> {
+        entity_data: &'q T,
+    }
+
+    #[derive(Query, Debug, PartialEq)]
+    struct PairQuery<'a, T, U, const N: usize = 2>(&'a T, &'a mut [U; N])
+    where
+        T: 'a;
+
+    #[derive(Query, Debug, PartialEq)]
+    struct OuterQuery<'a, T: Component> {
+        inner: DrawQuery<'a, T>,
+        flag: Option<&'a bool>,
+    }
+
+    fn count_matching<T: Component>(world: &mut World) -> usize {
+        world.query_mut::<DrawQuery<T>>().into_iter().count()
+    }
+
+    let mut world = World::new();
+    let e1 = world.spawn((NonClone(7), [10_u8, 20_u8], true));
+    let e2 = world.spawn(("alt",));
+
+    assert_eq!(
+        world.query_one_mut::<DrawQuery>(e1).unwrap(),
+        DrawQuery {
+            entity_data: &NonClone(7),
+        }
+    );
+    assert_eq!(
+        world.query_one_mut::<DrawQuery<&str>>(e2).unwrap(),
+        DrawQuery {
+            entity_data: &"alt",
+        }
+    );
+    assert_eq!(count_matching::<NonClone>(&mut world), 1);
+
+    {
+        let PairQuery(nc, arr) = world.query_one_mut::<PairQuery<NonClone, u8>>(e1).unwrap();
+        assert_eq!(nc, &NonClone(7));
+        arr[0] += 5;
+    }
+
+    let mut prepared = PreparedQuery::<OuterQuery<NonClone>>::default();
+    let mut borrow = prepared.query(&world);
+    let items = borrow.iter().collect::<Vec<_>>();
+    assert_eq!(
+        items,
+        vec![OuterQuery {
+            inner: DrawQuery {
+                entity_data: &NonClone(7),
+            },
+            flag: Some(&true),
+        }]
+    );
+    drop(borrow);
+    assert_eq!(*world.get::<&[u8; 2]>(e1).unwrap(), [15, 20]);
+}
+
+#[test]
+#[cfg(feature = "macros")]
+fn derived_generic_enum_query() {
+    #[derive(Debug, PartialEq)]
+    struct NonClone(i32);
+
+    #[derive(Query, Debug, PartialEq)]
+    enum Choice<'q, T, U = NonClone, V = bool> {
+        Both(&'q T, &'q U),
+        First(&'q T),
+        Mutable { val: &'q mut V },
+    }
+
+    #[derive(Query, Debug, PartialEq)]
+    enum OptionalChoice<'a, T = NonClone> {
+        Some(&'a T),
+        None,
+    }
+
+    let mut world = World::new();
+    let e1 = world.spawn((42_i32,));
+    let e2 = world.spawn((false,));
+    let e3 = world.spawn((100_i32, NonClone(3)));
+    let e4 = world.spawn(("other",));
+
+    assert_eq!(
+        world.query_one_mut::<Choice<i32>>(e1).unwrap(),
+        Choice::First(&42)
+    );
+    assert_eq!(
+        world.query_one_mut::<Choice<i32>>(e2).unwrap(),
+        Choice::Mutable { val: &mut false }
+    );
+    assert_eq!(
+        world.query_one_mut::<Choice<i32>>(e3).unwrap(),
+        Choice::Both(&100, &NonClone(3))
+    );
+    assert_eq!(
+        world.query_one_mut::<Choice<i32>>(e4),
+        Err(QueryOneError::Unsatisfied)
+    );
+
+    let mut prepared = PreparedQuery::<OptionalChoice>::default();
+    let mut borrow = prepared.query(&world);
+    assert_eq!(borrow.iter().count(), 4);
+    drop(borrow);
+    assert_eq!(
+        world.query_one_mut::<OptionalChoice>(e4).unwrap(),
+        OptionalChoice::None
+    );
+    assert_eq!(
+        world.query_one_mut::<OptionalChoice>(e3).unwrap(),
+        OptionalChoice::Some(&NonClone(3))
+    );
+}
+
+#[test]
+#[cfg(feature = "macros")]
 fn derived_bundle_clone() {
     #[derive(Bundle, DynamicBundleClone)]
     struct Foo<T: Clone + Component> {

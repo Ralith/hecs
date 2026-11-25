@@ -11,6 +11,21 @@ pub struct Foo {
 }
 
 #[derive(Query)]
+pub struct Baz<'a> {
+    pub a: &'a usize,
+}
+
+#[derive(Query)]
+pub struct GenericBaz<'a, T = usize> {
+    pub a: &'a T,
+}
+
+#[derive(Query)]
+pub enum GenericEnum<'a, T = usize> {
+    Val(&'a T),
+}
+
+#[derive(Query)]
 pub struct Quux<'a> {
     pub foo: &'a Foo,
 }
