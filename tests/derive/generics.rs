@@ -21,18 +21,18 @@ struct Baz<T, U, V> {
 pub struct NonClone;
 
 #[derive(Query)]
-struct QueryFoo<'a, T> {
+struct QueryFoo<'a, T: Component> {
     foo: &'a T,
 }
 
 #[derive(Query)]
-struct QueryBar<'a, T> {
+struct QueryBar<'a, T: Component> {
     foo: &'a i32,
     bar: &'a mut T,
 }
 
 #[derive(Query)]
-struct QueryTuple<'a, T, U, V>(&'a T, &'a mut U, Option<&'a V>);
+struct QueryTuple<'a, T: Component, U: Component, V: Component>(&'a T, &'a mut U, Option<&'a V>);
 
 #[derive(Query)]
 pub struct DrawSpriteQuery<'q, T: Component = NonClone> {
@@ -40,7 +40,7 @@ pub struct DrawSpriteQuery<'q, T: Component = NonClone> {
 }
 
 #[derive(Query)]
-struct ArrayQuery<'a, T, const N: usize = 4>
+struct ArrayQuery<'a, T: Component, const N: usize = 4>
 where
     T: 'a,
 {
@@ -48,18 +48,24 @@ where
 }
 
 #[derive(Query)]
-struct NestedGenericQuery<'a, T> {
+struct NestedGenericQuery<'a, T: Component> {
     inner: QueryFoo<'a, T>,
 }
 
 #[derive(Query)]
-enum GenericEnumQuery<'a, T, U = NonClone> {
+struct QueryAbstract<'a, Q: for<'q> Query<Item<'q> = Q>> {
+    tag: &'a i32,
+    inner: Q,
+}
+
+#[derive(Query)]
+enum GenericEnumQuery<'a, T: Component, U: Component = NonClone> {
     First(&'a T),
     Second { value: &'a mut U },
 }
 
 #[derive(Query)]
-enum GenericEnumWithUnit<'a, T> {
+enum GenericEnumWithUnit<'a, T: Component> {
     Present(&'a T),
     Empty,
 }

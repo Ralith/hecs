@@ -26,12 +26,12 @@ enum Corge<'a> {
 }
 
 #[derive(::hecs::Query)]
-struct Grault<'a, T> {
+struct Grault<'a, T: ::hecs::Component> {
     foo: &'a T,
 }
 
 #[derive(::hecs::Query)]
-enum Garply<'a, T> {
+enum Garply<'a, T: ::hecs::Component> {
     Foo(&'a T),
     Bar { bar: &'a bool },
 }

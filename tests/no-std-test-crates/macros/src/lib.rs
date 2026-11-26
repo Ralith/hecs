@@ -3,7 +3,7 @@
 #![no_std]
 #![allow(clippy::disallowed_names)]
 
-use hecs::{Bundle, Query};
+use hecs::{Bundle, Component, Query};
 
 #[derive(Bundle)]
 pub struct Foo {
@@ -16,12 +16,12 @@ pub struct Baz<'a> {
 }
 
 #[derive(Query)]
-pub struct GenericBaz<'a, T = usize> {
+pub struct GenericBaz<'a, T: Component = usize> {
     pub a: &'a T,
 }
 
 #[derive(Query)]
-pub enum GenericEnum<'a, T = usize> {
+pub enum GenericEnum<'a, T: Component = usize> {
     Val(&'a T),
 }
 

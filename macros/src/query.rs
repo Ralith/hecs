@@ -33,12 +33,11 @@ struct PreparedGenerics {
     item_lifetime: Lifetime,
     generics: Generics,
     item_generics: Generics,
-    fetch_generics: Generics,
-    type_params: Vec<Ident>,
+    non_lifetime_params: Vec<Ident>,
 }
 
 impl PreparedGenerics {
-    fn new(mut generics: Generics, ident: &Ident) -> Result<Self> {
+    fn new(generics: Generics, ident: &Ident) -> Result<Self> {
         let mut lifetimes = generics.lifetimes();
         let lifetime = match lifetimes.next() {
             Some(x) => x.lifetime.clone(),
@@ -56,14 +55,6 @@ impl PreparedGenerics {
             ));
         }
 
-        for tp in generics.type_params_mut() {
-            tp.bounds.push(syn::parse_quote!(::hecs::Component));
-        }
-        let type_params = generics
-            .type_params()
-            .map(|tp| tp.ident.clone())
-            .collect::<Vec<_>>();
-
         let item_lifetime = if lifetime.ident == "q" {
             Lifetime::new("'__hecs_q", Span::mixed_site())
         } else {
@@ -72,22 +63,22 @@ impl PreparedGenerics {
         let mut item_generics = generics.clone();
         replace_lifetime_in_generics(&mut item_generics, &lifetime, &item_lifetime);
 
-        let static_lifetime = Lifetime::new("'static", Span::mixed_site());
-        let mut fetch_generics = generics.clone();
-        fetch_generics.params = fetch_generics
+        let non_lifetime_params = generics
             .params
-            .into_iter()
-            .filter(|param| !matches!(param, syn::GenericParam::Lifetime(_)))
+            .iter()
+            .filter_map(|p| match p {
+                syn::GenericParam::Type(t) => Some(t.ident.clone()),
+                syn::GenericParam::Const(c) => Some(c.ident.clone()),
+                syn::GenericParam::Lifetime(_) => None,
+            })
             .collect();
-        replace_lifetime_in_generics(&mut fetch_generics, &lifetime, &static_lifetime);
 
         Ok(Self {
             lifetime,
             item_lifetime,
             generics,
             item_generics,
-            fetch_generics,
-            type_params,
+            non_lifetime_params,
         })
     }
 }
@@ -100,22 +91,14 @@ fn derive_struct(
 ) -> Result<TokenStream2> {
     let lifetime = &prepared.lifetime;
     let item_lifetime = &prepared.item_lifetime;
-    let type_params = &prepared.type_params;
     let (impl_generics, ty_generics, where_clause) = prepared.generics.split_for_impl();
     let (_, item_ty_generics, _) = prepared.item_generics.split_for_impl();
-    let (fetch_impl_generics, fetch_ty_generics, fetch_where_clause) =
-        prepared.fetch_generics.split_for_impl();
 
-    let (fields, queries): (Vec<_>, Vec<_>) = match data.fields {
+    let (fields, raw_tys): (Vec<_>, Vec<_>) = match data.fields {
         syn::Fields::Named(ref fields) => fields
             .named
             .iter()
-            .map(|f| {
-                (
-                    syn::Member::Named(f.ident.clone().unwrap()),
-                    query_ty(lifetime, &f.ty),
-                )
-            })
+            .map(|f| (syn::Member::Named(f.ident.clone().unwrap()), &f.ty))
             .unzip(),
         syn::Fields::Unnamed(ref fields) => fields
             .unnamed
@@ -127,22 +110,85 @@ fn derive_struct(
                         index: i as u32,
                         span: Span::mixed_site(),
                     }),
-                    query_ty(lifetime, &f.ty),
+                    &f.ty,
                 )
             })
             .unzip(),
         syn::Fields::Unit => (Vec::new(), Vec::new()),
     };
-    let fetches = queries
+
+    let queries = raw_tys
         .iter()
-        .map(|ty| quote! { <#ty as ::hecs::Query>::Fetch })
+        .map(|ty| query_ty(lifetime, ty))
         .collect::<Vec<_>>();
+
+    let mut fetch_params = Vec::new();
+    let mut state_params = Vec::new();
+    let mut query_fetch_args = Vec::new();
+    let mut fetch_state_args = Vec::new();
+    let mut field_fetch_tys = Vec::with_capacity(fields.len());
+    let mut field_state_tys = Vec::with_capacity(fields.len());
+
+    for (raw_ty, query) in raw_tys.iter().zip(&queries) {
+        if type_uses_any_ident(raw_ty, &prepared.non_lifetime_params) {
+            let idx = fetch_params.len();
+            let fetch_param = Ident::new(&format!("__F{idx}"), Span::mixed_site());
+            let state_param = Ident::new(&format!("__S{idx}"), Span::mixed_site());
+            query_fetch_args.push(quote! { <#query as ::hecs::Query>::Fetch });
+            fetch_state_args.push(quote! { <#fetch_param as ::hecs::Fetch>::State });
+            field_fetch_tys.push(quote! { #fetch_param });
+            field_state_tys.push(quote! { #state_param });
+            fetch_params.push(fetch_param);
+            state_params.push(state_param);
+        } else {
+            let concrete_fetch = quote! { <#query as ::hecs::Query>::Fetch };
+            field_state_tys.push(quote! { <#concrete_fetch as ::hecs::Fetch>::State });
+            field_fetch_tys.push(concrete_fetch);
+        }
+    }
+
     let tuple_indices = (0..fields.len())
         .map(|i| syn::Index {
             index: i as u32,
             span: Span::mixed_site(),
         })
         .collect::<Vec<_>>();
+
+    let fetch_ty_params = if fetch_params.is_empty() {
+        quote! {}
+    } else {
+        quote! { <#(#fetch_params),*> }
+    };
+    let fetch_clone_generics = if fetch_params.is_empty() {
+        quote! {}
+    } else {
+        quote! { <#(#fetch_params: ::core::clone::Clone),*> }
+    };
+    let fetch_impl_generics = if fetch_params.is_empty() {
+        quote! {}
+    } else {
+        quote! { <#(#fetch_params: ::hecs::Fetch),*> }
+    };
+    let state_ty_params = if state_params.is_empty() {
+        quote! {}
+    } else {
+        quote! { <#(#state_params),*> }
+    };
+    let state_copy_generics = if state_params.is_empty() {
+        quote! {}
+    } else {
+        quote! { <#(#state_params: ::core::marker::Copy),*> }
+    };
+    let query_fetch_arg_list = if query_fetch_args.is_empty() {
+        quote! {}
+    } else {
+        quote! { <#(#query_fetch_args),*> }
+    };
+    let fetch_state_arg_list = if fetch_state_args.is_empty() {
+        quote! {}
+    } else {
+        quote! { <#(#fetch_state_args),*> }
+    };
 
     let fetch_ident = Ident::new(&format!("{ident}Fetch"), Span::mixed_site());
     let state_ident = Ident::new(&format!("{ident}State"), Span::mixed_site());
@@ -159,16 +205,14 @@ fn derive_struct(
 
     Ok(quote! {
         const _: () = {
-            #vis struct #fetch_ident #fetch_impl_generics (
-                #(#fetches,)*
-                ::core::marker::PhantomData<fn() -> (#(#type_params,)*)>,
-            ) #fetch_where_clause;
+            #vis struct #fetch_ident #fetch_ty_params (
+                #(#field_fetch_tys,)*
+            );
 
-            impl #fetch_impl_generics ::core::clone::Clone for #fetch_ident #fetch_ty_generics #fetch_where_clause {
+            impl #fetch_clone_generics ::core::clone::Clone for #fetch_ident #fetch_ty_params {
                 fn clone(&self) -> Self {
                     Self(
                         #(::core::clone::Clone::clone(&self.#tuple_indices),)*
-                        ::core::marker::PhantomData,
                     )
                 }
             }
@@ -176,7 +220,7 @@ fn derive_struct(
             impl #impl_generics ::hecs::Query for #ident #ty_generics #where_clause {
                 type Item<#item_lifetime> = #ident #item_ty_generics;
 
-                type Fetch = #fetch_ident #fetch_ty_generics;
+                type Fetch = #fetch_ident #query_fetch_arg_list;
 
                 #[allow(unused_variables, clippy::redundant_field_names)]
                 unsafe fn get<#item_lifetime>(meta: &[::hecs::EntityMeta], fetch: &Self::Fetch, n: usize) -> Self::Item<#item_lifetime> {
@@ -187,26 +231,24 @@ fn derive_struct(
                 }
             }
 
-            #vis struct #state_ident #fetch_impl_generics (
-                #(<#fetches as ::hecs::Fetch>::State,)*
-                ::core::marker::PhantomData<fn() -> (#(#type_params,)*)>,
-            ) #fetch_where_clause;
+            #vis struct #state_ident #state_ty_params (
+                #(#field_state_tys,)*
+            );
 
-            impl #fetch_impl_generics ::core::marker::Copy for #state_ident #fetch_ty_generics #fetch_where_clause {}
+            impl #state_copy_generics ::core::marker::Copy for #state_ident #state_ty_params {}
 
-            impl #fetch_impl_generics ::core::clone::Clone for #state_ident #fetch_ty_generics #fetch_where_clause {
+            impl #state_copy_generics ::core::clone::Clone for #state_ident #state_ty_params {
                 fn clone(&self) -> Self {
                     *self
                 }
             }
 
-            unsafe impl #fetch_impl_generics ::hecs::Fetch for #fetch_ident #fetch_ty_generics #fetch_where_clause {
-                type State = #state_ident #fetch_ty_generics;
+            unsafe impl #fetch_impl_generics ::hecs::Fetch for #fetch_ident #fetch_ty_params {
+                type State = #state_ident #fetch_state_arg_list;
 
                 fn dangling() -> Self {
                     Self(
-                        #(#fetches::dangling(),)*
-                        ::core::marker::PhantomData,
+                        #(<#field_fetch_tys as ::hecs::Fetch>::dangling(),)*
                     )
                 }
 
@@ -214,41 +256,39 @@ fn derive_struct(
                 fn access(archetype: &::hecs::Archetype) -> ::core::option::Option<::hecs::Access> {
                     let mut access = ::hecs::Access::Iterate;
                     #(
-                        access = ::core::cmp::max(access, #fetches::access(archetype)?);
+                        access = ::core::cmp::max(access, <#field_fetch_tys as ::hecs::Fetch>::access(archetype)?);
                     )*
                     ::core::option::Option::Some(access)
                 }
 
                 #[allow(unused_variables)]
                 fn borrow(archetype: &::hecs::Archetype, state: Self::State) {
-                    #(#fetches::borrow(archetype, state.#tuple_indices);)*
+                    #(<#field_fetch_tys as ::hecs::Fetch>::borrow(archetype, state.#tuple_indices);)*
                 }
 
                 #[allow(unused_variables)]
                 fn prepare(archetype: &::hecs::Archetype) -> ::core::option::Option<Self::State> {
                     ::core::option::Option::Some(#state_ident(
-                        #(#fetches::prepare(archetype)?,)*
-                        ::core::marker::PhantomData,
+                        #(<#field_fetch_tys as ::hecs::Fetch>::prepare(archetype)?,)*
                     ))
                 }
 
                 #[allow(unused_variables)]
                 fn execute(archetype: &::hecs::Archetype, state: Self::State) -> Self {
                     Self(
-                        #(#fetches::execute(archetype, state.#tuple_indices),)*
-                        ::core::marker::PhantomData,
+                        #(<#field_fetch_tys as ::hecs::Fetch>::execute(archetype, state.#tuple_indices),)*
                     )
                 }
 
                 #[allow(unused_variables)]
                 fn release(archetype: &::hecs::Archetype, state: Self::State) {
-                    #(#fetches::release(archetype, state.#tuple_indices);)*
+                    #(<#field_fetch_tys as ::hecs::Fetch>::release(archetype, state.#tuple_indices);)*
                 }
 
                 #[allow(unused_variables, unused_mut)]
                 fn for_each_borrow(mut f: impl ::core::ops::FnMut(::core::any::TypeId, bool)) {
                     #(
-                        <#fetches as ::hecs::Fetch>::for_each_borrow(&mut f);
+                        <#field_fetch_tys as ::hecs::Fetch>::for_each_borrow(&mut f);
                     )*
                 }
             }
@@ -264,13 +304,14 @@ fn derive_enum(
 ) -> Result<TokenStream2> {
     let lifetime = &prepared.lifetime;
     let item_lifetime = &prepared.item_lifetime;
-    let type_params = &prepared.type_params;
     let (impl_generics, ty_generics, where_clause) = prepared.generics.split_for_impl();
     let (_, item_ty_generics, _) = prepared.item_generics.split_for_impl();
-    let (fetch_impl_generics, fetch_ty_generics, fetch_where_clause) =
-        prepared.fetch_generics.split_for_impl();
 
     let mut dangling_constructor = None;
+    let mut query_fetch_args = Vec::new();
+    let mut fetch_params = Vec::new();
+    let mut state_params = Vec::new();
+    let mut fetch_state_args = Vec::new();
     let mut fetch_variants = TokenStream2::new();
     let mut fetch_clone_variants = TokenStream2::new();
     let mut state_variants = TokenStream2::new();
@@ -283,16 +324,11 @@ fn derive_enum(
     let mut fetch_for_each_borrow = TokenStream2::new();
 
     for variant in &data.variants {
-        let (fields, queries): (Vec<_>, Vec<_>) = match variant.fields {
+        let (fields, raw_tys): (Vec<_>, Vec<_>) = match variant.fields {
             syn::Fields::Named(ref fields) => fields
                 .named
                 .iter()
-                .map(|f| {
-                    (
-                        syn::Member::Named(f.ident.clone().unwrap()),
-                        query_ty(lifetime, &f.ty),
-                    )
-                })
+                .map(|f| (syn::Member::Named(f.ident.clone().unwrap()), &f.ty))
                 .unzip(),
             syn::Fields::Unnamed(ref fields) => fields
                 .unnamed
@@ -304,7 +340,7 @@ fn derive_enum(
                             index: i as u32,
                             span: Span::mixed_site(),
                         }),
-                        query_ty(lifetime, &f.ty),
+                        &f.ty,
                     )
                 })
                 .unzip(),
@@ -313,7 +349,7 @@ fn derive_enum(
 
         let ident = variant.ident.clone();
 
-        if ident == "__HecsDanglingFetch__" || ident == "__HecsPhantom__" {
+        if ident == "__HecsDanglingFetch__" {
             return Err(Error::new_spanned(
                 ident,
                 "derive(Query) reserves this identifier for internal use",
@@ -330,10 +366,30 @@ fn derive_enum(
             })
             .collect::<Vec<_>>();
 
-        let fetches = queries
+        let queries = raw_tys
             .iter()
-            .map(|ty| quote! { <#ty as ::hecs::Query>::Fetch })
+            .map(|ty| query_ty(lifetime, ty))
             .collect::<Vec<_>>();
+
+        let mut variant_fetch_tys = Vec::with_capacity(queries.len());
+        let mut variant_state_tys = Vec::with_capacity(queries.len());
+        for (raw_ty, query) in raw_tys.iter().zip(&queries) {
+            if type_uses_any_ident(raw_ty, &prepared.non_lifetime_params) {
+                let idx = fetch_params.len();
+                let fetch_param = Ident::new(&format!("__F{idx}"), Span::mixed_site());
+                let state_param = Ident::new(&format!("__S{idx}"), Span::mixed_site());
+                query_fetch_args.push(quote! { <#query as ::hecs::Query>::Fetch });
+                fetch_state_args.push(quote! { <#fetch_param as ::hecs::Fetch>::State });
+                variant_fetch_tys.push(quote! { #fetch_param });
+                variant_state_tys.push(quote! { #state_param });
+                fetch_params.push(fetch_param);
+                state_params.push(state_param);
+            } else {
+                let concrete_fetch = quote! { <#query as ::hecs::Query>::Fetch };
+                variant_state_tys.push(quote! { <#concrete_fetch as ::hecs::Fetch>::State });
+                variant_fetch_tys.push(concrete_fetch);
+            }
+        }
 
         if dangling_constructor.is_none() && fields.is_empty() {
             dangling_constructor = Some(quote! {
@@ -344,7 +400,7 @@ fn derive_enum(
         fetch_variants.extend(quote! {
             #ident {
                 #(
-                    #named_fields: #fetches,
+                    #named_fields: #variant_fetch_tys,
                 )*
             },
         });
@@ -360,7 +416,7 @@ fn derive_enum(
         state_variants.extend(quote! {
             #ident {
                 #(
-                    #named_fields: <#fetches as ::hecs::Fetch>::State,
+                    #named_fields: #variant_state_tys,
                 )*
             },
         });
@@ -378,7 +434,7 @@ fn derive_enum(
             'block: {
                 let mut access = ::hecs::Access::Iterate;
                 #(
-                    if let ::core::option::Option::Some(new_access) = #fetches::access(archetype) {
+                    if let ::core::option::Option::Some(new_access) = <#variant_fetch_tys as ::hecs::Fetch>::access(archetype) {
                         access = ::core::cmp::max(access, new_access);
                     } else {
                         break 'block;
@@ -391,7 +447,7 @@ fn derive_enum(
         fetch_borrow_variants.extend(quote! {
             Self::State::#ident { #(#named_fields),* } => {
                 #(
-                    #fetches::borrow(archetype, #named_fields);
+                    <#variant_fetch_tys as ::hecs::Fetch>::borrow(archetype, #named_fields);
                 )*
             },
         });
@@ -399,7 +455,7 @@ fn derive_enum(
         fetch_prepare_variants.extend(quote! {
             'block: {
                 #(
-                    let ::core::option::Option::Some(#named_fields) = #fetches::prepare(archetype) else {
+                    let ::core::option::Option::Some(#named_fields) = <#variant_fetch_tys as ::hecs::Fetch>::prepare(archetype) else {
                         break 'block;
                     };
                 )*
@@ -411,7 +467,7 @@ fn derive_enum(
             Self::State::#ident { #(#named_fields),* } => {
                 return Self::#ident {
                     #(
-                        #named_fields: #fetches::execute(archetype, #named_fields),
+                        #named_fields: <#variant_fetch_tys as ::hecs::Fetch>::execute(archetype, #named_fields),
                     )*
                 };
             },
@@ -420,14 +476,14 @@ fn derive_enum(
         fetch_release_variants.extend(quote! {
             Self::State::#ident { #(#named_fields),* } => {
                 #(
-                    #fetches::release(archetype, #named_fields);
+                    <#variant_fetch_tys as ::hecs::Fetch>::release(archetype, #named_fields);
                 )*
             },
         });
 
         fetch_for_each_borrow.extend(quote! {
             #(
-                <#fetches as ::hecs::Fetch>::for_each_borrow(&mut f);
+                <#variant_fetch_tys as ::hecs::Fetch>::for_each_borrow(&mut f);
             )*
         });
     }
@@ -442,46 +498,59 @@ fn derive_enum(
             Self::__HecsDanglingFetch__ => Self::__HecsDanglingFetch__,
         });
         query_get_variants.extend(quote! {
-            Self::Fetch::__HecsDanglingFetch__ => panic!("Called get() with dangling fetch"),
+            Self::Fetch::__HecsDanglingFetch__ => ::core::panic!("Called get() with dangling fetch"),
         });
         quote! {
             Self::__HecsDanglingFetch__
         }
     };
 
-    fetch_variants.extend(quote! {
-        __HecsPhantom__(::core::convert::Infallible, ::core::marker::PhantomData<fn() -> (#(#type_params,)*)>),
-    });
-    fetch_clone_variants.extend(quote! {
-        Self::__HecsPhantom__(infallible, _) => match *infallible {},
-    });
-    query_get_variants.extend(quote! {
-        Self::Fetch::__HecsPhantom__(infallible, _) => match *infallible {},
-    });
-
-    state_variants.extend(quote! {
-        __HecsPhantom__(::core::convert::Infallible, ::core::marker::PhantomData<fn() -> (#(#type_params,)*)>),
-    });
-    fetch_borrow_variants.extend(quote! {
-        Self::State::__HecsPhantom__(infallible, _) => match infallible {},
-    });
-    fetch_execute_variants.extend(quote! {
-        Self::State::__HecsPhantom__(infallible, _) => match infallible {},
-    });
-    fetch_release_variants.extend(quote! {
-        Self::State::__HecsPhantom__(infallible, _) => match infallible {},
-    });
+    let fetch_ty_params = if fetch_params.is_empty() {
+        quote! {}
+    } else {
+        quote! { <#(#fetch_params),*> }
+    };
+    let fetch_clone_generics = if fetch_params.is_empty() {
+        quote! {}
+    } else {
+        quote! { <#(#fetch_params: ::core::clone::Clone),*> }
+    };
+    let fetch_impl_generics = if fetch_params.is_empty() {
+        quote! {}
+    } else {
+        quote! { <#(#fetch_params: ::hecs::Fetch),*> }
+    };
+    let state_ty_params = if state_params.is_empty() {
+        quote! {}
+    } else {
+        quote! { <#(#state_params),*> }
+    };
+    let state_copy_generics = if state_params.is_empty() {
+        quote! {}
+    } else {
+        quote! { <#(#state_params: ::core::marker::Copy),*> }
+    };
+    let query_fetch_arg_list = if query_fetch_args.is_empty() {
+        quote! {}
+    } else {
+        quote! { <#(#query_fetch_args),*> }
+    };
+    let fetch_state_arg_list = if fetch_state_args.is_empty() {
+        quote! {}
+    } else {
+        quote! { <#(#fetch_state_args),*> }
+    };
 
     let fetch_ident = Ident::new(&format!("{enum_ident}Fetch"), Span::mixed_site());
     let fetch = quote! {
-        #vis enum #fetch_ident #fetch_impl_generics #fetch_where_clause {
+        #vis enum #fetch_ident #fetch_ty_params {
             #fetch_variants
         }
     };
 
     let state_ident = Ident::new(&format!("{enum_ident}State"), Span::mixed_site());
     let state = quote! {
-        #vis enum #state_ident #fetch_impl_generics #fetch_where_clause {
+        #vis enum #state_ident #state_ty_params {
             #state_variants
         }
     };
@@ -490,7 +559,7 @@ fn derive_enum(
         const _: () = {
             #fetch
 
-            impl #fetch_impl_generics ::core::clone::Clone for #fetch_ident #fetch_ty_generics #fetch_where_clause {
+            impl #fetch_clone_generics ::core::clone::Clone for #fetch_ident #fetch_ty_params {
                 fn clone(&self) -> Self {
                     match self {
                         #fetch_clone_variants
@@ -501,7 +570,7 @@ fn derive_enum(
             impl #impl_generics ::hecs::Query for #enum_ident #ty_generics #where_clause {
                 type Item<#item_lifetime> = #enum_ident #item_ty_generics;
 
-                type Fetch = #fetch_ident #fetch_ty_generics;
+                type Fetch = #fetch_ident #query_fetch_arg_list;
 
                 #[allow(unused_variables, clippy::redundant_field_names)]
                 unsafe fn get<#item_lifetime>(meta: &[::hecs::EntityMeta], fetch: &Self::Fetch, n: usize) -> Self::Item<#item_lifetime> {
@@ -513,16 +582,16 @@ fn derive_enum(
 
             #state
 
-            impl #fetch_impl_generics ::core::marker::Copy for #state_ident #fetch_ty_generics #fetch_where_clause {}
+            impl #state_copy_generics ::core::marker::Copy for #state_ident #state_ty_params {}
 
-            impl #fetch_impl_generics ::core::clone::Clone for #state_ident #fetch_ty_generics #fetch_where_clause {
+            impl #state_copy_generics ::core::clone::Clone for #state_ident #state_ty_params {
                 fn clone(&self) -> Self {
                     *self
                 }
             }
 
-            unsafe impl #fetch_impl_generics ::hecs::Fetch for #fetch_ident #fetch_ty_generics #fetch_where_clause {
-                type State = #state_ident #fetch_ty_generics;
+            unsafe impl #fetch_impl_generics ::hecs::Fetch for #fetch_ident #fetch_ty_params {
+                type State = #state_ident #fetch_state_arg_list;
 
                 fn dangling() -> Self {
                     #dangling_constructor
@@ -568,6 +637,38 @@ fn derive_enum(
             }
         };
     })
+}
+
+struct IdentFinder<'a> {
+    idents: &'a [Ident],
+    found: bool,
+}
+
+impl syn::visit_mut::VisitMut for IdentFinder<'_> {
+    fn visit_path_mut(&mut self, path: &mut syn::Path) {
+        if !self.found && path.leading_colon.is_none() {
+            if let Some(first) = path.segments.first() {
+                if self.idents.contains(&first.ident) {
+                    self.found = true;
+                    return;
+                }
+            }
+        }
+        syn::visit_mut::visit_path_mut(self, path);
+    }
+}
+
+fn type_uses_any_ident(ty: &Type, idents: &[Ident]) -> bool {
+    if idents.is_empty() {
+        return false;
+    }
+    let mut finder = IdentFinder {
+        idents,
+        found: false,
+    };
+    let mut ty = ty.clone();
+    syn::visit_mut::visit_type_mut(&mut finder, &mut ty);
+    finder.found
 }
 
 struct LifetimeReplacer<'a> {
