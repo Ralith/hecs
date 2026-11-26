@@ -20,11 +20,20 @@ struct Quux<'a> {
 
 #[derive(::hecs::Query)]
 enum Corge<'a> {
-    Foo (&'a i32),
-    Bar {
-        bar: &'a bool
-    },
-    Baz
+    Foo(&'a i32),
+    Bar { bar: &'a bool },
+    Baz,
+}
+
+#[derive(::hecs::Query)]
+struct Grault<'a, T: ::hecs::Component> {
+    foo: &'a T,
+}
+
+#[derive(::hecs::Query)]
+enum Garply<'a, T: ::hecs::Component> {
+    Foo(&'a T),
+    Bar { bar: &'a bool },
 }
 
 fn main() {}

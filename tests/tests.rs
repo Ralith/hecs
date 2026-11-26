@@ -135,6 +135,285 @@ fn derived_enum_query_with_empty() {
 
 #[test]
 #[cfg(feature = "macros")]
+fn derived_generic_query() {
+    #[derive(Debug, PartialEq)]
+    struct NonClone(i32);
+
+    #[derive(Query, Debug, PartialEq)]
+    struct DrawQuery<'q, T: Component = NonClone> {
+        entity_data: &'q T,
+    }
+
+    #[derive(Query, Debug, PartialEq)]
+    struct PairQuery<'a, T: Component, U: Component, const N: usize = 2>(&'a T, &'a mut [U; N])
+    where
+        T: 'a;
+
+    #[derive(Query, Debug, PartialEq)]
+    struct OuterQuery<'a, T: Component> {
+        inner: DrawQuery<'a, T>,
+        flag: Option<&'a bool>,
+    }
+
+    fn count_matching<T: Component>(world: &mut World) -> usize {
+        world.query_mut::<DrawQuery<T>>().into_iter().count()
+    }
+
+    let mut world = World::new();
+    let e1 = world.spawn((NonClone(7), [10_u8, 20_u8], true));
+    let e2 = world.spawn(("alt",));
+
+    assert_eq!(
+        world.query_one_mut::<DrawQuery>(e1).unwrap(),
+        DrawQuery {
+            entity_data: &NonClone(7),
+        }
+    );
+    assert_eq!(
+        world.query_one_mut::<DrawQuery<&str>>(e2).unwrap(),
+        DrawQuery {
+            entity_data: &"alt",
+        }
+    );
+    assert_eq!(count_matching::<NonClone>(&mut world), 1);
+
+    {
+        let PairQuery(nc, arr) = world.query_one_mut::<PairQuery<NonClone, u8>>(e1).unwrap();
+        assert_eq!(nc, &NonClone(7));
+        arr[0] += 5;
+    }
+
+    let mut prepared = PreparedQuery::<OuterQuery<NonClone>>::default();
+    let mut borrow = prepared.query(&world);
+    let items = borrow.iter().collect::<Vec<_>>();
+    assert_eq!(
+        items,
+        vec![OuterQuery {
+            inner: DrawQuery {
+                entity_data: &NonClone(7),
+            },
+            flag: Some(&true),
+        }]
+    );
+    drop(borrow);
+    assert_eq!(*world.get::<&[u8; 2]>(e1).unwrap(), [15, 20]);
+}
+
+#[test]
+#[cfg(feature = "macros")]
+fn derived_generic_enum_query() {
+    #[derive(Debug, PartialEq)]
+    struct NonClone(i32);
+
+    #[derive(Query, Debug, PartialEq)]
+    enum Choice<'q, T: Component, U: Component = NonClone, V: Component = bool> {
+        Both(&'q T, &'q U),
+        First(&'q T),
+        Mutable { val: &'q mut V },
+    }
+
+    #[derive(Query, Debug, PartialEq)]
+    enum OptionalChoice<'a, T: Component = NonClone> {
+        Some(&'a T),
+        None,
+    }
+
+    let mut world = World::new();
+    let e1 = world.spawn((42_i32,));
+    let e2 = world.spawn((false,));
+    let e3 = world.spawn((100_i32, NonClone(3)));
+    let e4 = world.spawn(("other",));
+
+    assert_eq!(
+        world.query_one_mut::<Choice<i32>>(e1).unwrap(),
+        Choice::First(&42)
+    );
+    assert_eq!(
+        world.query_one_mut::<Choice<i32>>(e2).unwrap(),
+        Choice::Mutable { val: &mut false }
+    );
+    assert_eq!(
+        world.query_one_mut::<Choice<i32>>(e3).unwrap(),
+        Choice::Both(&100, &NonClone(3))
+    );
+    assert_eq!(
+        world.query_one_mut::<Choice<i32>>(e4),
+        Err(QueryOneError::Unsatisfied)
+    );
+
+    let mut prepared = PreparedQuery::<OptionalChoice>::default();
+    let mut borrow = prepared.query(&world);
+    assert_eq!(borrow.iter().count(), 4);
+    drop(borrow);
+    assert_eq!(
+        world.query_one_mut::<OptionalChoice>(e4).unwrap(),
+        OptionalChoice::None
+    );
+    assert_eq!(
+        world.query_one_mut::<OptionalChoice>(e3).unwrap(),
+        OptionalChoice::Some(&NonClone(3))
+    );
+}
+
+#[test]
+#[cfg(feature = "macros")]
+fn derived_query_abstracting_over_query() {
+    use core::marker::PhantomData;
+    use hecs::{EntityMeta, Or, With, Without};
+
+    #[derive(Query, Debug, PartialEq)]
+    struct DirectQuery<'a, T: Component, Q: for<'q> Query<Item<'q> = Q>> {
+        value: &'a T,
+        extra: Q,
+    }
+
+    #[derive(Query, Debug, PartialEq)]
+    struct EitherQuery<'a, A: Component, B: Component> {
+        either: Or<&'a A, &'a B>,
+    }
+
+    struct Annotated<'a, T, Q>(&'a T, PhantomData<Q>);
+
+    impl<T: core::fmt::Debug, Q> core::fmt::Debug for Annotated<'_, T, Q> {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+            f.debug_tuple("Annotated").field(&self.0).finish()
+        }
+    }
+
+    impl<T: PartialEq, Q> PartialEq for Annotated<'_, T, Q> {
+        fn eq(&self, other: &Self) -> bool {
+            self.0 == other.0
+        }
+    }
+
+    impl<'a, T: Component, Q: Query> Query for Annotated<'a, T, Q> {
+        type Item<'q> = Annotated<'q, T, Q>;
+        type Fetch = <With<&'a T, Q> as Query>::Fetch;
+
+        unsafe fn get<'q>(meta: &[EntityMeta], fetch: &Self::Fetch, n: usize) -> Self::Item<'q> {
+            Annotated(<With<&'a T, Q> as Query>::get(meta, fetch, n), PhantomData)
+        }
+    }
+
+    #[derive(Query)]
+    struct AbstractStruct<'a, T: Component, Q: Query> {
+        primary: Annotated<'a, T, Q>,
+        flag: Option<&'a bool>,
+    }
+
+    impl<T: Component + core::fmt::Debug, Q: Query> core::fmt::Debug for AbstractStruct<'_, T, Q> {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+            f.debug_struct("AbstractStruct")
+                .field("primary", &self.primary)
+                .field("flag", &self.flag)
+                .finish()
+        }
+    }
+
+    impl<T: Component + PartialEq, Q: Query> PartialEq for AbstractStruct<'_, T, Q> {
+        fn eq(&self, other: &Self) -> bool {
+            self.primary == other.primary && self.flag == other.flag
+        }
+    }
+
+    #[derive(Query)]
+    enum AbstractEnum<'a, T: Component, Q: Query> {
+        Matched(Annotated<'a, T, Q>),
+        Fallback(&'a &'static str),
+    }
+
+    impl<T: Component + core::fmt::Debug, Q: Query> core::fmt::Debug for AbstractEnum<'_, T, Q> {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+            match self {
+                Self::Matched(v) => f.debug_tuple("Matched").field(v).finish(),
+                Self::Fallback(v) => f.debug_tuple("Fallback").field(v).finish(),
+            }
+        }
+    }
+
+    impl<T: Component + PartialEq, Q: Query> PartialEq for AbstractEnum<'_, T, Q> {
+        fn eq(&self, other: &Self) -> bool {
+            match (self, other) {
+                (Self::Matched(a), Self::Matched(b)) => a == b,
+                (Self::Fallback(a), Self::Fallback(b)) => a == b,
+                _ => false,
+            }
+        }
+    }
+
+    let mut world = World::new();
+    let e1 = world.spawn((10_i32, 20_u32));
+    let e2 = world.spawn((30_i32, true));
+    let e3 = world.spawn(("fallback",));
+
+    assert_eq!(
+        world.query_one_mut::<DirectQuery<i32, Entity>>(e1).unwrap(),
+        DirectQuery {
+            value: &10,
+            extra: e1,
+        }
+    );
+
+    assert_eq!(
+        world.query_one_mut::<EitherQuery<u32, bool>>(e1).unwrap(),
+        EitherQuery {
+            either: Or::Left(&20),
+        }
+    );
+    assert_eq!(
+        world.query_one_mut::<EitherQuery<u32, bool>>(e2).unwrap(),
+        EitherQuery {
+            either: Or::Right(&true),
+        }
+    );
+
+    assert_eq!(
+        world
+            .query_one_mut::<AbstractStruct<'_, i32, Or<&'_ u32, &'_ bool>>>(e1)
+            .unwrap(),
+        AbstractStruct {
+            primary: Annotated(&10, PhantomData),
+            flag: None,
+        }
+    );
+    assert_eq!(
+        world
+            .query_one_mut::<AbstractStruct<'_, i32, Or<&'_ u32, &'_ bool>>>(e2)
+            .unwrap(),
+        AbstractStruct {
+            primary: Annotated(&30, PhantomData),
+            flag: Some(&true),
+        }
+    );
+    assert_eq!(
+        world.query_one_mut::<AbstractStruct<'_, i32, With<&'_ u32, &'_ i32>>>(e2),
+        Err(QueryOneError::Unsatisfied)
+    );
+    assert_eq!(
+        world
+            .query_one_mut::<AbstractStruct<'_, i32, Without<&'_ u32, &'_ bool>>>(e1)
+            .unwrap(),
+        AbstractStruct {
+            primary: Annotated(&10, PhantomData),
+            flag: None,
+        }
+    );
+    assert_eq!(
+        world
+            .query_one_mut::<AbstractEnum<'_, i32, Without<&'_ bool, &'_ u32>>>(e2)
+            .unwrap(),
+        AbstractEnum::Matched(Annotated(&30, PhantomData))
+    );
+    assert_eq!(
+        world
+            .query_one_mut::<AbstractEnum<'_, i32, Without<&'_ bool, &'_ u32>>>(e3)
+            .unwrap(),
+        AbstractEnum::Fallback(&"fallback")
+    );
+}
+
+#[test]
+#[cfg(feature = "macros")]
 fn derived_bundle_clone() {
     #[derive(Bundle, DynamicBundleClone)]
     struct Foo<T: Clone + Component> {
